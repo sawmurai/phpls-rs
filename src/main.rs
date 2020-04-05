@@ -4,13 +4,15 @@ use std::fs::{self};
 use std::io::{self, BufRead, BufReader, Result};
 use std::path::Path;
 
+type Location = (u16, u16, u16);
+
 #[derive(Default, Debug)]
 struct Trie {
     // List of children, by character
     children: HashMap<char, Trie>,
 
     // List of starting positions of words ending here
-    endings: Vec<(u16, u16, u16)>,
+    endings: Vec<Location>,
 }
 
 #[derive(Default, Debug)]
@@ -28,8 +30,6 @@ impl FileRegistry {
         self.size - 1
     }
 }
-
-type Location = (u16, u16, u16);
 
 trait Php {
     fn is_separator(&self) -> bool;
