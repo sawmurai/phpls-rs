@@ -1,8 +1,15 @@
+#![allow(dead_code)]
+#![allow(unused_macros)]
+
+use crate::scanner::Scanner;
 use std::collections::HashMap;
 use std::fs::File;
 use std::fs::{self};
 use std::io::{self, BufRead, BufReader, Result};
 use std::path::Path;
+
+pub mod scanner;
+pub mod token;
 
 type Location = (u16, u16, u16);
 
@@ -90,6 +97,17 @@ fn index_file(path: &str, file_registry_index: u16, t: &mut Trie) -> io::Result<
     Ok(())
 }
 
+fn scan_file(path: &str) -> io::Result<()> {
+    let file = File::open(path)?;
+
+    let mut content = fs::read_to_string(path)?;
+
+    let mut scanner = Scanner::new(&content);
+    scanner.scan();
+
+    Ok(())
+}
+
 fn visit_dirs(dir: &Path, file_registry: &mut FileRegistry, t: &mut Trie) -> io::Result<()> {
     if dir.is_dir() {
         for entry in fs::read_dir(dir)? {
@@ -102,9 +120,13 @@ fn visit_dirs(dir: &Path, file_registry: &mut FileRegistry, t: &mut Trie) -> io:
                 if let Some(ext) = path.extension() {
                     if ext == "php" {
                         let p = path.to_str().unwrap().to_string();
-                        if let Err(msg) = index_file(&p, file_registry.add(&p), t) {
+
+                        if let Err(msg) = scan_file(&p) {
                             eprintln!("Could not read file {}: {}", &p, &msg);
                         }
+                        //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {
+                        //    eprintln!("Could not read file {}: {}", &p, &msg);
+                        //}
                     }
                 }
             }
@@ -117,7 +139,11 @@ fn main() -> Result<()> {
     let mut file_registry = FileRegistry::default();
     let mut t = Trie::default();
 
-    visit_dirs(Path::new("."), &mut file_registry, &mut t)?;
+    visit_dirs(
+        Path::new("/home/fbecker/develop/web/unity/unity-platforms"),
+        &mut file_registry,
+        &mut t,
+    )?;
     println!("Indexed!");
     let stdin = io::stdin();
 
