@@ -448,34 +448,7 @@ impl<'a> Scanner<'a> {
                     }
                 }
                 '(' => {
-                    self.skip_whitespace();
-
-                    // Not sure if this is a good location to already detect casts
-                    let c = match self.chars.peek() {
-                        Some(&c) => c,
-                        _ => {
-                            return Err(String::from("Unterminated opening parenthesis."));
-                        }
-                    };
-
-                    match c {
-                        'a'..='z' | 'A'..='Z' => {
-                            let ident = self.collect_identifer();
-                            self.skip_whitespace();
-
-                            match self.chars.peek() {
-                                // Found a type cast!
-                                Some(')') => {
-                                    self.push_token(self.map_cast(&ident.to_lowercase()));
-                                }
-                                _ => {
-                                    self.push_token(TokenType::OpenParenthesis);
-                                    self.push_named_token(TokenType::Identifier, ident);
-                                }
-                            };
-                        }
-                        _ => self.push_token(TokenType::OpenParenthesis),
-                    }
+                    self.push_token(TokenType::OpenParenthesis);
                 }
                 ')' => {
                     self.push_token(TokenType::CloseParenthesis);
@@ -722,30 +695,6 @@ impl<'a> Scanner<'a> {
         ));
     }
 
-    fn skip_whitespace(&mut self) {
-        while let Some(&c) = self.chars.peek() {
-            if c == ' ' || c == '\n' || c == '\t' || c == '\r' {
-                self.advance();
-            } else {
-                break;
-            }
-        }
-    }
-
-    // Returns the correct TokenType for a keyword in a cast context
-    fn map_cast(&self, ident: &str) -> TokenType {
-        match ident {
-            "bool" | "boolean" => TokenType::BoolCast,
-            "int" | "integer" => TokenType::IntCast,
-            "string" | "binary" => TokenType::StringCast,
-            "array" => TokenType::ArrayCast,
-            "object" => TokenType::ObjectCast,
-            "unset" => TokenType::UnsetCast,
-            "double" | "float" | "real" => TokenType::DoubleCast,
-            _ => TokenType::BadCast,
-        }
-    }
-
     /// Returns the correct TokenType for a registered keyword
     fn map_keyword(&self, ident: &str) -> Option<TokenType> {
         Some(match ident {
@@ -801,6 +750,9 @@ impl<'a> Scanner<'a> {
             "unset" => TokenType::Unset,
             "isset" => TokenType::Isset,
             "empty" => TokenType::Empty,
+            "null" => TokenType::Null,
+            "true" => TokenType::True,
+            "false" => TokenType::False,
             "__halt_compiler" => TokenType::HaltCompiler,
             "class" => TokenType::Class,
             "trait" => TokenType::Trait,
@@ -1044,5 +996,57 @@ func('rofl');",
             scanner.tokens[5],
             Token::new(TokenType::Semicolon, 2, 13, None)
         );
+    }
+
+    #[test]
+    fn test_parses_keywords() {
+        let mut scanner = Scanner::new(
+            "<?php
+while (true) {}",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(scanner.tokens[1], Token::new(TokenType::While, 2, 1, None));
+        assert_eq!(
+            scanner.tokens[2],
+            Token::new(TokenType::OpenParenthesis, 2, 7, None)
+        );
+        assert_eq!(scanner.tokens[3], Token::new(TokenType::True, 2, 8, None));
+        assert_eq!(scanner.tokens[4], Token::new(TokenType::CloseParenthesis, 2, 12, None));
+        assert_eq!(scanner.tokens[5], Token::new(TokenType::OpenCurly, 2, 14, None));
+        assert_eq!(scanner.tokens[6], Token::new(TokenType::CloseCurly, 2, 15, None));
+    }
+
+    #[test]
+    fn test_parses_for_loop() {
+        let mut scanner = Scanner::new(
+            "<?php
+for ($i = 0; $i < 100; $i++) {}",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(scanner.tokens[1], Token::new(TokenType::For, 2, 1, None));
+        assert_eq!(
+            scanner.tokens[2],
+            Token::new(TokenType::OpenParenthesis, 2, 5, None)
+        );
+        assert_eq!(scanner.tokens[3], Token::new(TokenType::Variable, 2, 6, Some(String::from("i"))));
+        assert_eq!(scanner.tokens[4], Token::new(TokenType::Assignment, 2, 9, None));
+        assert_eq!(scanner.tokens[5], Token::new(TokenType::LongNumber, 2, 11, Some(String::from("0"))));
+        assert_eq!(scanner.tokens[6], Token::new(TokenType::Semicolon, 2, 12, None));
+
+        assert_eq!(scanner.tokens[7], Token::new(TokenType::Variable, 2, 14, Some(String::from("i"))));
+        assert_eq!(scanner.tokens[8], Token::new(TokenType::Smaller, 2, 17, None));
+        assert_eq!(scanner.tokens[9], Token::new(TokenType::LongNumber, 2, 19, Some(String::from("100"))));
+        assert_eq!(scanner.tokens[10], Token::new(TokenType::Semicolon, 2, 22, None));
+
+        assert_eq!(scanner.tokens[11], Token::new(TokenType::Variable, 2, 24, Some(String::from("i"))));
+        assert_eq!(scanner.tokens[12], Token::new(TokenType::Increment, 2, 26, None));
+        assert_eq!(scanner.tokens[13], Token::new(TokenType::CloseParenthesis, 2, 28, None));
+
+        assert_eq!(scanner.tokens[14], Token::new(TokenType::OpenCurly, 2, 30, None));
+        assert_eq!(scanner.tokens[15], Token::new(TokenType::CloseCurly, 2, 31, None));
     }
 }

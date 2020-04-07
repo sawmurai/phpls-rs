@@ -155,6 +155,9 @@ pub enum TokenType {
     ConstFunction,
     New,
     Clone,
+    True,
+    False,
+    Null,
 
     // Types
     TypeBool,
