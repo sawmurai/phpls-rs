@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TokenType {
     // One char
     Plus,
@@ -11,6 +11,24 @@ pub enum TokenType {
     ExclamationMark,
     Assignment,
     Variable,
+    OpenParenthesis,
+    CloseParenthesis,
+    OpenCurly,
+    CloseCurly,
+    OpenBrackets,
+    CloseBrackets,
+    Semicolon,
+    LogicOr,
+    LogicAnd,
+    Negation,
+    Colon,
+    Comma,
+    NamespaceSeparator,
+    Concat,
+    Silencer,
+    BitwiseNegation,
+    Modulo,
+    Xor,
 
     // Two chars
     Increment,
@@ -30,7 +48,14 @@ pub enum TokenType {
     GreaterOrEqual,
     SmallerOrEqual,
     Coalesce,
-    DynamicVariable,
+    LogicAndAssignment,
+    LogicOrAssignment,
+    ObjectOperator,
+    ModuloAssignment,
+    ConcatAssignment,
+    XorAssignment,
+    PaamayimNekudayim,
+    DoubleArrow,
 
     // Three chars
     RightShiftAssignment,
@@ -38,14 +63,107 @@ pub enum TokenType {
     IsNotIdentical,
     IsIdentical,
     PowerAssignment,
+    SpaceShip,
+    CoalesceAssignment,
+    Elipsis,
 
     // Four chars
 
     // Five chars
     ScriptStart,
+
+    // Variable length
+    Identifier,
+    DecimalNumber,
+    LongNumber,
+    ConstantEncapsedString,
+    EncapsedAndWhitespaceString,
+    ShellEscape,
+    HereDocStart,
+    HereDocEnd,
+    BoolCast,
+    BadCast, // For unknown casts
+    IntCast,
+    StringCast,
+    ArrayCast,
+    ObjectCast,
+    DoubleCast,
+    UnsetCast,
+
+    // Keywords
+    Exit,
+    If,
+    ElseIf,
+    Else,
+    EndIf,
+    Echo,
+    Do,
+    While,
+    EndWhile,
+    For,
+    EndFor,
+    Foreach,
+    EndForeach,
+    Declare,
+    EndDeclare,
+    As,
+    Switch,
+    EndSwitch,
+    Case,
+    Default,
+    Break,
+    Continue,
+    Goto,
+    Function,
+    Fn,
+    Const,
+    Return,
+    Try,
+    Catch,
+    Finally,
+    Throw,
+    Use,
+    Insteadof,
+    Global,
+    Static,
+    Abstract,
+    Final,
+    Private,
+    Protected,
+    Public,
+    Var,
+    Unset,
+    Isset,
+    Empty,
+    HaltCompiler,
+    Class,
+    Trait,
+    Interface,
+    Extends,
+    Implements,
+    List,
+    Array,
+    Callable,
+    ConstLine,
+    ConstFile,
+    ConstDir,
+    ConstClass,
+    ConstTrait,
+    ConstMethod,
+    ConstFunction,
+    New,
+    Clone,
+
+    // Types
+    TypeBool,
+    TypeInt,
+    TypeString,
+    TypeArray,
+    TypeObject,
+    TypeFloat,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Token {
     t: TokenType,
     col: u16,
@@ -54,7 +172,7 @@ pub struct Token {
 }
 
 impl Token {
-    pub fn new(t: TokenType, col: u16, line: u16, label: Option<String>) -> Self {
+    pub fn new(t: TokenType, line: u16, col: u16, label: Option<String>) -> Self {
         Token {
             t,
             col,
