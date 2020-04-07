@@ -135,10 +135,15 @@ impl<'a> Scanner<'a> {
                     Some('=') => {
                         self.advance();
 
-                        self.push_token(TokenType::LogicAndAssignment);
+                        self.push_token(TokenType::BinaryAndAssignment);
+                    }
+                    Some('&') => {
+                        self.advance();
+
+                        self.push_token(TokenType::LogicAnd);
                     }
                     _ => {
-                        self.push_token(TokenType::LogicAnd);
+                        self.push_token(TokenType::BinaryAnd);
                     }
                 },
                 '%' => match self.chars.peek() {
@@ -151,15 +156,19 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::Modulo);
                     }
                 },
-
                 '|' => match self.chars.peek() {
                     Some('=') => {
                         self.advance();
 
-                        self.push_token(TokenType::LogicOrAssignment);
+                        self.push_token(TokenType::BinaryOrAssignment);
+                    }
+                    Some('|') => {
+                        self.advance();
+
+                        self.push_token(TokenType::LogicOr);
                     }
                     _ => {
-                        self.push_token(TokenType::LogicOr);
+                        self.push_token(TokenType::BinaryOr);
                     }
                 },
                 '>' => match self.chars.peek() {
@@ -800,6 +809,7 @@ impl<'a> Scanner<'a> {
             "implements" => TokenType::Implements,
             "list" => TokenType::List,
             "callable" => TokenType::Callable,
+            "and" => TokenType::LogicAnd,
             "__LINE__" => TokenType::ConstLine,
             "__FILE__" => TokenType::ConstFile,
             "__DIR__" => TokenType::ConstDir,
