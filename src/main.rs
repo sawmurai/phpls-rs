@@ -58,24 +58,6 @@ fn main() -> Result<()> {
         &mut token_stream_map,
     )?;
     println!("Indexed!");
-    /*
-    let stdin = io::stdin();
-
-    for line in stdin.lock().lines() {
-        let line = line?;
-
-        if line == "" {
-            break;
-        }
-        if let Some(results) = find(&t, &line) {
-            for (path_index, line, pos) in results {
-                let f = file_registry.files.get(*path_index as usize);
-                println!("{}:{}:{}", f.unwrap(), line, pos);
-            }
-        } else {
-            println!("No results.")
-        }
-    }*/
-
+    
     Ok(())
 }
