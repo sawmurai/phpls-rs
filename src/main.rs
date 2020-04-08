@@ -1,6 +1,7 @@
 use crate::scanner::Scanner;
 
 use crate::token::Token;
+use crate::parser::Parser;
 use std::collections::HashMap;
 use std::fs::{self};
 use std::io::{self, Result};
@@ -8,6 +9,9 @@ use std::path::Path;
 
 pub mod scanner;
 pub mod token;
+pub mod parser;
+pub mod expression;
+pub mod statement;
 
 fn visit_dirs(dir: &Path, t: &mut HashMap<String, Vec<Token>>) -> io::Result<()> {
     if dir.is_dir() {
@@ -38,7 +42,10 @@ fn visit_dirs(dir: &Path, t: &mut HashMap<String, Vec<Token>>) -> io::Result<()>
 
                         // Later on we need to generate an AST, as well as an environment and the
                         // symbol table. This will then replace the token streams
-                        t.insert(p, scanner.tokens);
+                        //t.insert(p, scanner.tokens);
+
+                        let mut parser = Parser::new(&scanner.tokens);
+                        println!("{:#?}", parser.ast());
                         //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {
                         //    eprintln!("Could not read file {}: {}", &p, &msg);
                         //}

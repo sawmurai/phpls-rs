@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TokenType {
     // One char
     Plus,
@@ -168,12 +168,12 @@ pub enum TokenType {
     TypeFloat,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Token {
-    col: u16,
-    line: u16,
-    t: TokenType,
-    label: Option<Box<String>>,
+    pub col: u16,
+    pub line: u16,
+    pub t: TokenType,
+    label: Option<String>,
 }
 
 impl Token {
@@ -191,7 +191,13 @@ impl Token {
             t,
             col,
             line,
-            label: Some(Box::new(label.to_owned())),
+            label: Some(label.to_owned()),
         }
     }
 }
+/*
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.t)
+    }
+}*/

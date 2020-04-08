@@ -36,6 +36,7 @@ pub struct Scanner<'a> {
     chars: Peekable<Chars<'a>>
 }
 
+/// Inspired by https://craftinginterpreters.com/statements-and-state.html
 impl<'a> Scanner<'a> {
     /// Constructs a new `Scanner` without actually scanning anything.
     ///
@@ -258,13 +259,17 @@ impl<'a> Scanner<'a> {
                     }
                 },
                 '!' => match self.chars.peek() {
-                    Some('=') => match self.chars.peek() {
-                        Some('=') => {
-                            self.advance();
-                            self.push_token(TokenType::IsNotIdentical);
-                        }
-                        _ => {
-                            self.push_token(TokenType::IsNotEqual);
+                    Some('=') => {
+                        self.advance();
+
+                        match self.chars.peek() {
+                            Some('=') => {
+                                self.advance();
+                                self.push_token(TokenType::IsNotIdentical);
+                            }
+                            _ => {
+                                self.push_token(TokenType::IsNotEqual);
+                            }
                         }
                     },
                     _ => {
