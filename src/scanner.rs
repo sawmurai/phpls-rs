@@ -33,7 +33,7 @@ pub struct Scanner<'a> {
 
     context: Context,
     pub tokens: Vec<Token>,
-    chars: Peekable<Chars<'a>>,
+    chars: Peekable<Chars<'a>>
 }
 
 impl<'a> Scanner<'a> {
@@ -55,7 +55,7 @@ impl<'a> Scanner<'a> {
             context: Context::OutScript,
 
             tokens: Vec::new(),
-            chars: source.chars().peekable(),
+            chars: source.chars().peekable()
         }
     }
 
@@ -415,7 +415,7 @@ impl<'a> Scanner<'a> {
                     _ => {
                         let name = self.collect_identifer();
 
-                        self.push_named_token(TokenType::Variable, name);
+                        self.push_named_token(TokenType::Variable, &name);
                     }
                 },
                 '0'..='9' => {
@@ -430,11 +430,11 @@ impl<'a> Scanner<'a> {
 
                         self.push_named_token(
                             TokenType::DecimalNumber,
-                            format!("{}.{}", number, decimal),
+                            &format!("{}.{}", number, decimal),
                         );
                     }
 
-                    self.push_named_token(TokenType::LongNumber, number);
+                    self.push_named_token(TokenType::LongNumber, &number);
                 }
                 'a'..='z' | 'A'..='Z' | '_' | '\u{0080}'..='\u{00ff}' => {
                     let mut name = String::new();
@@ -444,7 +444,7 @@ impl<'a> Scanner<'a> {
                     if let Some(t) = self.map_keyword(&name) {
                         self.push_token(t);
                     } else {
-                        self.push_named_token(TokenType::Identifier, name);
+                        self.push_named_token(TokenType::Identifier, &name);
                     }
                 }
                 '(' => {
@@ -471,17 +471,17 @@ impl<'a> Scanner<'a> {
                 '\'' => {
                     let string = self.collect_until_escaped('\'');
 
-                    self.push_named_token(TokenType::ConstantEncapsedString, string);
+                    self.push_named_token(TokenType::ConstantEncapsedString, &string);
                 }
                 '`' => {
                     let string = self.collect_until_escaped('`');
 
-                    self.push_named_token(TokenType::ShellEscape, string);
+                    self.push_named_token(TokenType::ShellEscape, &string);
                 }
                 '"' => {
                     let string = self.collect_encapsed_and_whitespace_string();
 
-                    self.push_named_token(TokenType::EncapsedAndWhitespaceString, string);
+                    self.push_named_token(TokenType::EncapsedAndWhitespaceString, &string);
                 }
                 _ => {
                     return Err(format!(
@@ -509,7 +509,7 @@ impl<'a> Scanner<'a> {
             _ => self.collect_identifer(),
         };
 
-        self.push_named_token(TokenType::HereDocStart, marker.clone());
+        self.push_named_token(TokenType::HereDocStart, &marker);
 
         let mut heredoc = String::new();
         let mut line = String::new();
@@ -569,8 +569,8 @@ impl<'a> Scanner<'a> {
             return Err(String::from("Unterminated heredoc!"));
         }
 
-        self.push_named_token(TokenType::EncapsedAndWhitespaceString, heredoc);
-        self.push_named_token(TokenType::HereDocEnd, line);
+        self.push_named_token(TokenType::EncapsedAndWhitespaceString, &heredoc);
+        self.push_named_token(TokenType::HereDocEnd, &line);
 
         Ok(())
     }
@@ -678,20 +678,16 @@ impl<'a> Scanner<'a> {
     }
 
     fn push_token(&mut self, t: TokenType) {
-        self.tokens.push(Token::new(
-            t,
-            self.line as u16,
-            self.start_of_token as u16,
-            None,
-        ));
+        self.tokens
+            .push(Token::new(t, self.line as u16, self.start_of_token as u16));
     }
 
-    fn push_named_token(&mut self, t: TokenType, name: String) {
-        self.tokens.push(Token::new(
+    fn push_named_token(&mut self, t: TokenType, name: &str) {
+        self.tokens.push(Token::named(
             t,
             self.line as u16,
             self.start_of_token as u16,
-            Some(name),
+            name,
         ));
     }
 
@@ -785,61 +781,43 @@ mod tests {
         let mut scanner = Scanner::new("<?php\n$a = 1 + 2;\n$a++;$b +\n1\n + 2\n;");
         scanner.scan().unwrap();
 
-        assert_eq!(
-            scanner.tokens[0],
-            Token::new(TokenType::ScriptStart, 1, 1, None)
-        );
+        assert_eq!(scanner.tokens[0], Token::new(TokenType::ScriptStart, 1, 1));
         assert_eq!(
             scanner.tokens[1],
-            Token::new(TokenType::Variable, 2, 1, Some(String::from("a")))
+            Token::named(TokenType::Variable, 2, 1, "a")
         );
-        assert_eq!(
-            scanner.tokens[2],
-            Token::new(TokenType::Assignment, 2, 4, None)
-        );
+        assert_eq!(scanner.tokens[2], Token::new(TokenType::Assignment, 2, 4));
         assert_eq!(
             scanner.tokens[3],
-            Token::new(TokenType::LongNumber, 2, 6, Some(String::from("1")))
+            Token::named(TokenType::LongNumber, 2, 6, "1")
         );
-        assert_eq!(scanner.tokens[4], Token::new(TokenType::Plus, 2, 8, None));
+        assert_eq!(scanner.tokens[4], Token::new(TokenType::Plus, 2, 8));
         assert_eq!(
             scanner.tokens[5],
-            Token::new(TokenType::LongNumber, 2, 10, Some(String::from("2")))
+            Token::named(TokenType::LongNumber, 2, 10, "2")
         );
-        assert_eq!(
-            scanner.tokens[6],
-            Token::new(TokenType::Semicolon, 2, 11, None)
-        );
+        assert_eq!(scanner.tokens[6], Token::new(TokenType::Semicolon, 2, 11));
         assert_eq!(
             scanner.tokens[7],
-            Token::new(TokenType::Variable, 3, 1, Some(String::from("a")))
+            Token::named(TokenType::Variable, 3, 1, "a")
         );
-        assert_eq!(
-            scanner.tokens[8],
-            Token::new(TokenType::Increment, 3, 3, None)
-        );
-        assert_eq!(
-            scanner.tokens[9],
-            Token::new(TokenType::Semicolon, 3, 5, None)
-        );
+        assert_eq!(scanner.tokens[8], Token::new(TokenType::Increment, 3, 3));
+        assert_eq!(scanner.tokens[9], Token::new(TokenType::Semicolon, 3, 5));
         assert_eq!(
             scanner.tokens[10],
-            Token::new(TokenType::Variable, 3, 6, Some(String::from("b")))
+            Token::named(TokenType::Variable, 3, 6, "b")
         );
-        assert_eq!(scanner.tokens[11], Token::new(TokenType::Plus, 3, 9, None));
+        assert_eq!(scanner.tokens[11], Token::new(TokenType::Plus, 3, 9));
         assert_eq!(
             scanner.tokens[12],
-            Token::new(TokenType::LongNumber, 4, 1, Some(String::from("1")))
+            Token::named(TokenType::LongNumber, 4, 1, "1")
         );
-        assert_eq!(scanner.tokens[13], Token::new(TokenType::Plus, 5, 2, None));
+        assert_eq!(scanner.tokens[13], Token::new(TokenType::Plus, 5, 2));
         assert_eq!(
             scanner.tokens[14],
-            Token::new(TokenType::LongNumber, 5, 4, Some(String::from("2")))
+            Token::named(TokenType::LongNumber, 5, 4, "2")
         );
-        assert_eq!(
-            scanner.tokens[15],
-            Token::new(TokenType::Semicolon, 6, 1, None)
-        );
+        assert_eq!(scanner.tokens[15], Token::new(TokenType::Semicolon, 6, 1));
     }
 
     #[test]
@@ -852,30 +830,19 @@ $object->{'東京'} = 2020;
 
         scanner.scan().unwrap();
 
-        assert_eq!(
-            scanner.tokens[0],
-            Token::new(TokenType::ScriptStart, 1, 1, None)
-        );
+        assert_eq!(scanner.tokens[0], Token::new(TokenType::ScriptStart, 1, 1));
         assert_eq!(
             scanner.tokens[1],
-            Token::new(TokenType::Variable, 2, 1, Some(String::from("object")))
+            Token::named(TokenType::Variable, 2, 1, "object")
         );
         assert_eq!(
             scanner.tokens[2],
-            Token::new(TokenType::ObjectOperator, 2, 8, None)
+            Token::new(TokenType::ObjectOperator, 2, 8)
         );
-        assert_eq!(
-            scanner.tokens[3],
-            Token::new(TokenType::OpenCurly, 2, 10, None)
-        );
+        assert_eq!(scanner.tokens[3], Token::new(TokenType::OpenCurly, 2, 10));
         assert_eq!(
             scanner.tokens[4],
-            Token::new(
-                TokenType::ConstantEncapsedString,
-                2,
-                11,
-                Some(String::from("東京"))
-            )
+            Token::named(TokenType::ConstantEncapsedString, 2, 11, "東京")
         );
     }
 
@@ -890,36 +857,18 @@ $object->{'東京'} = 2020;
         scanner.scan().unwrap();
         assert_eq!(
             scanner.tokens[1],
-            Token::new(
-                TokenType::ConstantEncapsedString,
-                2,
-                1,
-                Some(String::from("abc"))
-            )
+            Token::named(TokenType::ConstantEncapsedString, 2, 1, "abc")
         );
-        assert_eq!(scanner.tokens[2], Token::new(TokenType::Concat, 2, 7, None));
+        assert_eq!(scanner.tokens[2], Token::new(TokenType::Concat, 2, 7));
         assert_eq!(
             scanner.tokens[3],
-            Token::new(
-                TokenType::ConstantEncapsedString,
-                2,
-                9,
-                Some(String::from(""))
-            )
+            Token::named(TokenType::ConstantEncapsedString, 2, 9, "")
         );
-        assert_eq!(
-            scanner.tokens[4],
-            Token::new(TokenType::Concat, 2, 12, None)
-        );
+        assert_eq!(scanner.tokens[4], Token::new(TokenType::Concat, 2, 12));
 
         assert_eq!(
             scanner.tokens[5],
-            Token::new(
-                TokenType::ConstantEncapsedString,
-                2,
-                14,
-                Some(String::from("def"))
-            )
+            Token::named(TokenType::ConstantEncapsedString, 2, 14, "def")
         );
     }
 
@@ -931,35 +880,19 @@ $object->{'東京'} = 2020;
         );
 
         scanner.scan().unwrap();
-        assert_eq!(
-            scanner.tokens[1],
-            Token::new(TokenType::OpenBrackets, 2, 1, None)
-        );
+        assert_eq!(scanner.tokens[1], Token::new(TokenType::OpenBrackets, 2, 1));
         assert_eq!(
             scanner.tokens[2],
-            Token::new(
-                TokenType::ConstantEncapsedString,
-                2,
-                2,
-                Some(String::from("rofl"))
-            )
+            Token::named(TokenType::ConstantEncapsedString, 2, 2, "rofl")
         );
-        assert_eq!(
-            scanner.tokens[3],
-            Token::new(TokenType::DoubleArrow, 2, 9, None)
-        );
+        assert_eq!(scanner.tokens[3], Token::new(TokenType::DoubleArrow, 2, 9));
         assert_eq!(
             scanner.tokens[4],
-            Token::new(
-                TokenType::ConstantEncapsedString,
-                2,
-                12,
-                Some(String::from("copter"))
-            )
+            Token::named(TokenType::ConstantEncapsedString, 2, 12, "copter")
         );
         assert_eq!(
             scanner.tokens[5],
-            Token::new(TokenType::CloseBrackets, 2, 20, None)
+            Token::new(TokenType::CloseBrackets, 2, 20)
         );
     }
 
@@ -973,29 +906,21 @@ func('rofl');",
         scanner.scan().unwrap();
         assert_eq!(
             scanner.tokens[1],
-            Token::new(TokenType::Identifier, 2, 1, Some(String::from("func")))
+            Token::named(TokenType::Identifier, 2, 1, "func")
         );
         assert_eq!(
             scanner.tokens[2],
-            Token::new(TokenType::OpenParenthesis, 2, 5, None)
+            Token::new(TokenType::OpenParenthesis, 2, 5)
         );
         assert_eq!(
             scanner.tokens[3],
-            Token::new(
-                TokenType::ConstantEncapsedString,
-                2,
-                6,
-                Some(String::from("rofl"))
-            )
+            Token::named(TokenType::ConstantEncapsedString, 2, 6, "rofl")
         );
         assert_eq!(
             scanner.tokens[4],
-            Token::new(TokenType::CloseParenthesis, 2, 12, None)
+            Token::new(TokenType::CloseParenthesis, 2, 12)
         );
-        assert_eq!(
-            scanner.tokens[5],
-            Token::new(TokenType::Semicolon, 2, 13, None)
-        );
+        assert_eq!(scanner.tokens[5], Token::new(TokenType::Semicolon, 2, 13));
     }
 
     #[test]
@@ -1007,15 +932,18 @@ while (true) {}",
 
         scanner.scan().unwrap();
 
-        assert_eq!(scanner.tokens[1], Token::new(TokenType::While, 2, 1, None));
+        assert_eq!(scanner.tokens[1], Token::new(TokenType::While, 2, 1));
         assert_eq!(
             scanner.tokens[2],
-            Token::new(TokenType::OpenParenthesis, 2, 7, None)
+            Token::new(TokenType::OpenParenthesis, 2, 7)
         );
-        assert_eq!(scanner.tokens[3], Token::new(TokenType::True, 2, 8, None));
-        assert_eq!(scanner.tokens[4], Token::new(TokenType::CloseParenthesis, 2, 12, None));
-        assert_eq!(scanner.tokens[5], Token::new(TokenType::OpenCurly, 2, 14, None));
-        assert_eq!(scanner.tokens[6], Token::new(TokenType::CloseCurly, 2, 15, None));
+        assert_eq!(scanner.tokens[3], Token::new(TokenType::True, 2, 8));
+        assert_eq!(
+            scanner.tokens[4],
+            Token::new(TokenType::CloseParenthesis, 2, 12)
+        );
+        assert_eq!(scanner.tokens[5], Token::new(TokenType::OpenCurly, 2, 14));
+        assert_eq!(scanner.tokens[6], Token::new(TokenType::CloseCurly, 2, 15));
     }
 
     #[test]
@@ -1027,26 +955,44 @@ for ($i = 0; $i < 100; $i++) {}",
 
         scanner.scan().unwrap();
 
-        assert_eq!(scanner.tokens[1], Token::new(TokenType::For, 2, 1, None));
+        assert_eq!(scanner.tokens[1], Token::new(TokenType::For, 2, 1));
         assert_eq!(
             scanner.tokens[2],
-            Token::new(TokenType::OpenParenthesis, 2, 5, None)
+            Token::new(TokenType::OpenParenthesis, 2, 5)
         );
-        assert_eq!(scanner.tokens[3], Token::new(TokenType::Variable, 2, 6, Some(String::from("i"))));
-        assert_eq!(scanner.tokens[4], Token::new(TokenType::Assignment, 2, 9, None));
-        assert_eq!(scanner.tokens[5], Token::new(TokenType::LongNumber, 2, 11, Some(String::from("0"))));
-        assert_eq!(scanner.tokens[6], Token::new(TokenType::Semicolon, 2, 12, None));
+        assert_eq!(
+            scanner.tokens[3],
+            Token::named(TokenType::Variable, 2, 6, "i")
+        );
+        assert_eq!(scanner.tokens[4], Token::new(TokenType::Assignment, 2, 9));
+        assert_eq!(
+            scanner.tokens[5],
+            Token::named(TokenType::LongNumber, 2, 11, "0")
+        );
+        assert_eq!(scanner.tokens[6], Token::new(TokenType::Semicolon, 2, 12));
 
-        assert_eq!(scanner.tokens[7], Token::new(TokenType::Variable, 2, 14, Some(String::from("i"))));
-        assert_eq!(scanner.tokens[8], Token::new(TokenType::Smaller, 2, 17, None));
-        assert_eq!(scanner.tokens[9], Token::new(TokenType::LongNumber, 2, 19, Some(String::from("100"))));
-        assert_eq!(scanner.tokens[10], Token::new(TokenType::Semicolon, 2, 22, None));
+        assert_eq!(
+            scanner.tokens[7],
+            Token::named(TokenType::Variable, 2, 14, "i")
+        );
+        assert_eq!(scanner.tokens[8], Token::new(TokenType::Smaller, 2, 17));
+        assert_eq!(
+            scanner.tokens[9],
+            Token::named(TokenType::LongNumber, 2, 19, "100")
+        );
+        assert_eq!(scanner.tokens[10], Token::new(TokenType::Semicolon, 2, 22));
 
-        assert_eq!(scanner.tokens[11], Token::new(TokenType::Variable, 2, 24, Some(String::from("i"))));
-        assert_eq!(scanner.tokens[12], Token::new(TokenType::Increment, 2, 26, None));
-        assert_eq!(scanner.tokens[13], Token::new(TokenType::CloseParenthesis, 2, 28, None));
+        assert_eq!(
+            scanner.tokens[11],
+            Token::named(TokenType::Variable, 2, 24, "i")
+        );
+        assert_eq!(scanner.tokens[12], Token::new(TokenType::Increment, 2, 26));
+        assert_eq!(
+            scanner.tokens[13],
+            Token::new(TokenType::CloseParenthesis, 2, 28)
+        );
 
-        assert_eq!(scanner.tokens[14], Token::new(TokenType::OpenCurly, 2, 30, None));
-        assert_eq!(scanner.tokens[15], Token::new(TokenType::CloseCurly, 2, 31, None));
+        assert_eq!(scanner.tokens[14], Token::new(TokenType::OpenCurly, 2, 30));
+        assert_eq!(scanner.tokens[15], Token::new(TokenType::CloseCurly, 2, 31));
     }
 }

@@ -50,7 +50,7 @@ fn visit_dirs(dir: &Path, t: &mut HashMap<String, Vec<Token>>) -> io::Result<()>
     Ok(())
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<()> {    
     let mut token_stream_map: HashMap<String, Vec<Token>> = HashMap::new();
 
     visit_dirs(

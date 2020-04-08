@@ -170,19 +170,28 @@ pub enum TokenType {
 
 #[derive(Debug, PartialEq)]
 pub struct Token {
-    t: TokenType,
     col: u16,
     line: u16,
-    label: Option<String>,
+    t: TokenType,
+    label: Option<Box<String>>,
 }
 
 impl Token {
-    pub fn new(t: TokenType, line: u16, col: u16, label: Option<String>) -> Self {
+    pub fn new(t: TokenType, line: u16, col: u16) -> Self {
         Token {
             t,
             col,
             line,
-            label,
+            label: None,
+        }
+    }
+
+    pub fn named(t: TokenType, line: u16, col: u16, label: &str) -> Self {
+        Token {
+            t,
+            col,
+            line,
+            label: Some(Box::new(label.to_owned())),
         }
     }
 }
