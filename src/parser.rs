@@ -6,9 +6,12 @@ use std::iter::Iterator;
 use std::iter::Peekable;
 use std::slice::Iter;
 
+type FuncDefStatementResult = Result<Box<FunctionDefinitionStatement>, String>;
 type StatementResult = Result<Box<dyn Stmt>, String>;
 type ClassStatementResult = Result<Box<dyn Stmt>, String>;
 type StatementListResult = Result<Vec<Box<dyn Stmt>>, String>;
+type ArgumentListResult = Result<Option<Vec<FunctionArgument>>, String>;
+type ReturnTypeResult = Result<ReturnType, String>;
 type PathExpressionResult = Result<Box<PathExpression>, String>;
 type ExpressionResult = Result<Box<dyn Expr>, String>;
 
@@ -38,14 +41,245 @@ impl<'a> Parser<'a> {
         Ok(statements)
     }
 
-    fn block(&mut self) -> StatementListResult {
+    pub fn block(&mut self) -> StatementListResult {
         let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
 
+        // TODO: Make sure namespace etc can not pop up here
         while !self.next_token_one_of(&vec![TokenType::CloseCurly]) {
             statements.push(self.statement()?);
         }
 
         Ok(statements)
+    }
+
+    fn class_block(&mut self) -> StatementListResult {
+        let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
+
+        while let Some(next) = self.tokens.next() {
+            let visibility = match self.next_token_one_of(&vec![
+                TokenType::Public,
+                TokenType::Private,
+                TokenType::Protected,
+            ]) {
+                true => {
+                    self.tokens.next();
+
+                    Some(next.t.clone())
+                }
+                false => None,
+            };
+
+            if self.next_token_one_of(&vec![TokenType::Const]) {
+                self.tokens.next();
+                let name = self.consume_cloned(TokenType::Identifier)?;
+
+                self.consume_or_err(TokenType::Assignment)?;
+                statements.push(Box::new(ClassConstantDefinitionStatement::new(
+                    name,
+                    visibility,
+                    self.expression()?,
+                )));
+
+                continue;
+            };
+
+            let is_static = match self.next_token_one_of(&vec![TokenType::Static]) {
+                true => {
+                    self.tokens.next();
+
+                    true
+                }
+                false => false,
+            };
+
+            if let Some(next) = self.tokens.peek() {
+                match next.t {
+                    TokenType::Function => {
+                        self.tokens.next();
+                        let name = self.consume_cloned(TokenType::Identifier)?;
+
+                        statements.push(Box::new(MethodDefinitionStatement::new(
+                            name,
+                            visibility,
+                            self.function()?,
+                            is_static,
+                        )));
+                    }
+                    // One or more of those ...
+                    TokenType::Variable => loop {
+                        // The next variable
+                        let name = self.consume_cloned(TokenType::Variable)?;
+                        let assignment = match self.next_token_one_of(&vec![TokenType::Assignment])
+                        {
+                            true => {
+                                self.tokens.next();
+                                Some(self.expression()?)
+                            }
+                            false => None,
+                        };
+
+                        statements.push(Box::new(PropertyDefinitionStatement::new(
+                            name,
+                            visibility.clone(),
+                            assignment,
+                            is_static,
+                        )));
+
+                        if !self.next_token_one_of(&vec![TokenType::Comma]) {
+                            break;
+                        }
+
+                        // The comma
+                        self.tokens.next();
+                    },
+                    _ => {
+                        return Err(format!(
+                            "Unexpected {:?} on line {}, col {}",
+                            next.t, next.line, next.col
+                        ));
+                    }
+                }
+            } else {
+                return Err(String::from("End of file"));
+            }
+
+            if let Some(Token {
+                t: TokenType::CloseCurly,
+                ..
+            }) = self.tokens.peek()
+            {
+                break;
+            }
+        }
+
+        Ok(statements)
+    }
+
+    fn function(&mut self) -> FuncDefStatementResult {
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+        let arguments = self.argument_list()?;
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+
+        let return_type = match self.next_token_one_of(&vec![TokenType::Colon]) {
+            true => {
+                self.tokens.next();
+                Some(self.return_type()?)
+            }
+            false => None,
+        };
+
+        self.consume_or_err(TokenType::OpenCurly)?;
+        let body = self.block()?;
+        self.consume_or_err(TokenType::CloseCurly)?;
+
+        Ok(Box::new(FunctionDefinitionStatement::new(
+            arguments,
+            return_type,
+            body,
+        )))
+    }
+
+    fn argument_list(&mut self) -> ArgumentListResult {
+        let mut arguments = Vec::new();
+
+        if self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
+            return Ok(None);
+        }
+
+        loop {
+            let nullable = match self.next_token_one_of(&vec![TokenType::QuestionMark]) {
+                true => {
+                    self.tokens.next();
+                    true
+                }
+                false => false,
+            };
+
+            let t = match self.next_token_one_of(&vec![
+                TokenType::TypeString,
+                TokenType::TypeObject,
+                TokenType::TypeInt,
+                TokenType::TypeFloat,
+                TokenType::TypeBool,
+                TokenType::TypeArray,
+                TokenType::Identifier,
+            ]) {
+                true => match self.tokens.next() {
+                    Some(token) => Some(token.clone()),
+                    None => unreachable!("Should not happen!"),
+                },
+                false => None,
+            };
+
+            let name = self.consume_cloned(TokenType::Variable)?;
+
+            let default = match self.next_token_one_of(&vec![TokenType::Assignment]) {
+                true => {
+                    self.tokens.next();
+
+                    if let Some(default) = self.tokens.next() {
+                        match default.t {
+                            TokenType::LongNumber
+                            | TokenType::DecimalNumber
+                            | TokenType::ConstantEncapsedString
+                            | TokenType::Null
+                            | TokenType::EncapsedAndWhitespaceString => Some(default.clone()),
+                            _ => {
+                                return Err(format!(
+                                    "Unexpected {:?} on line {}, col {}",
+                                    default.t, default.line, default.col
+                                ));
+                            }
+                        }
+                    } else {
+                        return Err(String::from("Missing default value for argument!"));
+                    }
+                }
+                false => None,
+            };
+
+            arguments.push(FunctionArgument::new(t, name, nullable, default));
+
+            if self.next_token_one_of(&vec![TokenType::Comma]) {
+                self.tokens.next();
+            } else {
+                break;
+            }
+        }
+
+        Ok(Some(arguments))
+    }
+
+    fn return_type(&mut self) -> ReturnTypeResult {
+        let nullable = match self.next_token_one_of(&vec![TokenType::QuestionMark]) {
+            true => {
+                self.tokens.next();
+                true
+            }
+            false => false,
+        };
+
+        if let Some(token) = self.tokens.next() {
+            match token.t {
+                TokenType::TypeString
+                | TokenType::TypeObject
+                | TokenType::TypeInt
+                | TokenType::TypeFloat
+                | TokenType::TypeBool
+                | TokenType::TypeArray
+                | TokenType::Void
+                | TokenType::Null
+                | TokenType::Identifier => Ok(ReturnType::new(token.clone(), nullable)),
+                _ => {
+                    return Err(format!(
+                        "Unexpected {:?} on line {}, col {}",
+                        token.t, token.line, token.col
+                    ));
+                }
+            }
+        } else {
+            return Err(String::from("EOF when searching for return type"));
+        }
     }
 
     fn statement(&mut self) -> StatementResult {
@@ -74,11 +308,11 @@ impl<'a> Parser<'a> {
                     self.tokens.next();
                     return self.abstract_class_statement();
                 }
-                _ => {}
+                _ => return self.expression_statement(),
             }
         }
 
-        return self.expression_statement();
+        return Err(String::from("Unexpected EOF!"));
     }
 
     // namespace -> "namespace" (block | (path (";" | block)))
@@ -220,9 +454,9 @@ impl<'a> Parser<'a> {
             implements = Some(self.identifier_list()?);
         }
 
-        self.consume_or_err(TokenType::OpenCurly);
-        let block = self.block()?;
-        self.consume_or_err(TokenType::CloseCurly);
+        self.consume_or_err(TokenType::OpenCurly)?;
+        let block = self.class_block()?;
+        self.consume_or_err(TokenType::CloseCurly)?;
 
         Ok(Box::new(ClassStatement::new(
             name,

@@ -33,7 +33,7 @@ pub struct Scanner<'a> {
 
     context: Context,
     pub tokens: Vec<Token>,
-    chars: Peekable<Chars<'a>>
+    chars: Peekable<Chars<'a>>,
 }
 
 /// Inspired by https://craftinginterpreters.com/statements-and-state.html
@@ -56,7 +56,7 @@ impl<'a> Scanner<'a> {
             context: Context::OutScript,
 
             tokens: Vec::new(),
-            chars: source.chars().peekable()
+            chars: source.chars().peekable(),
         }
     }
 
@@ -271,7 +271,7 @@ impl<'a> Scanner<'a> {
                                 self.push_token(TokenType::IsNotEqual);
                             }
                         }
-                    },
+                    }
                     _ => {
                         self.push_token(TokenType::Negation);
                     }
@@ -366,13 +366,13 @@ impl<'a> Scanner<'a> {
                 '#' => {
                     self.advance_until_after('\n');
 
-                    self.push_token(TokenType::LineComment);
+                    //self.push_token(TokenType::LineComment);
                 }
                 '/' => match self.chars.peek() {
                     Some('/') => {
                         self.advance_until_after('\n');
 
-                        self.push_token(TokenType::LineComment);
+                        //self.push_token(TokenType::LineComment);
                     }
                     Some('*') => {
                         self.advance();
@@ -705,6 +705,7 @@ impl<'a> Scanner<'a> {
             "array" => TokenType::TypeArray,
             "object" => TokenType::TypeObject,
             "float" => TokenType::TypeFloat,
+            "void" => TokenType::Void,
             "new" => TokenType::New,
             "clone" => TokenType::Clone,
             "exit" => TokenType::Exit,

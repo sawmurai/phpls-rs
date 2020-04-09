@@ -1,5 +1,5 @@
 use crate::expression::{Expr, PathExpression};
-use crate::token::Token;
+use crate::token::{Token, TokenType};
 
 use std::fmt;
 
@@ -144,5 +144,160 @@ impl Stmt for ClassStatement {
             .field("extends", &self.extends)
             .field("body", &self.body)
             .finish()
+    }
+}
+
+pub struct ClassConstantDefinitionStatement {
+    name: Token,
+    visibility: Option<TokenType>,
+    value: Box<dyn Expr>,
+}
+
+impl ClassConstantDefinitionStatement {
+    pub fn new(name: Token, visibility: Option<TokenType>, value: Box<dyn Expr>) -> Self {
+        Self {
+            name,
+            visibility,
+            value,
+        }
+    }
+}
+
+impl Stmt for ClassConstantDefinitionStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("class constant")
+            .field("name", &self.name)
+            .field("visibility", &self.visibility)
+            .field("value", &self.value)
+            .finish()
+    }
+}
+
+pub struct PropertyDefinitionStatement {
+    name: Token,
+    visibility: Option<TokenType>,
+    value: Option<Box<dyn Expr>>,
+    is_static: bool,
+}
+
+impl PropertyDefinitionStatement {
+    pub fn new(
+        name: Token,
+        visibility: Option<TokenType>,
+        value: Option<Box<dyn Expr>>,
+        is_static: bool,
+    ) -> Self {
+        Self {
+            name,
+            visibility,
+            value,
+            is_static,
+        }
+    }
+}
+
+impl Stmt for PropertyDefinitionStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("property")
+            .field("name", &self.name)
+            .field("visibility", &self.visibility)
+            .field("value", &self.value)
+            .field("is_static", &self.is_static)
+            .finish()
+    }
+}
+
+pub struct MethodDefinitionStatement {
+    name: Token,
+    visibility: Option<TokenType>,
+    function: Box<dyn Stmt>,
+    is_static: bool,
+}
+
+impl MethodDefinitionStatement {
+    pub fn new(
+        name: Token,
+        visibility: Option<TokenType>,
+        function: Box<FunctionDefinitionStatement>,
+        is_static: bool,
+    ) -> Self {
+        Self {
+            name,
+            visibility,
+            function,
+            is_static,
+        }
+    }
+}
+
+impl Stmt for MethodDefinitionStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("method")
+            .field("name", &self.name)
+            .field("visibility", &self.visibility)
+            .field("function", &self.function)
+            .field("is_static", &self.is_static)
+            .finish()
+    }
+}
+
+pub struct FunctionDefinitionStatement {
+    arguments: Option<Vec<FunctionArgument>>,
+    return_type: Option<ReturnType>,
+    body: Vec<Box<dyn Stmt>>,
+}
+
+impl FunctionDefinitionStatement {
+    pub fn new(
+        arguments: Option<Vec<FunctionArgument>>,
+        return_type: Option<ReturnType>,
+        body: Vec<Box<dyn Stmt>>,
+    ) -> Self {
+        Self {
+            arguments,
+            return_type,
+            body,
+        }
+    }
+}
+
+impl Stmt for FunctionDefinitionStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("function")
+            .field("arguments", &self.arguments)
+            .field("return_type", &self.return_type)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+#[derive(Debug)]
+pub struct FunctionArgument {
+    t: Option<Token>,
+    name: Token,
+    nullable: bool,
+    default: Option<Token>,
+}
+
+impl FunctionArgument {
+    pub fn new(t: Option<Token>, name: Token, nullable: bool, default: Option<Token>) -> Self {
+        Self {
+            t,
+            name,
+            nullable,
+            default,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ReturnType {
+    t: Token,
+    nullable: bool,
+}
+
+impl ReturnType {
+    pub fn new(t: Token, nullable: bool) -> Self {
+        Self { t, nullable }
     }
 }

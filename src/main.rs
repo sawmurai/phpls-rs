@@ -45,8 +45,8 @@ fn visit_dirs(dir: &Path, t: &mut HashMap<String, Vec<Token>>) -> io::Result<()>
                         //t.insert(p, scanner.tokens);
 
                         let mut parser = Parser::new(&scanner.tokens);
-                        //parser.ast();
-                        println!("{:#?}", parser.ast());
+                        parser.ast();
+                        //println!("{:#?}", parser.ast());
                         //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {
                         //    eprintln!("Could not read file {}: {}", &p, &msg);
                         //}
