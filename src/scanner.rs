@@ -763,6 +763,7 @@ impl<'a> Scanner<'a> {
             "list" => TokenType::List,
             "callable" => TokenType::Callable,
             "and" => TokenType::LogicAnd,
+            "namespace" => TokenType::Namespace,
             "__LINE__" => TokenType::ConstLine,
             "__FILE__" => TokenType::ConstFile,
             "__DIR__" => TokenType::ConstDir,

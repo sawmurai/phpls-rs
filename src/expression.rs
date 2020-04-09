@@ -93,3 +93,23 @@ impl Expr for Grouping {
         .finish()
     }
 }
+
+pub struct PathExpression {
+    path: Vec<Token>
+}
+
+impl PathExpression {
+    pub fn new(path: Vec<Token>) -> Self {
+        Self {
+            path
+        }
+    }
+}
+
+impl Expr for PathExpression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Path")
+        .field("path", &self.path)
+        .finish()
+    }
+}

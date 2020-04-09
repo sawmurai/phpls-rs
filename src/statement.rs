@@ -51,3 +51,43 @@ impl Stmt for EchoStatement {
         .finish()
     }
 }
+
+pub struct NamespaceStatement {
+    expression: Box<dyn Expr>
+}
+
+impl NamespaceStatement {
+    pub fn new(expression: Box<dyn Expr>) -> Self {
+        Self {
+            expression
+        }
+    }
+}
+
+impl Stmt for NamespaceStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Namespace")
+        .field("expression", &self.expression)
+        .finish()
+    }
+}
+
+pub struct UseStatement {
+    expression: Box<dyn Expr>
+}
+
+impl UseStatement {
+    pub fn new(expression: Box<dyn Expr>) -> Self {
+        Self {
+            expression
+        }
+    }
+}
+
+impl Stmt for UseStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Use")
+        .field("expression", &self.expression)
+        .finish()
+    }
+}
