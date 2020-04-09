@@ -14,102 +14,98 @@ impl fmt::Debug for dyn Expr {
 
 pub struct Unary {
     right: Box<dyn Expr>,
-    operator: Token
+    operator: Token,
 }
 
 impl Unary {
     pub fn new(operator: Token, right: Box<dyn Expr>) -> Self {
-        Self {operator, right}
+        Self { operator, right }
     }
 }
 
 impl Expr for Unary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Unary")
-        .field("operator", &self.operator)
-        .field("right", &self.right)
-        .finish()
+            .field("operator", &self.operator)
+            .field("right", &self.right)
+            .finish()
     }
 }
 
 pub struct Binary {
     left: Box<dyn Expr>,
     right: Box<dyn Expr>,
-    operator: Token
+    operator: Token,
 }
 
 impl Binary {
     pub fn new(left: Box<dyn Expr>, operator: Token, right: Box<dyn Expr>) -> Self {
-        Self {operator, left, right}
+        Self {
+            operator,
+            left,
+            right,
+        }
     }
 }
 
 impl Expr for Binary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Binary")
-        .field("left", &self.left)
-        .field("operator", &self.operator)
-        .field("right", &self.right)
-        .finish()
+            .field("left", &self.left)
+            .field("operator", &self.operator)
+            .field("right", &self.right)
+            .finish()
     }
 }
 
 pub struct Literal {
-    value: Token
+    value: Token,
 }
 
 impl Literal {
     pub fn new(value: Token) -> Self {
-        Self {
-            value
-        }
+        Self { value }
     }
 }
 
 impl Expr for Literal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Literal")
-        .field("value", &self.value)
-        .finish()
+            .field("value", &self.value)
+            .finish()
     }
 }
 
 pub struct Grouping {
-    expr: Box<dyn Expr>
+    expr: Box<dyn Expr>,
 }
 
 impl Grouping {
     pub fn new(expr: Box<dyn Expr>) -> Self {
-        Self {
-            expr
-        }
+        Self { expr }
     }
 }
 
 impl Expr for Grouping {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Grouping")
-        .field("expr", &self.expr)
-        .finish()
+            .field("expr", &self.expr)
+            .finish()
     }
 }
 
 pub struct PathExpression {
-    path: Vec<Token>
+    path: Vec<Token>,
 }
 
 impl PathExpression {
     pub fn new(path: Vec<Token>) -> Self {
-        Self {
-            path
-        }
+        Self { path }
     }
 }
 
-impl Expr for PathExpression {
+impl fmt::Debug for PathExpression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Path")
-        .field("path", &self.path)
-        .finish()
+        f.debug_struct("Path").field("path", &self.path).finish()
     }
 }

@@ -1,17 +1,17 @@
 use crate::scanner::Scanner;
 
-use crate::token::Token;
 use crate::parser::Parser;
+use crate::token::Token;
 use std::collections::HashMap;
 use std::fs::{self};
 use std::io::{self, Result};
 use std::path::Path;
 
-pub mod scanner;
-pub mod token;
-pub mod parser;
 pub mod expression;
+pub mod parser;
+pub mod scanner;
 pub mod statement;
+pub mod token;
 
 fn visit_dirs(dir: &Path, t: &mut HashMap<String, Vec<Token>>) -> io::Result<()> {
     if dir.is_dir() {
@@ -45,7 +45,7 @@ fn visit_dirs(dir: &Path, t: &mut HashMap<String, Vec<Token>>) -> io::Result<()>
                         //t.insert(p, scanner.tokens);
 
                         let mut parser = Parser::new(&scanner.tokens);
-                        
+                        //parser.ast();
                         println!("{:#?}", parser.ast());
                         //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {
                         //    eprintln!("Could not read file {}: {}", &p, &msg);
@@ -58,7 +58,7 @@ fn visit_dirs(dir: &Path, t: &mut HashMap<String, Vec<Token>>) -> io::Result<()>
     Ok(())
 }
 
-fn main() -> Result<()> {    
+fn main() -> Result<()> {
     let mut token_stream_map: HashMap<String, Vec<Token>> = HashMap::new();
 
     visit_dirs(
@@ -66,6 +66,6 @@ fn main() -> Result<()> {
         &mut token_stream_map,
     )?;
     println!("Indexed!");
-    
+
     Ok(())
 }
