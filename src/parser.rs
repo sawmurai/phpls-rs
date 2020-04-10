@@ -338,7 +338,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses a single statement
+    /// Parses a single statement (offloaded depending on which statement was encountered)
     ///
     /// # Details
     /// ```php
@@ -381,7 +381,12 @@ impl<'a> Parser<'a> {
         return Err(String::from("Unexpected EOF!"));
     }
 
-    // namespace -> "namespace" (block | (path (";" | block)))
+    /// Parses a single namespace statement
+    ///
+    /// # Details
+    /// ```php
+    /// namespace /** from here **/My\Super\Duper\Namespace;/** to here **/
+    /// ```
     fn namespace_statement(&mut self) -> StatementResult {
         let path = self.path()?;
 
