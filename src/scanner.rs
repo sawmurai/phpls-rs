@@ -375,8 +375,8 @@ impl<'a> Scanner<'a> {
                         //self.push_token(TokenType::LineComment);
                     }
                     Some('*') => {
-                        self.advance();
-                        self.push_token(TokenType::MultilineComment);
+                        self.advance_until_after_multiline_comment();
+                        //self.push_token(TokenType::MultilineComment);
 
                         self.context = Context::InComment;
                     }
@@ -680,6 +680,17 @@ impl<'a> Scanner<'a> {
                 break;
             }
         }
+    }
+
+    fn advance_until_after_multiline_comment(&mut self) {
+        loop {
+            self.advance_until_after('*');
+
+            if let Some('/') = self.chars.peek() {
+                break;
+            }
+        }
+        self.advance();
     }
 
     fn push_token(&mut self, t: TokenType) {

@@ -61,7 +61,7 @@ impl<'a> Parser<'a> {
     /// // Parse here
     /// }
     /// ```
-    pub fn block(&mut self) -> StatementListResult {
+    pub fn block(&mut self) -> Result<Box<dyn Stmt>, String> {
         let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
 
         // TODO: Make sure namespace etc can not pop up here
@@ -69,7 +69,7 @@ impl<'a> Parser<'a> {
             statements.push(self.statement()?);
         }
 
-        Ok(statements)
+        Ok(Box::new(Block::new(statements)))
     }
 
     /// Parses a class block, so basically the body that contains all the method definitions etc.
@@ -374,11 +374,199 @@ impl<'a> Parser<'a> {
                     self.tokens.next();
                     return self.abstract_class_statement();
                 }
-                _ => return self.expression_statement(),
+                TokenType::While => {
+                    self.tokens.next();
+                    return self.while_statement();
+                }
+                TokenType::Do => {
+                    self.tokens.next();
+                    return self.do_while_statement();
+                }
+                TokenType::For => {
+                    self.tokens.next();
+                    return self.for_statement();
+                }
+                TokenType::If => {
+                    self.tokens.next();
+                    return self.if_statement();
+                }
+                TokenType::OpenCurly => {
+                    self.tokens.next();
+                    let block = self.block();
+
+                    self.consume_or_err(TokenType::CloseCurly)?;
+
+                    return block;
+                }
+                _ => {
+                    let expr = self.expression_statement();
+
+                    self.consume_or_err(TokenType::Semicolon)?;
+
+                    return expr;
+                }
             }
         }
 
         return Err(String::from("Unexpected EOF!"));
+    }
+
+    /// Parses a while loop
+    ///
+    /// # Details
+    /// ```php
+    /// while /** from here **/(true) {
+    ///     do_stuff();
+    /// }
+    /// /** to here **/
+    /// ```
+    fn while_statement(&mut self) -> StatementResult {
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+        let condition = self.expression()?;
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+        let body = match self.tokens.peek() {
+            Some(Token {
+                t: TokenType::OpenCurly,
+                ..
+            }) => {
+                self.tokens.next();
+                let block = self.block()?;
+                self.tokens.next();
+
+                block
+            }
+            Some(_) => Box::new(Block::new(vec![self.statement()?])),
+            None => return Err(String::from("Unexpected EOF!")),
+        };
+
+        Ok(Box::new(WhileStatement::new(condition, body)))
+    }
+
+    /// Parses a do-while loop
+    ///
+    /// # Details
+    /// ```php
+    /// do
+    /// /** from here **/ {
+    ///     do_stuff();
+    /// } while (true);
+    /// /** to here **/
+    /// ```
+    fn do_while_statement(&mut self) -> StatementResult {
+        self.consume_or_err(TokenType::OpenCurly)?;
+        let body = self.block()?;
+        self.consume_or_err(TokenType::CloseCurly)?;
+
+        self.consume_or_err(TokenType::While)?;
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+        let condition = self.expression()?;
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+        self.consume_or_err(TokenType::Semicolon)?;
+
+        Ok(Box::new(DoWhileStatement::new(condition, body)))
+    }
+
+    /// Parses a for loop
+    ///
+    /// # Details
+    /// ```php
+    /// for /** from here **/ ($i = 0; $i < 100; $i++) {
+    ///     do_stuff();
+    /// }
+    /// /** to here **/
+    /// ```
+    fn for_statement(&mut self) -> StatementResult {
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+
+        let mut init = Vec::new();
+        loop {
+            init.push(self.expression_statement()?);
+
+            if self.next_token_one_of(&vec![TokenType::Comma]) {
+                self.tokens.next();
+            } else {
+                break;
+            }
+        }
+
+        self.consume_or_err(TokenType::Semicolon)?;
+
+        let mut condition = Vec::new();
+        loop {
+            condition.push(self.expression_statement()?);
+
+            if self.next_token_one_of(&vec![TokenType::Comma]) {
+                self.tokens.next();
+            } else {
+                break;
+            }
+        }
+
+        self.consume_or_err(TokenType::Semicolon)?;
+
+        let mut step = Vec::new();
+        loop {
+            step.push(self.expression_statement()?);
+
+            if self.next_token_one_of(&vec![TokenType::Comma]) {
+                self.tokens.next();
+            } else {
+                break;
+            }
+        }
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+
+        self.consume_or_err(TokenType::OpenCurly)?;
+        let body = self.block()?;
+        self.consume_or_err(TokenType::CloseCurly)?;
+
+        Ok(Box::new(ForStatement::new(init, condition, step, body)))
+    }
+
+    /// Parses an if statement
+    ///
+    /// # Details
+    /// ```php
+    /// if /** from here **/ (true) {
+    ///     do_stuff();
+    /// } elseif (false) {
+    ///     other_stuff();
+    /// } else {
+    ///     rest_stuff();
+    /// }
+    /// /** to here **/
+    /// ```
+    fn if_statement(&mut self) -> StatementResult {
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+        let condition = self.expression()?;
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+        let if_branch = IfBranch::new(condition, self.statement()?);
+
+        let mut elseif_branches = Vec::new();
+        while self.next_token_one_of(&vec![TokenType::ElseIf]) {
+            self.tokens.next();
+            self.consume_or_err(TokenType::OpenParenthesis)?;
+            let condition = self.expression()?;
+            self.consume_or_err(TokenType::CloseParenthesis)?;
+
+            elseif_branches.push(Box::new(IfBranch::new(condition, self.statement()?)));
+        }
+
+        let else_branch = match self.tokens.peek() {
+            Some(Token {
+                t: TokenType::Else, ..
+            }) => {
+                self.tokens.next();
+                Some(self.statement()?)
+            }
+            _ => None,
+        };
+
+        Ok(Box::new(IfStatement::new(
+            Box::new(if_branch),
+            elseif_branches,
+            else_branch,
+        )))
     }
 
     /// Parses a single namespace statement
@@ -559,13 +747,43 @@ impl<'a> Parser<'a> {
     fn expression_statement(&mut self) -> StatementResult {
         let value = self.expression()?;
 
-        self.consume_or_err(TokenType::Semicolon)?;
-
         Ok(Box::new(ExpressionStatement::new(value)))
     }
 
+    /// Parses an expression. This can be anything that evaluates to a value. A function call, a comparison or even an assignment
     fn expression(&mut self) -> ExpressionResult {
-        self.equality()
+        self.assignment()
+    }
+
+    /// Parses an assignment. First parses the l-value as a normal expression. Then determines if it is followed by an assignment
+    /// operator which says we are looking at an assignment. Then checks, if the already parsed l-value is something that values
+    /// can be assigned to. If it is, parse the r-value as another expression and wrap all up in an `Assignment`-expression. If not,
+    /// return an error.
+    fn assignment(&mut self) -> ExpressionResult {
+        let expr = self.equality()?;
+
+        if let Some(Token {
+            t: TokenType::Assignment,
+            line,
+            col,
+            ..
+        }) = self.tokens.peek()
+        {
+            // Past the assignment token
+            self.tokens.next();
+            let value = self.assignment()?;
+
+            if let Some(TokenType::Variable) = expr.token_type() {
+                return Ok(Box::new(Assignment::new(expr, value)));
+            } else {
+                return Err(format!(
+                    "Unable to assign value to expression on line {}, col {}",
+                    line, col
+                ));
+            }
+        }
+
+        Ok(expr)
     }
 
     // path -> identifier ("\" identifier)*
@@ -660,14 +878,27 @@ impl<'a> Parser<'a> {
     }
 
     fn unary(&mut self) -> ExpressionResult {
-        if self.next_token_one_of(&vec![TokenType::Negation, TokenType::Minus]) {
+        if self.next_token_one_of(&vec![
+            TokenType::Negation,
+            TokenType::Minus,
+            TokenType::Increment,
+            TokenType::Decrement,
+        ]) {
             let next = self.tokens.next().unwrap();
             let right = self.unary()?;
 
             return Ok(Box::new(Unary::new(next.clone(), right)));
         }
 
-        self.primary()
+        let primary = self.primary()?;
+
+        if self.next_token_one_of(&vec![TokenType::Increment, TokenType::Decrement]) {
+            let next = self.tokens.next().unwrap();
+
+            return Ok(Box::new(PostUnary::new(next.clone(), primary)));
+        }
+
+        Ok(primary)
     }
 
     fn primary(&mut self) -> ExpressionResult {
@@ -679,6 +910,7 @@ impl<'a> Parser<'a> {
             TokenType::DecimalNumber,
             TokenType::ConstantEncapsedString,
             TokenType::EncapsedAndWhitespaceString,
+            TokenType::Variable,
         ]) {
             return Ok(Box::new(Literal::new(self.tokens.next().unwrap().clone())));
         }

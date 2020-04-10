@@ -244,14 +244,14 @@ impl Stmt for MethodDefinitionStatement {
 pub struct FunctionDefinitionStatement {
     arguments: Option<Vec<FunctionArgument>>,
     return_type: Option<ReturnType>,
-    body: Vec<Box<dyn Stmt>>,
+    body: Box<dyn Stmt>,
 }
 
 impl FunctionDefinitionStatement {
     pub fn new(
         arguments: Option<Vec<FunctionArgument>>,
         return_type: Option<ReturnType>,
-        body: Vec<Box<dyn Stmt>>,
+        body: Box<dyn Stmt>,
     ) -> Self {
         Self {
             arguments,
@@ -299,5 +299,187 @@ pub struct ReturnType {
 impl ReturnType {
     pub fn new(t: Token, nullable: bool) -> Self {
         Self { t, nullable }
+    }
+}
+
+pub struct WhileStatement {
+    condition: Box<dyn Expr>,
+    body: Box<dyn Stmt>,
+}
+
+impl WhileStatement {
+    pub fn new(condition: Box<dyn Expr>, body: Box<dyn Stmt>) -> Self {
+        Self { condition, body }
+    }
+}
+
+impl Stmt for WhileStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("while")
+            .field("condition", &self.condition)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+pub struct DoWhileStatement {
+    condition: Box<dyn Expr>,
+    body: Box<dyn Stmt>,
+}
+
+impl DoWhileStatement {
+    pub fn new(condition: Box<dyn Expr>, body: Box<dyn Stmt>) -> Self {
+        Self { condition, body }
+    }
+}
+
+impl Stmt for DoWhileStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("do-while")
+            .field("condition", &self.condition)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+pub struct ForStatement {
+    init: Vec<Box<dyn Stmt>>,
+    condition: Vec<Box<dyn Stmt>>,
+    step: Vec<Box<dyn Stmt>>,
+    body: Box<dyn Stmt>,
+}
+
+impl ForStatement {
+    pub fn new(
+        init: Vec<Box<dyn Stmt>>,
+        condition: Vec<Box<dyn Stmt>>,
+        step: Vec<Box<dyn Stmt>>,
+        body: Box<dyn Stmt>,
+    ) -> Self {
+        Self {
+            init,
+            condition,
+            step,
+            body,
+        }
+    }
+}
+
+impl Stmt for ForStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("for")
+            .field("init", &self.init)
+            .field("condition", &self.condition)
+            .field("step", &self.step)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+pub struct ForEachStatement {
+    array: Box<dyn Expr>,
+    kv: Box<dyn Expr>,
+    body: Box<dyn Stmt>,
+}
+
+impl ForEachStatement {
+    pub fn new(array: Box<dyn Expr>, kv: Box<dyn Expr>, body: Box<dyn Stmt>) -> Self {
+        Self { array, kv, body }
+    }
+}
+
+impl Stmt for ForEachStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("foreach")
+            .field("array", &self.array)
+            .field("kv", &self.kv)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+#[derive(Debug)]
+pub struct Block {
+    body: Vec<Box<dyn Stmt>>,
+}
+
+impl Block {
+    pub fn new(body: Vec<Box<dyn Stmt>>) -> Self {
+        Self { body }
+    }
+}
+
+impl Stmt for Block {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("block").field("body", &self.body).finish()
+    }
+}
+
+#[derive(Debug)]
+pub struct IfBranch {
+    condition: Box<dyn Expr>,
+    body: Box<dyn Stmt>,
+}
+
+impl IfBranch {
+    pub fn new(condition: Box<dyn Expr>, body: Box<dyn Stmt>) -> Self {
+        Self { condition, body }
+    }
+}
+
+impl Stmt for IfBranch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("if-branch")
+            .field("condition", &self.condition)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+pub struct ElseBranch {
+    body: Box<dyn Stmt>,
+}
+
+impl ElseBranch {
+    pub fn new(body: Box<dyn Stmt>) -> Self {
+        Self { body }
+    }
+}
+
+impl Stmt for ElseBranch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("else-branch")
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+pub struct IfStatement {
+    if_branch: Box<IfBranch>,
+    else_if_branches: Vec<Box<IfBranch>>,
+    else_branch: Option<Box<dyn Stmt>>,
+}
+
+impl IfStatement {
+    pub fn new(
+        if_branch: Box<IfBranch>,
+        else_if_branches: Vec<Box<IfBranch>>,
+        else_branch: Option<Box<dyn Stmt>>,
+    ) -> Self {
+        Self {
+            if_branch,
+            else_if_branches,
+            else_branch,
+        }
+    }
+}
+
+impl Stmt for IfStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("if")
+            .field("if_branch", &self.if_branch)
+            .field("else_if_branches", &self.else_if_branches)
+            .field("else_branch", &self.else_branch)
+            .finish()
     }
 }

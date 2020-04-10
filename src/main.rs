@@ -13,6 +13,34 @@ pub mod scanner;
 pub mod statement;
 pub mod token;
 
+fn visit_file(path: &Path) -> io::Result<()> {
+    if let Some(ext) = path.extension() {
+        if ext == "php" {
+            let p = path.to_str().unwrap().to_string();
+
+            let content = fs::read_to_string(path)?;
+            let mut scanner = Scanner::new(&content);
+
+            if let Err(msg) = scanner.scan() {
+                eprintln!("Could not read file {}: {}", &p, &msg);
+            }
+
+            // Later on we need to generate an AST, as well as an environment and the
+            // symbol table. This will then replace the token streams
+            //t.insert(p, scanner.tokens);
+
+            let mut parser = Parser::new(&scanner.tokens);
+            //parser.ast();
+            println!("{:#?}", parser.ast());
+            //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {
+            //    eprintln!("Could not read file {}: {}", &p, &msg);
+            //}
+        }
+    }
+
+    Ok(())
+}
+
 fn visit_dirs(dir: &Path, t: &mut HashMap<String, Vec<Token>>) -> io::Result<()> {
     if dir.is_dir() {
         for entry in fs::read_dir(dir)? {
@@ -22,39 +50,13 @@ fn visit_dirs(dir: &Path, t: &mut HashMap<String, Vec<Token>>) -> io::Result<()>
             if path.is_dir() {
                 visit_dirs(&path, t)?;
             } else {
-                if let Some(ext) = path.extension() {
-                    if ext == "php" {
-                        let p = path.to_str().unwrap().to_string();
-
-                        let content = match fs::read_to_string(path) {
-                            Ok(content) => content,
-                            Err(error) => {
-                                eprintln!("{}", error);
-
-                                continue;
-                            }
-                        };
-                        let mut scanner = Scanner::new(&content);
-
-                        if let Err(msg) = scanner.scan() {
-                            eprintln!("Could not read file {}: {}", &p, &msg);
-                        }
-
-                        // Later on we need to generate an AST, as well as an environment and the
-                        // symbol table. This will then replace the token streams
-                        //t.insert(p, scanner.tokens);
-
-                        let mut parser = Parser::new(&scanner.tokens);
-                        parser.ast();
-                        //println!("{:#?}", parser.ast());
-                        //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {
-                        //    eprintln!("Could not read file {}: {}", &p, &msg);
-                        //}
-                    }
-                }
+                visit_file(&path)?;
             }
         }
+    } else {
+        visit_file(&dir)?;
     }
+
     Ok(())
 }
 

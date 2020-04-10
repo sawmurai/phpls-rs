@@ -1,9 +1,10 @@
-use crate::token::Token;
+use crate::token::{Token, TokenType};
 
 use std::fmt;
 
 pub trait Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+    fn token_type(&self) -> Option<TokenType>;
 }
 
 impl fmt::Debug for dyn Expr {
@@ -29,6 +30,34 @@ impl Expr for Unary {
             .field("operator", &self.operator)
             .field("right", &self.right)
             .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+}
+
+pub struct PostUnary {
+    left: Box<dyn Expr>,
+    operator: Token,
+}
+
+impl PostUnary {
+    pub fn new(operator: Token, left: Box<dyn Expr>) -> Self {
+        Self { operator, left }
+    }
+}
+
+impl Expr for PostUnary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PostUnary")
+            .field("operator", &self.operator)
+            .field("left", &self.left)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
     }
 }
 
@@ -56,6 +85,10 @@ impl Expr for Binary {
             .field("right", &self.right)
             .finish()
     }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
 }
 
 pub struct Literal {
@@ -73,6 +106,10 @@ impl Expr for Literal {
         f.debug_struct("Literal")
             .field("value", &self.value)
             .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        Some(self.value.t.clone())
     }
 }
 
@@ -92,6 +129,10 @@ impl Expr for Grouping {
             .field("expr", &self.expr)
             .finish()
     }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
 }
 
 pub struct PathExpression {
@@ -107,5 +148,29 @@ impl PathExpression {
 impl fmt::Debug for PathExpression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Path").field("path", &self.path).finish()
+    }
+}
+
+pub struct Assignment {
+    name: Box<dyn Expr>,
+    value: Box<dyn Expr>,
+}
+
+impl Assignment {
+    pub fn new(name: Box<dyn Expr>, value: Box<dyn Expr>) -> Self {
+        Self { name, value }
+    }
+}
+
+impl Expr for Assignment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Assignment")
+            .field("name", &self.name)
+            .field("value", &self.value)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
     }
 }
