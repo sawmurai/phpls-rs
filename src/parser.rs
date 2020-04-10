@@ -398,6 +398,23 @@ impl<'a> Parser<'a> {
 
                     return block;
                 }
+                TokenType::Switch => {
+                    self.tokens.next();
+                    return self.switch_statement();
+                }
+                TokenType::Semicolon => {
+                    return Ok(Box::new(TokenStatement::new(
+                        self.consume_cloned(TokenType::Semicolon)?,
+                    )));
+                }
+                TokenType::Break => {
+                    let statement =
+                        Box::new(TokenStatement::new(self.consume_cloned(token.t.clone())?));
+
+                    self.consume_or_err(TokenType::Semicolon)?;
+
+                    return Ok(statement);
+                }
                 _ => {
                     let expr = self.expression_statement();
 
@@ -409,6 +426,77 @@ impl<'a> Parser<'a> {
         }
 
         return Err(String::from("Unexpected EOF!"));
+    }
+
+    /// Parses a switch case
+    ///
+    /// # Details
+    /// ```php
+    /// switch /** from here **/(true) {
+    ///     case "bla":
+    ///         echo "stuff";
+    /// }
+    /// /** to here **/
+    /// ```
+    fn switch_statement(&mut self) -> StatementResult {
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+        let expr = self.expression()?;
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+        self.consume_or_err(TokenType::OpenCurly)?;
+
+        let mut branches = Vec::new();
+        while !self.next_token_one_of(&vec![TokenType::CloseCurly]) {
+            let cases_current_branch = self.case_list()?;
+
+            let mut statements = Vec::new();
+            while !self.next_token_one_of(&vec![
+                TokenType::CloseCurly,
+                TokenType::Case,
+                TokenType::Default,
+            ]) {
+                statements.push(self.statement()?);
+            }
+
+            branches.push(Box::new(SwitchBranch::new(
+                cases_current_branch,
+                statements,
+            )));
+        }
+
+        self.tokens.next();
+
+        Ok(Box::new(SwitchCase::new(expr, branches)))
+    }
+
+    fn case_list(&mut self) -> Result<Vec<Option<Box<dyn Expr>>>, String> {
+        let mut cases_current_branch = Vec::new();
+
+        loop {
+            match self.tokens.peek() {
+                Some(Token {
+                    t: TokenType::Default,
+                    ..
+                }) => {
+                    cases_current_branch.push(None);
+                    self.tokens.next();
+                    self.consume_or_err(TokenType::Colon)
+                        .or_else(|_| self.consume_or_err(TokenType::Semicolon))?;
+                }
+                Some(Token {
+                    t: TokenType::Case, ..
+                }) => {
+                    self.tokens.next();
+                    cases_current_branch.push(Some(self.expression()?));
+                    self.consume_or_err(TokenType::Colon)
+                        .or_else(|_| self.consume_or_err(TokenType::Semicolon))?;
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+
+        Ok(cases_current_branch)
     }
 
     /// Parses a while loop
@@ -928,8 +1016,9 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_or_err(&mut self, t: TokenType) -> Result<(), String> {
-        if let Some(token) = self.tokens.next() {
+        if let Some(token) = self.tokens.peek() {
             if token.t == t {
+                self.tokens.next();
                 return Ok(());
             }
 

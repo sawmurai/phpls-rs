@@ -483,3 +483,63 @@ impl Stmt for IfStatement {
             .finish()
     }
 }
+
+#[derive(Debug)]
+pub struct SwitchBranch {
+    /// The one without an expression is the default branch
+    cases: Vec<Option<Box<dyn Expr>>>,
+    body: Vec<Box<dyn Stmt>>,
+}
+
+impl SwitchBranch {
+    pub fn new(cases: Vec<Option<Box<dyn Expr>>>, body: Vec<Box<dyn Stmt>>) -> Self {
+        Self { cases, body }
+    }
+}
+
+impl Stmt for SwitchBranch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("switch-branch")
+            .field("cases", &self.cases)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+pub struct SwitchCase {
+    expr: Box<dyn Expr>,
+    branches: Vec<Box<SwitchBranch>>,
+}
+
+impl SwitchCase {
+    pub fn new(expr: Box<dyn Expr>, branches: Vec<Box<SwitchBranch>>) -> Self {
+        Self { expr, branches }
+    }
+}
+
+impl Stmt for SwitchCase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("switch")
+            .field("expr", &self.expr)
+            .field("branches", &self.branches)
+            .finish()
+    }
+}
+
+pub struct TokenStatement {
+    token: Token,
+}
+
+impl TokenStatement {
+    pub fn new(token: Token) -> Self {
+        Self { token }
+    }
+}
+
+impl Stmt for TokenStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("(token)")
+            .field("token", &self.token)
+            .finish()
+    }
+}
