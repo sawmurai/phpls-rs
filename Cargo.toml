@@ -1,5 +1,5 @@
 [package]
-name = "srcfind"
+name = "phpls-rs"
 version = "0.1.0"
 authors = ["sawmurai <fabian.becker@b-it-d.de>"]
 edition = "2018"

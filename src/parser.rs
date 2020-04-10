@@ -15,12 +15,14 @@ type ReturnTypeResult = Result<ReturnType, String>;
 type PathExpressionResult = Result<Box<PathExpression>, String>;
 type ExpressionResult = Result<Box<dyn Expr>, String>;
 
+/// Inspired by https://craftinginterpreters.com/statements-and-state.html
+///
+/// Parses a token stream of a `Scanner` and generates an Abstract Syntax Tree
 #[derive(Debug)]
 pub struct Parser<'a> {
     tokens: Peekable<Iter<'a, Token>>,
 }
 
-/// Inspired by https://craftinginterpreters.com/statements-and-state.html
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a Vec<Token>) -> Self {
         Self {
@@ -28,7 +30,16 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses the entire source and return an abstract syntax tree representation
+    /// Parses the entire token stream and returns an abstract syntax tree representation
+    ///
+    /// # Example
+    /// ```
+    /// // Content contains the source code
+    /// let mut scanner = Scanner::new(&content);
+    /// scanner.scan()?;
+    /// let mut parser = Parser::new(&scanner.tokens);
+    /// parser.ast();
+    /// ```
     pub fn ast(&mut self) -> StatementListResult {
         let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
 
@@ -41,6 +52,15 @@ impl<'a> Parser<'a> {
         Ok(statements)
     }
 
+    /// Parses a code block, which basically is a vector of `dyn Stmt` / statements.
+    /// It expects to already be past the `{` and it will read until it encounters a `}`
+    ///
+    /// # Details
+    /// ```php
+    /// while (true) {
+    /// // Parse here
+    /// }
+    /// ```
     pub fn block(&mut self) -> StatementListResult {
         let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
 
@@ -52,6 +72,15 @@ impl<'a> Parser<'a> {
         Ok(statements)
     }
 
+    /// Parses a class block, so basically the body that contains all the method definitions etc.
+    /// It expects to be past the `{` and will read until it encounters a `}`
+    ///  
+    /// # Details
+    /// ```php
+    /// abstract class Whatever {
+    /// // Parse here
+    /// }
+    /// ```
     fn class_block(&mut self) -> StatementListResult {
         let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
 
@@ -155,6 +184,17 @@ impl<'a> Parser<'a> {
         Ok(statements)
     }
 
+    /// Parses a function definition by calling methods to parse the argument list, return type and body.
+    /// It only handles anonymous functions, since the name of a named function was parses previously ... and
+    /// a named function stripped off of the name is ... anonymous :)
+    ///
+    /// # Details
+    /// ```php
+    /// function my_funy /** from here **/ (string $a, int $b): void {
+    ///     echo "Hello!";
+    /// }
+    /// /** to here **/
+    /// ```
     fn function(&mut self) -> FuncDefStatementResult {
         self.consume_or_err(TokenType::OpenParenthesis)?;
         let arguments = self.argument_list()?;
@@ -179,6 +219,14 @@ impl<'a> Parser<'a> {
         )))
     }
 
+    /// Parses the argument list of a function, excluding the parenthesis
+    ///
+    /// # Details
+    /// ```php
+    /// function my_funy (/** from here **/string $a, int $b/** to here **/): void {
+    ///     echo "Hello!";
+    /// }
+    /// ```
     fn argument_list(&mut self) -> ArgumentListResult {
         let mut arguments = Vec::new();
 
@@ -250,6 +298,14 @@ impl<'a> Parser<'a> {
         Ok(Some(arguments))
     }
 
+    /// Parses the return type of a function, excluding the colon
+    ///
+    /// # Details
+    /// ```php
+    /// function my_funy (string $a, int $b): /** from here **/?int/** to here **/ {
+    ///     echo "Hello!";
+    /// }
+    /// ```
     fn return_type(&mut self) -> ReturnTypeResult {
         let nullable = match self.next_token_one_of(&vec![TokenType::QuestionMark]) {
             true => {
@@ -282,6 +338,16 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses a single statement
+    ///
+    /// # Details
+    /// ```php
+    /// /** from here **/
+    /// function my_funy (string $a, int $b): ?int {
+    ///     echo "Hello!";
+    /// }
+    /// /** to here **/
+    /// ```
     fn statement(&mut self) -> StatementResult {
         if let Some(&token) = self.tokens.peek() {
             match token.t {

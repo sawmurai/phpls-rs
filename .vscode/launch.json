@@ -7,15 +7,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'srcfind'",
+            "name": "Debug executable 'phpls-rs'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=srcfind",
-                    "--package=srcfind"
+                    "--bin=phpls-rs",
+                    "--package=phpls-rs"
                 ],
                 "filter": {
-                    "name": "srcfind",
+                    "name": "phpls-rs",
                     "kind": "bin"
                 }
             },
@@ -27,16 +27,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'srcfind'",
+            "name": "Debug unit tests in executable 'phpls-rs'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=srcfind",
-                    "--package=srcfind"
+                    "--bin=phpls-rs",
+                    "--package=phpls-rs"
                 ],
                 "filter": {
-                    "name": "srcfind",
+                    "name": "phpls-rs",
                     "kind": "bin"
                 }
             },
