@@ -136,18 +136,22 @@ impl Expr for Grouping {
 }
 
 pub struct PathExpression {
+    absolute: bool,
     path: Vec<Token>,
 }
 
 impl PathExpression {
-    pub fn new(path: Vec<Token>) -> Self {
-        Self { path }
+    pub fn new(absolute: bool, path: Vec<Token>) -> Self {
+        Self { absolute, path }
     }
 }
 
 impl fmt::Debug for PathExpression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Path").field("path", &self.path).finish()
+        f.debug_struct("Path")
+            .field("path", &self.path)
+            .field("absolute", &self.absolute)
+            .finish()
     }
 }
 

@@ -543,3 +543,55 @@ impl Stmt for TokenStatement {
             .finish()
     }
 }
+
+pub struct CatchBlock {
+    types: Vec<Box<PathExpression>>,
+    var: Token,
+    body: Box<dyn Stmt>,
+}
+
+impl CatchBlock {
+    pub fn new(types: Vec<Box<PathExpression>>, var: Token, body: Box<dyn Stmt>) -> Self {
+        Self { types, var, body }
+    }
+}
+
+impl Stmt for CatchBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("catch")
+            .field("types", &self.types)
+            .field("var", &self.var)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+pub struct TryCatch {
+    try_block: Box<dyn Stmt>,
+    catch_blocks: Vec<Box<dyn Stmt>>,
+    finally_block: Option<Box<dyn Stmt>>,
+}
+
+impl TryCatch {
+    pub fn new(
+        try_block: Box<dyn Stmt>,
+        catch_blocks: Vec<Box<dyn Stmt>>,
+        finally_block: Option<Box<dyn Stmt>>,
+    ) -> Self {
+        Self {
+            try_block,
+            catch_blocks,
+            finally_block,
+        }
+    }
+}
+
+impl Stmt for TryCatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("catch")
+            .field("try_block", &self.try_block)
+            .field("catch_blocks", &self.catch_blocks)
+            .field("finally_block", &self.finally_block)
+            .finish()
+    }
+}

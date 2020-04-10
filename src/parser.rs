@@ -407,13 +407,18 @@ impl<'a> Parser<'a> {
                         self.consume_cloned(TokenType::Semicolon)?,
                     )));
                 }
-                TokenType::Break => {
+                // TODO: Add break/continue level, probably have separate statements. Same game with "return"
+                TokenType::Break | TokenType::Continue => {
                     let statement =
                         Box::new(TokenStatement::new(self.consume_cloned(token.t.clone())?));
 
                     self.consume_or_err(TokenType::Semicolon)?;
 
                     return Ok(statement);
+                }
+                TokenType::Try => {
+                    self.tokens.next();
+                    return self.try_catch_statement();
                 }
                 _ => {
                     let expr = self.expression_statement();
@@ -426,6 +431,93 @@ impl<'a> Parser<'a> {
         }
 
         return Err(String::from("Unexpected EOF!"));
+    }
+
+    /// Parses a try catch statement
+    ///
+    /// # Details
+    /// ```php
+    /// try /** from here **/(true) {
+    /// } catch (Exception $e) {}
+    ///     echo "stuff";
+    /// }
+    /// /** to here **/
+    /// ```
+    fn try_catch_statement(&mut self) -> StatementResult {
+        self.consume_or_err(TokenType::OpenCurly)?;
+        let try_block = self.block()?;
+        self.consume_or_err(TokenType::CloseCurly)?;
+
+        // Needs to have at least one, so we unroll one iteration
+        let mut catch_blocks = Vec::new();
+        catch_blocks.push(self.catch_block()?);
+
+        while self.next_token_one_of(&vec![TokenType::Catch]) {
+            catch_blocks.push(self.catch_block()?);
+        }
+
+        let finally_block = match self.tokens.peek() {
+            Some(Token {
+                t: TokenType::Finally,
+                ..
+            }) => {
+                self.tokens.next();
+                self.consume_or_err(TokenType::OpenCurly)?;
+                Some(self.block()?)
+            }
+            _ => None,
+        };
+
+        self.consume_or_err(TokenType::CloseCurly)?;
+
+        Ok(Box::new(TryCatch::new(
+            try_block,
+            catch_blocks,
+            finally_block,
+        )))
+    }
+
+    /// Parses a catch block (including the catch-keyword, yes, I need to make my mind up about including / excluding the keyword)
+    ///
+    /// # Details
+    /// ```php
+    /// /** from here **/catch (Exception $e) {}
+    ///     echo "stuff";
+    /// }
+    /// /** to here **/
+    /// ```
+    fn catch_block(&mut self) -> StatementResult {
+        self.consume_or_err(TokenType::Catch)?;
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+        let types = self.path_list()?;
+        let var = self.consume_cloned(TokenType::Variable)?;
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+
+        self.consume_or_err(TokenType::OpenCurly)?;
+        let catch_block = self.block()?;
+        self.consume_or_err(TokenType::CloseCurly)?;
+
+        Ok(Box::new(CatchBlock::new(types, var, catch_block)))
+    }
+
+    /// Parses a path list, pipe separated. This needs to become a type-list!
+    ///
+    /// # Details
+    /// ```php
+    /// catch (/** from here **/Exception1 | Exception2/** to here **/ $e) {}
+    ///     echo "stuff";
+    /// }
+    ///
+    /// ```
+    fn path_list(&mut self) -> Result<Vec<Box<PathExpression>>, String> {
+        let mut paths = vec![self.path()?];
+
+        while self.next_token_one_of(&vec![TokenType::BinaryOr]) {
+            self.tokens.next();
+            paths.push(self.path()?);
+        }
+
+        Ok(paths)
     }
 
     /// Parses a switch case
@@ -664,6 +756,8 @@ impl<'a> Parser<'a> {
     /// namespace /** from here **/My\Super\Duper\Namespace;/** to here **/
     /// ```
     fn namespace_statement(&mut self) -> StatementResult {
+        // Make sure this does not start with a \ or something
+        self.peek_or_err(TokenType::Identifier)?;
         let path = self.path()?;
 
         // TODO: Implement block
@@ -876,8 +970,9 @@ impl<'a> Parser<'a> {
 
     // path -> identifier ("\" identifier)*
     fn path(&mut self) -> PathExpressionResult {
-        let mut path = vec![self.consume_cloned(TokenType::Identifier)?];
+        let absolute = self.consume_or_ignore(TokenType::NamespaceSeparator);
 
+        let mut path = vec![self.consume_cloned(TokenType::Identifier)?];
         let matches_ns = vec![TokenType::NamespaceSeparator];
         let matches_ident = vec![TokenType::Identifier];
 
@@ -896,7 +991,7 @@ impl<'a> Parser<'a> {
             path.push(self.consume_cloned(TokenType::Identifier)?);
         }
 
-        Ok(Box::new(PathExpression::new(path)))
+        Ok(Box::new(PathExpression::new(absolute.is_some(), path)))
     }
 
     fn equality(&mut self) -> ExpressionResult {
@@ -1019,6 +1114,31 @@ impl<'a> Parser<'a> {
         if let Some(token) = self.tokens.peek() {
             if token.t == t {
                 self.tokens.next();
+                return Ok(());
+            }
+
+            return Err(format!(
+                "Expected {:?}, found {:?} on line {}, col {}",
+                t, token.t, token.line, token.col
+            ));
+        }
+
+        Err(format!("Expected {:?}, found end of file.", t))
+    }
+
+    fn consume_or_ignore(&mut self, t: TokenType) -> Option<Token> {
+        if let Some(&token) = self.tokens.peek() {
+            if token.t != t {
+                return None;
+            }
+        }
+
+        Some(self.tokens.next().unwrap().clone())
+    }
+
+    fn peek_or_err(&mut self, t: TokenType) -> Result<(), String> {
+        if let Some(token) = self.tokens.peek() {
+            if token.t == t {
                 return Ok(());
             }
 
