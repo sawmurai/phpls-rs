@@ -420,6 +420,9 @@ impl<'a> Parser<'a> {
                     self.tokens.next();
                     return self.try_catch_statement();
                 }
+                TokenType::Declare => {
+                    return self.expression_statement();
+                }
                 _ => {
                     let expr = self.expression_statement()?;
 
@@ -778,6 +781,7 @@ impl<'a> Parser<'a> {
 
         let stmt = match next.t {
             TokenType::As => {
+                self.tokens.next();
                 UseStatement::aliased(path, self.consume_cloned(TokenType::Identifier)?)
             }
             TokenType::OpenCurly => {
@@ -955,7 +959,7 @@ impl<'a> Parser<'a> {
             self.tokens.next();
             let value = self.assignment()?;
 
-            if let Some(TokenType::Variable) = expr.token_type() {
+            if expr.is_offset() {
                 return Ok(Box::new(Assignment::new(expr, value)));
             } else {
                 return Err(format!(
@@ -1073,15 +1077,67 @@ impl<'a> Parser<'a> {
             return Ok(Box::new(Unary::new(next.clone(), right)));
         }
 
-        let primary = self.primary()?;
+        let primary = self.call()?;
 
         if self.next_token_one_of(&vec![TokenType::Increment, TokenType::Decrement]) {
             let next = self.tokens.next().unwrap();
 
             return Ok(Box::new(PostUnary::new(next.clone(), primary)));
         }
-
         Ok(primary)
+    }
+
+    /// Parses class-member access and array access.
+    fn call(&mut self) -> ExpressionResult {
+        let mut expr = self.primary()?;
+
+        loop {
+            if self.next_token_one_of(&vec![TokenType::OpenParenthesis]) {
+                expr = self.finish_call(expr)?;
+            } else if self.next_token_one_of(&vec![TokenType::ObjectOperator]) {
+                self.tokens.next();
+                expr = Box::new(Member::new(
+                    expr,
+                    self.consume_one_of_cloned(&vec![TokenType::Identifier, TokenType::Variable])?,
+                    false,
+                ));
+            } else if self.next_token_one_of(&vec![TokenType::PaamayimNekudayim]) {
+                self.tokens.next();
+                expr = Box::new(Member::new(
+                    expr,
+                    self.consume_one_of_cloned(&vec![TokenType::Identifier, TokenType::Variable])?,
+                    true,
+                ));
+            } else if self.next_token_one_of(&vec![TokenType::OpenBrackets]) {
+                self.tokens.next();
+                expr = Box::new(Field::new(expr, self.expression()?));
+                self.consume_cloned(TokenType::CloseBrackets)?;
+            } else {
+                break;
+            }
+        }
+
+        return Ok(expr);
+    }
+
+    /// Parses all the arguments of a call
+    fn finish_call(&mut self, expr: Box<dyn Expr>) -> ExpressionResult {
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+
+        let mut arguments = Vec::new();
+        while !self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
+            arguments.push(self.expression()?);
+
+            if self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
+                break;
+            } else {
+                self.consume_or_err(TokenType::Comma)?;
+            }
+        }
+
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+
+        Ok(Box::new(Call::new(expr, arguments)))
     }
 
     fn primary(&mut self) -> ExpressionResult {
@@ -1094,6 +1150,8 @@ impl<'a> Parser<'a> {
             TokenType::ConstantEncapsedString,
             TokenType::EncapsedAndWhitespaceString,
             TokenType::Variable,
+            TokenType::Identifier,
+            TokenType::Declare,
         ]) {
             return Ok(Box::new(Literal::new(self.tokens.next().unwrap().clone())));
         }
@@ -1204,6 +1262,23 @@ impl<'a> Parser<'a> {
         }
 
         Err(format!("Expected {:?}, found end of file.", t))
+    }
+
+    fn consume_one_of_cloned(&mut self, types: &Vec<TokenType>) -> Result<Token, String> {
+        if let Some(token) = self.tokens.next() {
+            for tt in types.iter().as_ref() {
+                if token.t == *tt {
+                    return Ok(token.clone());
+                }
+            }
+
+            return Err(format!(
+                "Expected one of {:?}, found {:?} on line {}, col {}",
+                types, token.t, token.line, token.col
+            ));
+        }
+
+        Err(format!("Expected one of {:?}, found end of file.", types))
     }
 
     fn next_token_one_of(&mut self, types: &Vec<TokenType>) -> bool {

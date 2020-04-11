@@ -345,3 +345,116 @@ impl Expr for Array {
         false
     }
 }
+
+pub struct Call {
+    callee: Box<dyn Expr>,
+    arguments: Vec<Box<dyn Expr>>,
+}
+
+impl Call {
+    pub fn new(callee: Box<dyn Expr>, arguments: Vec<Box<dyn Expr>>) -> Self {
+        Self { callee, arguments }
+    }
+}
+
+impl Expr for Call {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("call")
+            .field("callee", &self.callee)
+            .field("arguments", &self.arguments)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.callee.line()
+    }
+
+    fn col(&self) -> u16 {
+        self.callee.col()
+    }
+    fn is_offset(&self) -> bool {
+        false
+    }
+}
+
+pub struct Member {
+    parent: Box<dyn Expr>,
+    member: Token,
+    is_static: bool,
+}
+
+impl Member {
+    pub fn new(parent: Box<dyn Expr>, member: Token, is_static: bool) -> Self {
+        Self {
+            parent,
+            member,
+            is_static,
+        }
+    }
+}
+
+impl Expr for Member {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("member")
+            .field("parent", &self.parent)
+            .field("member", &self.member)
+            .field("is_static", &self.is_static)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.member.line
+    }
+
+    fn col(&self) -> u16 {
+        self.member.col
+    }
+
+    fn is_offset(&self) -> bool {
+        true
+    }
+}
+
+pub struct Field {
+    array: Box<dyn Expr>,
+    field: Box<dyn Expr>,
+}
+
+impl Field {
+    pub fn new(array: Box<dyn Expr>, field: Box<dyn Expr>) -> Self {
+        Self { array, field }
+    }
+}
+
+impl Expr for Field {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("field / array access")
+            .field("array", &self.array)
+            .field("field", &self.field)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.field.line()
+    }
+
+    fn col(&self) -> u16 {
+        self.field.col()
+    }
+
+    fn is_offset(&self) -> bool {
+        true
+    }
+}

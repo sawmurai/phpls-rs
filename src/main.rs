@@ -29,11 +29,11 @@ fn visit_file(path: &Path) -> io::Result<()> {
             // symbol table. This will then replace the token streams
             //t.insert(p, scanner.tokens);
 
-            println!("{:#?}", &scanner.tokens);
-
             let mut parser = Parser::new(&scanner.tokens);
-            //parser.ast();
-            println!("{:#?}", parser.ast());
+            if let Err(e) = parser.ast() {
+                println!("{}: {:#?}", p, e);
+            }
+            //println!("{:#?}", parser.ast());
             //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {
             //    eprintln!("Could not read file {}: {}", &p, &msg);
             //}
