@@ -20,7 +20,7 @@
                 }
             },
             "args": [
-                "fixtures/loops.php"
+                "fixtures/arrays.php"
             ],
             "cwd": "${workspaceFolder}"
         },

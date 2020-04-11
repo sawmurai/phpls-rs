@@ -377,8 +377,6 @@ impl<'a> Scanner<'a> {
                     Some('*') => {
                         self.advance_until_after_multiline_comment();
                         //self.push_token(TokenType::MultilineComment);
-
-                        self.context = Context::InComment;
                     }
                     Some('=') => {
                         self.advance();

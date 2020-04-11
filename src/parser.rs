@@ -421,11 +421,11 @@ impl<'a> Parser<'a> {
                     return self.try_catch_statement();
                 }
                 _ => {
-                    let expr = self.expression_statement();
+                    let expr = self.expression_statement()?;
 
                     self.consume_or_err(TokenType::Semicolon)?;
 
-                    return expr;
+                    return Ok(expr);
                 }
             }
         }
@@ -1098,7 +1098,11 @@ impl<'a> Parser<'a> {
             return Ok(Box::new(Literal::new(self.tokens.next().unwrap().clone())));
         }
 
-        if self.next_token_one_of(&vec![TokenType::OpenParenthesis]) {
+        if self.next_token_one_of(&vec![TokenType::OpenBrackets]) {
+            let expr = self.array()?;
+
+            return Ok(expr);
+        } else if self.next_token_one_of(&vec![TokenType::OpenParenthesis]) {
             self.consume_or_err(TokenType::OpenParenthesis)?;
             let expr = self.expression()?;
             self.consume_or_err(TokenType::CloseParenthesis)?;
@@ -1108,6 +1112,42 @@ impl<'a> Parser<'a> {
 
         let next = self.tokens.peek().unwrap();
         Err(format!("Unsupported primary {:?}", next))
+    }
+
+    fn array(&mut self) -> ExpressionResult {
+        let start = self.consume_cloned(TokenType::OpenBrackets)?;
+        let mut elements = Vec::new();
+
+        while !self.next_token_one_of(&vec![TokenType::CloseBrackets]) {
+            elements.push(self.array_pair()?);
+
+            self.consume_or_ignore(TokenType::Comma);
+        }
+
+        Ok(Box::new(Array::new(
+            start,
+            elements,
+            self.consume_cloned(TokenType::CloseBrackets)?,
+        )))
+    }
+
+    fn array_pair(&mut self) -> ExpressionResult {
+        let key = self.expression()?;
+
+        if self.consume_or_ignore(TokenType::DoubleArrow).is_some() {
+            // Todo: Rather check for scalarity
+            if !key.is_offset() {
+                return Err(format!(
+                    "Illegal offset type at line {} col {}",
+                    key.line(),
+                    key.col(),
+                ));
+            }
+
+            Ok(Box::new(ArrayPair::new(Some(key), self.expression()?)))
+        } else {
+            Ok(Box::new(ArrayPair::new(None, key)))
+        }
     }
 
     fn consume_or_err(&mut self, t: TokenType) -> Result<(), String> {

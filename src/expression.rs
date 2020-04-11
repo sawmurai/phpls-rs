@@ -5,6 +5,15 @@ use std::fmt;
 pub trait Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
     fn token_type(&self) -> Option<TokenType>;
+
+    /// Line in which the expression starts, usually the line of its first token
+    fn line(&self) -> u16;
+
+    /// Column in which the expression starts, usually the col of its first token
+    fn col(&self) -> u16;
+
+    /// Tells if the expression can be used as offset
+    fn is_offset(&self) -> bool;
 }
 
 impl fmt::Debug for dyn Expr {
@@ -35,6 +44,18 @@ impl Expr for Unary {
     fn token_type(&self) -> Option<TokenType> {
         None
     }
+
+    fn line(&self) -> u16 {
+        self.operator.line
+    }
+
+    fn col(&self) -> u16 {
+        self.operator.col
+    }
+
+    fn is_offset(&self) -> bool {
+        true
+    }
 }
 
 pub struct PostUnary {
@@ -58,6 +79,18 @@ impl Expr for PostUnary {
 
     fn token_type(&self) -> Option<TokenType> {
         None
+    }
+
+    fn line(&self) -> u16 {
+        self.operator.line
+    }
+
+    fn col(&self) -> u16 {
+        self.operator.col
+    }
+
+    fn is_offset(&self) -> bool {
+        true
     }
 }
 
@@ -89,6 +122,18 @@ impl Expr for Binary {
     fn token_type(&self) -> Option<TokenType> {
         None
     }
+
+    fn line(&self) -> u16 {
+        self.operator.line
+    }
+
+    fn col(&self) -> u16 {
+        self.operator.col
+    }
+
+    fn is_offset(&self) -> bool {
+        true
+    }
 }
 
 pub struct Literal {
@@ -111,6 +156,18 @@ impl Expr for Literal {
     fn token_type(&self) -> Option<TokenType> {
         Some(self.value.t.clone())
     }
+
+    fn line(&self) -> u16 {
+        self.value.line
+    }
+
+    fn col(&self) -> u16 {
+        self.value.col
+    }
+
+    fn is_offset(&self) -> bool {
+        true
+    }
 }
 
 pub struct Grouping {
@@ -132,6 +189,18 @@ impl Expr for Grouping {
 
     fn token_type(&self) -> Option<TokenType> {
         None
+    }
+
+    fn line(&self) -> u16 {
+        self.expr.line()
+    }
+
+    fn col(&self) -> u16 {
+        self.expr.col()
+    }
+
+    fn is_offset(&self) -> bool {
+        self.expr.is_offset()
     }
 }
 
@@ -158,6 +227,7 @@ impl fmt::Debug for PathExpression {
 pub struct Assignment {
     name: Box<dyn Expr>,
     value: Box<dyn Expr>,
+    // TODO: Think about having the operator here to be able to provide its location
 }
 
 impl Assignment {
@@ -176,5 +246,102 @@ impl Expr for Assignment {
 
     fn token_type(&self) -> Option<TokenType> {
         None
+    }
+
+    fn line(&self) -> u16 {
+        self.name.line()
+    }
+
+    fn col(&self) -> u16 {
+        self.name.col()
+    }
+
+    fn is_offset(&self) -> bool {
+        self.value.is_offset()
+    }
+}
+
+pub struct ArrayPair {
+    key: Option<Box<dyn Expr>>,
+    value: Box<dyn Expr>,
+}
+
+impl ArrayPair {
+    pub fn new(key: Option<Box<dyn Expr>>, value: Box<dyn Expr>) -> Self {
+        Self { key, value }
+    }
+}
+
+impl Expr for ArrayPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("array-pair")
+            .field("key", &self.key)
+            .field("value", &self.value)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        if self.key.is_some() {
+            self.key.as_ref().unwrap().line()
+        } else {
+            self.value.line()
+        }
+    }
+
+    fn col(&self) -> u16 {
+        if self.key.is_some() {
+            self.key.as_ref().unwrap().col()
+        } else {
+            self.value.col()
+        }
+    }
+
+    fn is_offset(&self) -> bool {
+        false
+    }
+}
+
+pub struct Array {
+    start: Token,
+    elements: Vec<Box<dyn Expr>>,
+    end: Token,
+}
+
+impl Array {
+    pub fn new(start: Token, elements: Vec<Box<dyn Expr>>, end: Token) -> Self {
+        Self {
+            start,
+            elements,
+            end,
+        }
+    }
+}
+
+impl Expr for Array {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("array")
+            .field("start", &self.start)
+            .field("elements", &self.elements)
+            .field("end", &self.end)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.start.line
+    }
+
+    fn col(&self) -> u16 {
+        self.start.col
+    }
+    fn is_offset(&self) -> bool {
+        false
     }
 }
