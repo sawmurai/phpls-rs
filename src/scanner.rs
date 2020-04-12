@@ -445,7 +445,31 @@ impl<'a> Scanner<'a> {
                     name.push_str(&self.collect_identifer());
 
                     if let Some(t) = self.map_keyword(&name) {
-                        self.push_token(t);
+                        match self.chars.peek() {
+                            Some(')') => {
+                                // Potential type cast, check if identifier coult match
+                                if let Some(cast_to) = self.map_cast(&t) {
+                                    // Looks like a match ... was the previously recorded token an open parenthesis?
+                                    if let Some(last_token) = self.tokens.pop() {
+                                        // It was! Replace that one with a type cast
+                                        if last_token.t == TokenType::OpenParenthesis {
+                                            self.chars.next();
+                                            self.push_token(cast_to);
+
+                                        // It was not. Put it back on the stack
+                                        } else {
+                                            self.tokens.push(last_token);
+                                            self.push_token(t);
+                                        }
+                                    }
+                                } else {
+                                    self.push_token(t);
+                                }
+                            }
+                            _ => {
+                                self.push_token(t);
+                            }
+                        };
                     } else {
                         self.push_named_token(TokenType::Identifier, &name);
                     }
@@ -703,6 +727,19 @@ impl<'a> Scanner<'a> {
             self.start_of_token as u16,
             name,
         ));
+    }
+
+    fn map_cast(&self, ident: &TokenType) -> Option<TokenType> {
+        match ident {
+            TokenType::TypeBool => Some(TokenType::BoolCast),
+            TokenType::TypeInt => Some(TokenType::IntCast),
+            TokenType::TypeString => Some(TokenType::StringCast),
+            TokenType::TypeArray => Some(TokenType::ArrayCast),
+            TokenType::TypeObject => Some(TokenType::ObjectCast),
+            TokenType::TypeFloat => Some(TokenType::DoubleCast),
+            TokenType::Unset => Some(TokenType::UnsetCast),
+            _ => None,
+        }
     }
 
     /// Returns the correct TokenType for a registered keyword

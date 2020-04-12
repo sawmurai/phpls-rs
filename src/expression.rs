@@ -206,22 +206,42 @@ impl Expr for Grouping {
 }
 
 pub struct PathExpression {
+    start: Token,
     absolute: bool,
     path: Vec<Token>,
 }
 
 impl PathExpression {
-    pub fn new(absolute: bool, path: Vec<Token>) -> Self {
-        Self { absolute, path }
+    pub fn new(start: Token, absolute: bool, path: Vec<Token>) -> Self {
+        Self {
+            start,
+            absolute,
+            path,
+        }
     }
 }
 
-impl fmt::Debug for PathExpression {
+impl Expr for PathExpression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Path")
             .field("path", &self.path)
             .field("absolute", &self.absolute)
             .finish()
+    }
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.start.line
+    }
+
+    fn col(&self) -> u16 {
+        self.start.col
+    }
+
+    fn is_offset(&self) -> bool {
+        false
     }
 }
 
@@ -382,6 +402,40 @@ impl Expr for Call {
     }
 }
 
+pub struct Instantiation {
+    token: Token,
+    call: Box<dyn Expr>,
+}
+
+impl Instantiation {
+    pub fn new(token: Token, call: Box<dyn Expr>) -> Self {
+        Self { token, call }
+    }
+}
+
+impl Expr for Instantiation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("instantiation")
+            .field("call", &self.call)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.token.line
+    }
+
+    fn col(&self) -> u16 {
+        self.token.col
+    }
+    fn is_offset(&self) -> bool {
+        false
+    }
+}
+
 pub struct Member {
     parent: Box<dyn Expr>,
     member: Token,
@@ -426,11 +480,11 @@ impl Expr for Member {
 
 pub struct Field {
     array: Box<dyn Expr>,
-    field: Box<dyn Expr>,
+    field: Option<Box<dyn Expr>>,
 }
 
 impl Field {
-    pub fn new(array: Box<dyn Expr>, field: Box<dyn Expr>) -> Self {
+    pub fn new(array: Box<dyn Expr>, field: Option<Box<dyn Expr>>) -> Self {
         Self { array, field }
     }
 }
@@ -448,11 +502,11 @@ impl Expr for Field {
     }
 
     fn line(&self) -> u16 {
-        self.field.line()
+        self.array.line()
     }
 
     fn col(&self) -> u16 {
-        self.field.col()
+        self.array.col()
     }
 
     fn is_offset(&self) -> bool {
@@ -464,6 +518,7 @@ pub struct FunctionExpression {
     token: Token,
     arguments: Option<Vec<FunctionArgument>>,
     return_type: Option<ReturnType>,
+    uses: Option<Vec<Box<dyn Expr>>>,
     body: Box<dyn Stmt>,
 }
 
@@ -472,12 +527,14 @@ impl FunctionExpression {
         token: Token,
         arguments: Option<Vec<FunctionArgument>>,
         return_type: Option<ReturnType>,
+        uses: Option<Vec<Box<dyn Expr>>>,
         body: Box<dyn Stmt>,
     ) -> Self {
         Self {
             token,
             arguments,
             return_type,
+            uses,
             body,
         }
     }
@@ -489,6 +546,7 @@ impl Expr for FunctionExpression {
             .field("token", &self.token)
             .field("arguments", &self.arguments)
             .field("return_type", &self.return_type)
+            .field("uses", &self.uses)
             .field("body", &self.body)
             .finish()
     }

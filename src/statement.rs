@@ -1,4 +1,4 @@
-use crate::expression::{Expr, PathExpression};
+use crate::expression::Expr;
 use crate::token::Token;
 
 use std::fmt;
@@ -49,12 +49,50 @@ impl Stmt for EchoStatement {
     }
 }
 
-pub struct ReturnStatement {
+pub struct ThrowStatement {
     expression: Box<dyn Expr>,
 }
 
-impl ReturnStatement {
+impl ThrowStatement {
     pub fn new(expression: Box<dyn Expr>) -> Self {
+        Self { expression }
+    }
+}
+
+impl Stmt for ThrowStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("throw")
+            .field("expression", &self.expression)
+            .finish()
+    }
+}
+
+pub struct DeclareStatement {
+    directive: Token,
+    value: Token,
+}
+
+impl DeclareStatement {
+    pub fn new(directive: Token, value: Token) -> Self {
+        Self { directive, value }
+    }
+}
+
+impl Stmt for DeclareStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("declare")
+            .field("directive", &self.directive)
+            .field("value", &self.value)
+            .finish()
+    }
+}
+
+pub struct ReturnStatement {
+    expression: Option<Box<dyn Expr>>,
+}
+
+impl ReturnStatement {
+    pub fn new(expression: Option<Box<dyn Expr>>) -> Self {
         Self { expression }
     }
 }
@@ -68,11 +106,11 @@ impl Stmt for ReturnStatement {
 }
 
 pub struct NamespaceStatement {
-    expression: Box<PathExpression>,
+    expression: Box<dyn Expr>,
 }
 
 impl NamespaceStatement {
-    pub fn new(expression: Box<PathExpression>) -> Self {
+    pub fn new(expression: Box<dyn Expr>) -> Self {
         Self { expression }
     }
 }
@@ -86,13 +124,13 @@ impl Stmt for NamespaceStatement {
 }
 
 pub struct UseStatement {
-    path: Box<PathExpression>,
+    path: Box<dyn Expr>,
     alias: Option<Token>,
     group: Option<Vec<Box<dyn Stmt>>>,
 }
 
 impl UseStatement {
-    pub fn new(path: Box<PathExpression>) -> Self {
+    pub fn new(path: Box<dyn Expr>) -> Self {
         Self {
             path,
             alias: None,
@@ -100,7 +138,7 @@ impl UseStatement {
         }
     }
 
-    pub fn aliased(path: Box<PathExpression>, alias: Token) -> Self {
+    pub fn aliased(path: Box<dyn Expr>, alias: Token) -> Self {
         Self {
             path,
             alias: Some(alias),
@@ -108,7 +146,7 @@ impl UseStatement {
         }
     }
 
-    pub fn grouped(path: Box<PathExpression>, group: Vec<Box<dyn Stmt>>) -> Self {
+    pub fn grouped(path: Box<dyn Expr>, group: Vec<Box<dyn Stmt>>) -> Self {
         Self {
             path,
             alias: None,
@@ -130,6 +168,7 @@ impl Stmt for UseStatement {
 pub struct ClassStatement {
     name: Token,
     is_abstract: bool,
+    is_final: bool,
     implements: Option<Vec<Token>>,
     extends: Option<Vec<Token>>,
     body: Vec<Box<dyn Stmt>>,
@@ -139,6 +178,7 @@ impl ClassStatement {
     pub fn new(
         name: Token,
         is_abstract: bool,
+        is_final: bool,
         implements: Option<Vec<Token>>,
         extends: Option<Vec<Token>>,
         body: Vec<Box<dyn Stmt>>,
@@ -146,6 +186,7 @@ impl ClassStatement {
         Self {
             name,
             is_abstract,
+            is_final,
             implements,
             extends,
             body,
@@ -158,8 +199,29 @@ impl Stmt for ClassStatement {
         f.debug_struct("Class")
             .field("name", &self.name)
             .field("is_abstract", &self.is_abstract)
+            .field("is_final", &self.is_final)
             .field("implements", &self.implements)
             .field("extends", &self.extends)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+pub struct TraitStatement {
+    name: Token,
+    body: Vec<Box<dyn Stmt>>,
+}
+
+impl TraitStatement {
+    pub fn new(name: Token, body: Vec<Box<dyn Stmt>>) -> Self {
+        Self { name, body }
+    }
+}
+
+impl Stmt for TraitStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Trait")
+            .field("name", &self.name)
             .field("body", &self.body)
             .finish()
     }
@@ -220,6 +282,7 @@ impl Stmt for ClassConstantDefinitionStatement {
 pub struct PropertyDefinitionStatement {
     name: Token,
     visibility: Option<Token>,
+    is_abstract: bool,
     value: Option<Box<dyn Expr>>,
     is_static: bool,
 }
@@ -228,12 +291,14 @@ impl PropertyDefinitionStatement {
     pub fn new(
         name: Token,
         visibility: Option<Token>,
+        is_abstract: bool,
         value: Option<Box<dyn Expr>>,
         is_static: bool,
     ) -> Self {
         Self {
             name,
             visibility,
+            is_abstract,
             value,
             is_static,
         }
@@ -245,6 +310,7 @@ impl Stmt for PropertyDefinitionStatement {
         f.debug_struct("property")
             .field("name", &self.name)
             .field("visibility", &self.visibility)
+            .field("is_abstract", &self.is_abstract)
             .field("value", &self.value)
             .field("is_static", &self.is_static)
             .finish()
@@ -262,7 +328,7 @@ impl MethodDeclarationStatement {
     pub fn new(
         name: Token,
         visibility: Option<Token>,
-        function: Box<FunctionDeclarationStatement>,
+        function: Box<FunctionDefinitionStatement>,
         is_static: bool,
     ) -> Self {
         Self {
@@ -288,6 +354,7 @@ impl Stmt for MethodDeclarationStatement {
 pub struct MethodDefinitionStatement {
     name: Token,
     visibility: Option<Token>,
+    is_abstract: bool,
     function: Box<dyn Stmt>,
     is_static: bool,
 }
@@ -296,12 +363,14 @@ impl MethodDefinitionStatement {
     pub fn new(
         name: Token,
         visibility: Option<Token>,
+        is_abstract: bool,
         function: Box<dyn Stmt>,
         is_static: bool,
     ) -> Self {
         Self {
             name,
             visibility,
+            is_abstract,
             function,
             is_static,
         }
@@ -313,6 +382,7 @@ impl Stmt for MethodDefinitionStatement {
         f.debug_struct("method")
             .field("name", &self.name)
             .field("visibility", &self.visibility)
+            .field("is_abstract", &self.is_abstract)
             .field("function", &self.function)
             .field("is_static", &self.is_static)
             .finish()
@@ -322,14 +392,14 @@ impl Stmt for MethodDefinitionStatement {
 pub struct FunctionDefinitionStatement {
     arguments: Option<Vec<FunctionArgument>>,
     return_type: Option<ReturnType>,
-    body: Box<dyn Stmt>,
+    body: Option<Box<dyn Stmt>>,
 }
 
 impl FunctionDefinitionStatement {
     pub fn new(
         arguments: Option<Vec<FunctionArgument>>,
         return_type: Option<ReturnType>,
-        body: Box<dyn Stmt>,
+        body: Option<Box<dyn Stmt>>,
     ) -> Self {
         Self {
             arguments,
@@ -365,29 +435,6 @@ impl Stmt for NamedFunctionDefinitionStatement {
         f.debug_struct("named-function")
             .field("name", &self.name)
             .field("function", &self.function)
-            .finish()
-    }
-}
-
-pub struct FunctionDeclarationStatement {
-    arguments: Option<Vec<FunctionArgument>>,
-    return_type: Option<ReturnType>,
-}
-
-impl FunctionDeclarationStatement {
-    pub fn new(arguments: Option<Vec<FunctionArgument>>, return_type: Option<ReturnType>) -> Self {
-        Self {
-            arguments,
-            return_type,
-        }
-    }
-}
-
-impl Stmt for FunctionDeclarationStatement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("function")
-            .field("arguments", &self.arguments)
-            .field("return_type", &self.return_type)
             .finish()
     }
 }
@@ -666,13 +713,13 @@ impl Stmt for TokenStatement {
 }
 
 pub struct CatchBlock {
-    types: Vec<Box<PathExpression>>,
+    types: Vec<Box<dyn Expr>>,
     var: Token,
     body: Box<dyn Stmt>,
 }
 
 impl CatchBlock {
-    pub fn new(types: Vec<Box<PathExpression>>, var: Token, body: Box<dyn Stmt>) -> Self {
+    pub fn new(types: Vec<Box<dyn Expr>>, var: Token, body: Box<dyn Stmt>) -> Self {
         Self { types, var, body }
     }
 }
