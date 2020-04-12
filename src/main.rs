@@ -32,6 +32,8 @@ fn visit_file(path: &Path) -> io::Result<()> {
             let mut parser = Parser::new(&scanner.tokens);
             if let Err(e) = parser.ast() {
                 println!("{}: {:#?}", p, e);
+            } else {
+                println!("Parsed {}", p);
             }
             //println!("{:#?}", parser.ast());
             //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {

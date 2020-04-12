@@ -21,12 +21,31 @@ type ExpressionResult = Result<Box<dyn Expr>, String>;
 #[derive(Debug)]
 pub struct Parser<'a> {
     tokens: Peekable<Iter<'a, Token>>,
+    errors: Vec<String>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a Vec<Token>) -> Self {
         Self {
             tokens: tokens.iter().peekable(),
+            errors: Vec::new(),
+        }
+    }
+
+    /// Fast forwards to the end of the current statement or block
+    fn error_fast_forward(&mut self) {
+        while self.tokens.peek().is_some() {
+            self.tokens.next();
+
+            if self.next_token_one_of(&vec![TokenType::Semicolon]) {
+                self.tokens.next();
+
+                break;
+            }
+
+            if self.next_token_one_of(&vec![TokenType::CloseCurly]) {
+                break;
+            }
         }
     }
 
@@ -46,8 +65,16 @@ impl<'a> Parser<'a> {
         self.consume_or_err(TokenType::ScriptStart)?;
 
         while self.tokens.peek().is_some() {
-            statements.push(self.statement()?);
+            match self.statement() {
+                Ok(statement) => statements.push(statement),
+                Err(error) => {
+                    self.errors.push(error);
+                    self.error_fast_forward();
+                }
+            }
         }
+
+        println!("{:#?}", self.errors);
 
         Ok(statements)
     }
@@ -66,7 +93,13 @@ impl<'a> Parser<'a> {
 
         // TODO: Make sure namespace etc can not pop up here
         while !self.next_token_one_of(&vec![TokenType::CloseCurly]) {
-            statements.push(self.statement()?);
+            match self.statement() {
+                Ok(statement) => statements.push(statement),
+                Err(error) => {
+                    self.errors.push(error);
+                    self.error_fast_forward();
+                }
+            }
         }
 
         Ok(Box::new(Block::new(statements)))
