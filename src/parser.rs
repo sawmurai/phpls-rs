@@ -6,9 +6,8 @@ use std::iter::Iterator;
 use std::iter::Peekable;
 use std::slice::Iter;
 
-type FuncDefStatementResult = Result<Box<FunctionDefinitionStatement>, String>;
+type FuncDecStatementResult = Result<Box<FunctionDeclarationStatement>, String>;
 type StatementResult = Result<Box<dyn Stmt>, String>;
-type ClassStatementResult = Result<Box<dyn Stmt>, String>;
 type StatementListResult = Result<Vec<Box<dyn Stmt>>, String>;
 type ArgumentListResult = Result<Option<Vec<FunctionArgument>>, String>;
 type ReturnTypeResult = Result<ReturnType, String>;
@@ -117,19 +116,12 @@ impl<'a> Parser<'a> {
     fn class_block(&mut self) -> StatementListResult {
         let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
 
-        while let Some(next) = self.tokens.next() {
-            let visibility = match self.next_token_one_of(&vec![
+        while !self.next_token_one_of(&vec![TokenType::CloseCurly]) {
+            let visibility = self.consume_one_of_cloned_or_ignore(&vec![
                 TokenType::Public,
                 TokenType::Private,
                 TokenType::Protected,
-            ]) {
-                true => {
-                    self.tokens.next();
-
-                    Some(next.t.clone())
-                }
-                false => None,
-            };
+            ]);
 
             if self.next_token_one_of(&vec![TokenType::Const]) {
                 self.tokens.next();
@@ -142,17 +134,12 @@ impl<'a> Parser<'a> {
                     self.expression()?,
                 )));
 
+                self.consume_or_err(TokenType::Semicolon)?;
+
                 continue;
             };
 
-            let is_static = match self.next_token_one_of(&vec![TokenType::Static]) {
-                true => {
-                    self.tokens.next();
-
-                    true
-                }
-                false => false,
-            };
+            let is_static = self.consume_or_ignore(TokenType::Static).is_some();
 
             if let Some(next) = self.tokens.peek() {
                 match next.t {
@@ -163,37 +150,41 @@ impl<'a> Parser<'a> {
                         statements.push(Box::new(MethodDefinitionStatement::new(
                             name,
                             visibility,
-                            self.function()?,
+                            self.anonymous_function_statement()?,
                             is_static,
                         )));
                     }
                     // One or more of those ...
-                    TokenType::Variable => loop {
-                        // The next variable
-                        let name = self.consume_cloned(TokenType::Variable)?;
-                        let assignment = match self.next_token_one_of(&vec![TokenType::Assignment])
-                        {
-                            true => {
-                                self.tokens.next();
-                                Some(self.expression()?)
+                    TokenType::Variable => {
+                        loop {
+                            // The next variable
+                            let name = self.consume_cloned(TokenType::Variable)?;
+                            let assignment =
+                                match self.next_token_one_of(&vec![TokenType::Assignment]) {
+                                    true => {
+                                        self.tokens.next();
+                                        Some(self.expression()?)
+                                    }
+                                    false => None,
+                                };
+
+                            statements.push(Box::new(PropertyDefinitionStatement::new(
+                                name,
+                                visibility.clone(),
+                                assignment,
+                                is_static,
+                            )));
+
+                            if !self.next_token_one_of(&vec![TokenType::Comma]) {
+                                break;
                             }
-                            false => None,
-                        };
 
-                        statements.push(Box::new(PropertyDefinitionStatement::new(
-                            name,
-                            visibility.clone(),
-                            assignment,
-                            is_static,
-                        )));
-
-                        if !self.next_token_one_of(&vec![TokenType::Comma]) {
-                            break;
+                            // The comma
+                            self.tokens.next();
                         }
 
-                        // The comma
-                        self.tokens.next();
-                    },
+                        self.consume_or_err(TokenType::Semicolon)?;
+                    }
                     _ => {
                         return Err(format!(
                             "Unexpected {:?} on line {}, col {}",
@@ -217,6 +208,62 @@ impl<'a> Parser<'a> {
         Ok(statements)
     }
 
+    /// Parses the body of an interface definition
+    /// It expects to be past the `{` and will read until it encounters a `}`
+    ///  
+    /// # Details
+    /// ```php
+    /// abstract class Whatever {
+    /// // Parse here
+    /// }
+    /// ```
+    fn interface_block(&mut self) -> StatementListResult {
+        let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
+
+        while !self.next_token_one_of(&vec![TokenType::CloseCurly]) {
+            // Only public or nothing makes sense, but we know what the user indented, so we keep on parsing
+            let visibility = self.consume_one_of_cloned_or_ignore(&vec![
+                TokenType::Public,
+                TokenType::Private,
+                TokenType::Protected,
+            ]);
+
+            if self.next_token_one_of(&vec![TokenType::Const]) {
+                self.tokens.next();
+                let name = self.consume_cloned(TokenType::Identifier)?;
+
+                self.consume_or_err(TokenType::Assignment)?;
+                statements.push(Box::new(ClassConstantDefinitionStatement::new(
+                    name,
+                    visibility,
+                    self.expression()?,
+                )));
+
+                self.consume_or_err(TokenType::Semicolon)?;
+
+                continue;
+            };
+
+            if self.next_token_one_of(&vec![TokenType::Function]) {
+                let is_static = self.consume_or_ignore(TokenType::Static).is_some();
+
+                self.tokens.next();
+                let name = self.consume_cloned(TokenType::Identifier)?;
+
+                statements.push(Box::new(MethodDeclarationStatement::new(
+                    name,
+                    visibility,
+                    self.function_declaration()?,
+                    is_static,
+                )));
+
+                self.consume_or_err(TokenType::Semicolon)?;
+            };
+        }
+
+        Ok(statements)
+    }
+
     /// Parses a function definition by calling methods to parse the argument list, return type and body.
     /// It only handles anonymous functions, since the name of a named function was parses previously ... and
     /// a named function stripped off of the name is ... anonymous :)
@@ -228,7 +275,7 @@ impl<'a> Parser<'a> {
     /// }
     /// /** to here **/
     /// ```
-    fn function(&mut self) -> FuncDefStatementResult {
+    fn anonymous_function_statement(&mut self) -> StatementResult {
         self.consume_or_err(TokenType::OpenParenthesis)?;
         let arguments = self.argument_list()?;
         self.consume_or_err(TokenType::CloseParenthesis)?;
@@ -249,6 +296,49 @@ impl<'a> Parser<'a> {
             arguments,
             return_type,
             body,
+        )))
+    }
+
+    /// Parses a function definition by calling methods to parse the argument list, return type and body.
+    /// Handles named function
+    ///
+    /// # Details
+    /// ```php
+    /// function /** from here **/my_funy (string $a, int $b): void {
+    ///     echo "Hello!";
+    /// }
+    /// /** to here **/
+    /// ```
+    fn named_function(&mut self) -> StatementResult {
+        Ok(Box::new(NamedFunctionDefinitionStatement::new(
+            self.consume_cloned(TokenType::Identifier)?,
+            self.anonymous_function_statement()?,
+        )))
+    }
+
+    /// Parses a function declaration by calling methods to parse the argument list and return type.
+    /// Does not parse a body. Used for stuff in interfaces and abstract classes.
+    ///
+    /// # Details
+    /// ```php
+    /// function my_funy /** from here **/ (string $a, int $b): void /** to here **/
+    /// ```
+    fn function_declaration(&mut self) -> FuncDecStatementResult {
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+        let arguments = self.argument_list()?;
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+
+        let return_type = match self.next_token_one_of(&vec![TokenType::Colon]) {
+            true => {
+                self.tokens.next();
+                Some(self.return_type()?)
+            }
+            false => None,
+        };
+
+        Ok(Box::new(FunctionDeclarationStatement::new(
+            arguments,
+            return_type,
         )))
     }
 
@@ -384,6 +474,11 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> StatementResult {
         if let Some(&token) = self.tokens.peek() {
             match token.t {
+                TokenType::Function => {
+                    self.tokens.next();
+
+                    return self.named_function();
+                }
                 TokenType::Namespace => {
                     self.tokens.next();
 
@@ -399,6 +494,11 @@ impl<'a> Parser<'a> {
 
                     return self.echo_statement();
                 }
+                TokenType::Return => {
+                    self.tokens.next();
+
+                    return self.return_statement();
+                }
                 TokenType::Class => {
                     self.tokens.next();
                     return self.class_statement(false);
@@ -406,6 +506,10 @@ impl<'a> Parser<'a> {
                 TokenType::Abstract => {
                     self.tokens.next();
                     return self.abstract_class_statement();
+                }
+                TokenType::Interface => {
+                    self.tokens.next();
+                    return self.interface();
                 }
                 TokenType::While => {
                     self.tokens.next();
@@ -897,40 +1001,34 @@ impl<'a> Parser<'a> {
         Ok(Box::new(EchoStatement::new(value)))
     }
 
+    fn return_statement(&mut self) -> StatementResult {
+        let value = self.expression()?;
+
+        self.consume_or_err(TokenType::Semicolon)?;
+
+        Ok(Box::new(ReturnStatement::new(value)))
+    }
+
     // abstract_class -> "abstract" class
-    fn abstract_class_statement(&mut self) -> ClassStatementResult {
+    fn abstract_class_statement(&mut self) -> StatementResult {
         self.tokens.next();
 
         self.class_statement(true)
     }
 
     // class -> "class" identifier (extends identifier_list)? (implements identifier_list)?
-    fn class_statement(&mut self, is_abstract: bool) -> ClassStatementResult {
+    fn class_statement(&mut self, is_abstract: bool) -> StatementResult {
         let name = self.consume_cloned(TokenType::Identifier)?;
 
-        let next = if let Some(next) = self.tokens.peek() {
-            next
-        } else {
-            return Err(format!("Unexpected EOF"));
+        let extends = match self.consume_or_ignore(TokenType::Extends) {
+            Some(_) => Some(self.identifier_list()?),
+            None => None,
         };
 
-        let mut extends = None;
-        if next.t == TokenType::Extends {
-            self.tokens.next();
-            extends = Some(self.identifier_list()?);
-        }
-
-        let next = if let Some(next) = self.tokens.peek() {
-            next
-        } else {
-            return Err(format!("Unexpected EOF"));
+        let implements = match self.consume_or_ignore(TokenType::Implements) {
+            Some(_) => Some(self.identifier_list()?),
+            None => None,
         };
-
-        let mut implements = None;
-        if next.t == TokenType::Implements {
-            self.tokens.next();
-            implements = Some(self.identifier_list()?);
-        }
 
         self.consume_or_err(TokenType::OpenCurly)?;
         let block = self.class_block()?;
@@ -943,6 +1041,22 @@ impl<'a> Parser<'a> {
             implements,
             block,
         )))
+    }
+
+    /// Parses an interface definition
+    fn interface(&mut self) -> StatementResult {
+        let name = self.consume_cloned(TokenType::Identifier)?;
+
+        let extends = match self.consume_or_ignore(TokenType::Extends) {
+            Some(_) => Some(self.identifier_list()?),
+            None => None,
+        };
+
+        self.consume_or_err(TokenType::OpenCurly)?;
+        let block = self.interface_block()?;
+        self.consume_or_err(TokenType::CloseCurly)?;
+
+        Ok(Box::new(Interface::new(name, extends, block)))
     }
 
     // (("extends" identifier) (, "extends" identifier)*)?
@@ -1184,7 +1298,7 @@ impl<'a> Parser<'a> {
             TokenType::EncapsedAndWhitespaceString,
             TokenType::Variable,
             TokenType::Identifier,
-            TokenType::Declare,
+            TokenType::Declare, // TODO: Move this away?
         ]) {
             return Ok(Box::new(Literal::new(self.tokens.next().unwrap().clone())));
         }
@@ -1199,10 +1313,39 @@ impl<'a> Parser<'a> {
             self.consume_or_err(TokenType::CloseParenthesis)?;
 
             return Ok(Box::new(Grouping::new(expr)));
+        } else if self.next_token_one_of(&vec![TokenType::Function]) {
+            return self.anonymous_function();
         }
 
         let next = self.tokens.peek().unwrap();
         Err(format!("Unsupported primary {:?}", next))
+    }
+
+    fn anonymous_function(&mut self) -> ExpressionResult {
+        let token = self.consume_cloned(TokenType::Function)?;
+
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+        let arguments = self.argument_list()?;
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+
+        let return_type = match self.next_token_one_of(&vec![TokenType::Colon]) {
+            true => {
+                self.tokens.next();
+                Some(self.return_type()?)
+            }
+            false => None,
+        };
+
+        self.consume_or_err(TokenType::OpenCurly)?;
+        let body = self.block()?;
+        self.consume_or_err(TokenType::CloseCurly)?;
+
+        Ok(Box::new(FunctionExpression::new(
+            token,
+            arguments,
+            return_type,
+            body,
+        )))
     }
 
     fn array(&mut self) -> ExpressionResult {
@@ -1312,6 +1455,18 @@ impl<'a> Parser<'a> {
         }
 
         Err(format!("Expected one of {:?}, found end of file.", types))
+    }
+
+    fn consume_one_of_cloned_or_ignore(&mut self, types: &Vec<TokenType>) -> Option<Token> {
+        if let Some(token) = self.tokens.next() {
+            for tt in types.iter().as_ref() {
+                if token.t == *tt {
+                    return Some(token.clone());
+                }
+            }
+        }
+
+        None
     }
 
     fn next_token_one_of(&mut self, types: &Vec<TokenType>) -> bool {

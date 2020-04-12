@@ -1,5 +1,5 @@
 use crate::expression::{Expr, PathExpression};
-use crate::token::{Token, TokenType};
+use crate::token::Token;
 
 use std::fmt;
 
@@ -44,6 +44,24 @@ impl EchoStatement {
 impl Stmt for EchoStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Echo")
+            .field("expression", &self.expression)
+            .finish()
+    }
+}
+
+pub struct ReturnStatement {
+    expression: Box<dyn Expr>,
+}
+
+impl ReturnStatement {
+    pub fn new(expression: Box<dyn Expr>) -> Self {
+        Self { expression }
+    }
+}
+
+impl Stmt for ReturnStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("return")
             .field("expression", &self.expression)
             .finish()
     }
@@ -147,14 +165,40 @@ impl Stmt for ClassStatement {
     }
 }
 
+pub struct Interface {
+    name: Token,
+    extends: Option<Vec<Token>>,
+    body: Vec<Box<dyn Stmt>>,
+}
+
+impl Interface {
+    pub fn new(name: Token, extends: Option<Vec<Token>>, body: Vec<Box<dyn Stmt>>) -> Self {
+        Self {
+            name,
+            extends,
+            body,
+        }
+    }
+}
+
+impl Stmt for Interface {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Interface")
+            .field("name", &self.name)
+            .field("extends", &self.extends)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
 pub struct ClassConstantDefinitionStatement {
     name: Token,
-    visibility: Option<TokenType>,
+    visibility: Option<Token>,
     value: Box<dyn Expr>,
 }
 
 impl ClassConstantDefinitionStatement {
-    pub fn new(name: Token, visibility: Option<TokenType>, value: Box<dyn Expr>) -> Self {
+    pub fn new(name: Token, visibility: Option<Token>, value: Box<dyn Expr>) -> Self {
         Self {
             name,
             visibility,
@@ -175,7 +219,7 @@ impl Stmt for ClassConstantDefinitionStatement {
 
 pub struct PropertyDefinitionStatement {
     name: Token,
-    visibility: Option<TokenType>,
+    visibility: Option<Token>,
     value: Option<Box<dyn Expr>>,
     is_static: bool,
 }
@@ -183,7 +227,7 @@ pub struct PropertyDefinitionStatement {
 impl PropertyDefinitionStatement {
     pub fn new(
         name: Token,
-        visibility: Option<TokenType>,
+        visibility: Option<Token>,
         value: Option<Box<dyn Expr>>,
         is_static: bool,
     ) -> Self {
@@ -207,9 +251,43 @@ impl Stmt for PropertyDefinitionStatement {
     }
 }
 
+pub struct MethodDeclarationStatement {
+    name: Token,
+    visibility: Option<Token>,
+    function: Box<dyn Stmt>,
+    is_static: bool,
+}
+
+impl MethodDeclarationStatement {
+    pub fn new(
+        name: Token,
+        visibility: Option<Token>,
+        function: Box<FunctionDeclarationStatement>,
+        is_static: bool,
+    ) -> Self {
+        Self {
+            name,
+            visibility,
+            function,
+            is_static,
+        }
+    }
+}
+
+impl Stmt for MethodDeclarationStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("method declaration")
+            .field("name", &self.name)
+            .field("visibility", &self.visibility)
+            .field("function", &self.function)
+            .field("is_static", &self.is_static)
+            .finish()
+    }
+}
+
 pub struct MethodDefinitionStatement {
     name: Token,
-    visibility: Option<TokenType>,
+    visibility: Option<Token>,
     function: Box<dyn Stmt>,
     is_static: bool,
 }
@@ -217,8 +295,8 @@ pub struct MethodDefinitionStatement {
 impl MethodDefinitionStatement {
     pub fn new(
         name: Token,
-        visibility: Option<TokenType>,
-        function: Box<FunctionDefinitionStatement>,
+        visibility: Option<Token>,
+        function: Box<dyn Stmt>,
         is_static: bool,
     ) -> Self {
         Self {
@@ -267,6 +345,49 @@ impl Stmt for FunctionDefinitionStatement {
             .field("arguments", &self.arguments)
             .field("return_type", &self.return_type)
             .field("body", &self.body)
+            .finish()
+    }
+}
+
+pub struct NamedFunctionDefinitionStatement {
+    name: Token,
+    function: Box<dyn Stmt>,
+}
+
+impl NamedFunctionDefinitionStatement {
+    pub fn new(name: Token, function: Box<dyn Stmt>) -> Self {
+        Self { name, function }
+    }
+}
+
+impl Stmt for NamedFunctionDefinitionStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("named-function")
+            .field("name", &self.name)
+            .field("function", &self.function)
+            .finish()
+    }
+}
+
+pub struct FunctionDeclarationStatement {
+    arguments: Option<Vec<FunctionArgument>>,
+    return_type: Option<ReturnType>,
+}
+
+impl FunctionDeclarationStatement {
+    pub fn new(arguments: Option<Vec<FunctionArgument>>, return_type: Option<ReturnType>) -> Self {
+        Self {
+            arguments,
+            return_type,
+        }
+    }
+}
+
+impl Stmt for FunctionDeclarationStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("function")
+            .field("arguments", &self.arguments)
+            .field("return_type", &self.return_type)
             .finish()
     }
 }

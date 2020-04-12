@@ -30,7 +30,9 @@ fn visit_file(path: &Path) -> io::Result<()> {
             //t.insert(p, scanner.tokens);
 
             let mut parser = Parser::new(&scanner.tokens);
-            if let Err(e) = parser.ast() {
+            let result = parser.ast();
+
+            if let Err(e) = result {
                 println!("{}: {:#?}", p, e);
             } else {
                 println!("Parsed {}", p);

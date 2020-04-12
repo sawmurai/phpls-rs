@@ -1,3 +1,4 @@
+use crate::statement::{FunctionArgument, ReturnType, Stmt};
 use crate::token::{Token, TokenType};
 
 use std::fmt;
@@ -452,6 +453,56 @@ impl Expr for Field {
 
     fn col(&self) -> u16 {
         self.field.col()
+    }
+
+    fn is_offset(&self) -> bool {
+        true
+    }
+}
+
+pub struct FunctionExpression {
+    token: Token,
+    arguments: Option<Vec<FunctionArgument>>,
+    return_type: Option<ReturnType>,
+    body: Box<dyn Stmt>,
+}
+
+impl FunctionExpression {
+    pub fn new(
+        token: Token,
+        arguments: Option<Vec<FunctionArgument>>,
+        return_type: Option<ReturnType>,
+        body: Box<dyn Stmt>,
+    ) -> Self {
+        Self {
+            token,
+            arguments,
+            return_type,
+            body,
+        }
+    }
+}
+
+impl Expr for FunctionExpression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("function")
+            .field("token", &self.token)
+            .field("arguments", &self.arguments)
+            .field("return_type", &self.return_type)
+            .field("body", &self.body)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.token.line
+    }
+
+    fn col(&self) -> u16 {
+        self.token.col
     }
 
     fn is_offset(&self) -> bool {
