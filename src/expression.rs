@@ -137,6 +137,52 @@ impl Expr for Binary {
     }
 }
 
+pub struct Ternary {
+    condition: Box<dyn Expr>,
+    true_case: Option<Box<dyn Expr>>,
+    false_case: Box<dyn Expr>,
+}
+
+impl Ternary {
+    pub fn new(
+        condition: Box<dyn Expr>,
+        true_case: Option<Box<dyn Expr>>,
+        false_case: Box<dyn Expr>,
+    ) -> Self {
+        Self {
+            condition,
+            true_case,
+            false_case,
+        }
+    }
+}
+
+impl Expr for Ternary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Ternary")
+            .field("condition", &self.condition)
+            .field("true_case", &self.true_case)
+            .field("false_case", &self.false_case)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.condition.line()
+    }
+
+    fn col(&self) -> u16 {
+        self.condition.col()
+    }
+
+    fn is_offset(&self) -> bool {
+        true
+    }
+}
+
 pub struct Literal {
     value: Token,
 }

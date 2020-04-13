@@ -1171,7 +1171,30 @@ impl<'a> Parser<'a> {
 
     /// Parses an expression. This can be anything that evaluates to a value. A function call, a comparison or even an assignment
     fn expression(&mut self) -> ExpressionResult {
-        self.assignment()
+        let assignment = self.assignment();
+
+        if self.next_token_one_of(&vec![TokenType::QuestionMark]) {
+            self.tokens.next();
+            if self.next_token_one_of(&vec![TokenType::Colon]) {
+                self.tokens.next();
+                let false_branch = self.expression()?;
+
+                return Ok(Box::new(Ternary::new(assignment?, None, false_branch)));
+            } else {
+                let true_branch = self.expression()?;
+
+                self.consume_or_err(TokenType::Colon)?;
+                let false_branch = self.expression()?;
+
+                return Ok(Box::new(Ternary::new(
+                    assignment?,
+                    Some(true_branch),
+                    false_branch,
+                )));
+            }
+        }
+
+        assignment
     }
 
     /// Parses an assignment. First parses the l-value as a normal expression. Then determines if it is followed by an assignment

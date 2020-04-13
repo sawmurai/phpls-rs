@@ -37,6 +37,8 @@ fn visit_file(path: &Path) -> io::Result<()> {
             } else if !parser.errors().is_empty() {
                 println!("Errors parsing {}", p);
                 println!("Parsed {:#?}", parser.errors());
+            } else {
+                //println!("{:#?}", result);
             }
             //println!("{:#?}", parser.ast());
             //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {
