@@ -1210,6 +1210,33 @@ impl<'a> Parser<'a> {
         Ok(Box::new(ExpressionStatement::new(value)))
     }
 
+    // path -> identifier ("\" identifier)*
+    fn path(&mut self) -> Result<Box<dyn Expr>, String> {
+        let absolute = self.consume_or_ignore(TokenType::NamespaceSeparator);
+
+        let mut path = vec![self.consume_cloned(TokenType::Identifier)?];
+        let matches_ns = vec![TokenType::NamespaceSeparator];
+        let matches_ident = vec![TokenType::Identifier];
+
+        while self.next_token_one_of(&matches_ns) {
+            self.consume_or_err(TokenType::NamespaceSeparator)?;
+
+            if !self.next_token_one_of(&matches_ident) {
+                break;
+            }
+
+            path.push(self.consume_cloned(TokenType::Identifier)?);
+        }
+
+        let is_absolute = absolute.is_some();
+
+        Ok(Box::new(PathExpression::new(
+            absolute.unwrap_or(path.iter().nth(0).unwrap().clone()),
+            is_absolute,
+            path,
+        )))
+    }
+
     /// Parses an expression. This can be anything that evaluates to a value. A function call, a comparison or even an assignment
     fn expression(&mut self) -> ExpressionResult {
         let assignment = self.assignment();
@@ -1282,33 +1309,6 @@ impl<'a> Parser<'a> {
         }
 
         Ok(expr)
-    }
-
-    // path -> identifier ("\" identifier)*
-    fn path(&mut self) -> Result<Box<dyn Expr>, String> {
-        let absolute = self.consume_or_ignore(TokenType::NamespaceSeparator);
-
-        let mut path = vec![self.consume_cloned(TokenType::Identifier)?];
-        let matches_ns = vec![TokenType::NamespaceSeparator];
-        let matches_ident = vec![TokenType::Identifier];
-
-        while self.next_token_one_of(&matches_ns) {
-            self.consume_or_err(TokenType::NamespaceSeparator)?;
-
-            if !self.next_token_one_of(&matches_ident) {
-                break;
-            }
-
-            path.push(self.consume_cloned(TokenType::Identifier)?);
-        }
-
-        let is_absolute = absolute.is_some();
-
-        Ok(Box::new(PathExpression::new(
-            absolute.unwrap_or(path.iter().nth(0).unwrap().clone()),
-            is_absolute,
-            path,
-        )))
     }
 
     fn logic(&mut self) -> ExpressionResult {
