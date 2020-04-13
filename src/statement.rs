@@ -87,6 +87,24 @@ impl Stmt for DeclareStatement {
     }
 }
 
+pub struct UnsetStatement {
+    parameters: Vec<Box<dyn Expr>>,
+}
+
+impl UnsetStatement {
+    pub fn new(parameters: Vec<Box<dyn Expr>>) -> Self {
+        Self { parameters }
+    }
+}
+
+impl Stmt for UnsetStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("unset")
+            .field("parameters", &self.parameters)
+            .finish()
+    }
+}
+
 pub struct ReturnStatement {
     expression: Option<Box<dyn Expr>>,
 }
@@ -441,32 +459,64 @@ impl Stmt for NamedFunctionDefinitionStatement {
 
 #[derive(Debug)]
 pub struct FunctionArgument {
-    t: Option<Token>,
+    t: Option<ArgumentType>,
     name: Token,
-    nullable: bool,
-    default: Option<Token>,
+    default: Option<Box<dyn Expr>>,
 }
 
 impl FunctionArgument {
-    pub fn new(t: Option<Token>, name: Token, nullable: bool, default: Option<Token>) -> Self {
-        Self {
-            t,
-            name,
-            nullable,
-            default,
-        }
+    pub fn new(t: Option<ArgumentType>, name: Token, default: Option<Box<dyn Expr>>) -> Self {
+        Self { t, name, default }
     }
 }
 
 #[derive(Debug)]
 pub struct ReturnType {
-    t: Token,
+    token: Option<Token>,
+    path: Option<Box<dyn Expr>>,
     nullable: bool,
 }
 
 impl ReturnType {
-    pub fn new(t: Token, nullable: bool) -> Self {
-        Self { t, nullable }
+    pub fn path(path: Box<dyn Expr>, nullable: bool) -> Self {
+        Self {
+            token: None,
+            path: Some(path),
+            nullable,
+        }
+    }
+
+    pub fn primitive(token: Token, nullable: bool) -> Self {
+        Self {
+            path: None,
+            token: Some(token),
+            nullable,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ArgumentType {
+    token: Option<Token>,
+    path: Option<Box<dyn Expr>>,
+    nullable: bool,
+}
+
+impl ArgumentType {
+    pub fn path(path: Box<dyn Expr>, nullable: bool) -> Self {
+        Self {
+            token: None,
+            path: Some(path),
+            nullable,
+        }
+    }
+
+    pub fn primitive(token: Token, nullable: bool) -> Self {
+        Self {
+            path: None,
+            token: Some(token),
+            nullable,
+        }
     }
 }
 

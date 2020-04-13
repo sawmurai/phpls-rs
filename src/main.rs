@@ -34,8 +34,9 @@ fn visit_file(path: &Path) -> io::Result<()> {
 
             if let Err(e) = result {
                 println!("{}: {:#?}", p, e);
-            } else {
-                println!("Parsed {}", p);
+            } else if !parser.errors().is_empty() {
+                println!("Errors parsing {}", p);
+                println!("Parsed {:#?}", parser.errors());
             }
             //println!("{:#?}", parser.ast());
             //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {

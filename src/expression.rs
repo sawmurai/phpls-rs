@@ -416,6 +416,7 @@ impl Instantiation {
 impl Expr for Instantiation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("instantiation")
+            .field("token", &self.token)
             .field("call", &self.call)
             .finish()
     }
@@ -436,6 +437,40 @@ impl Expr for Instantiation {
     }
 }
 
+pub struct CloneExpression {
+    token: Token,
+    object: Box<dyn Expr>,
+}
+
+impl CloneExpression {
+    pub fn new(token: Token, object: Box<dyn Expr>) -> Self {
+        Self { token, object }
+    }
+}
+
+impl Expr for CloneExpression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("clone")
+            .field("token", &self.token)
+            .field("object", &self.object)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.token.line
+    }
+
+    fn col(&self) -> u16 {
+        self.token.col
+    }
+    fn is_offset(&self) -> bool {
+        false
+    }
+}
 pub struct Member {
     parent: Box<dyn Expr>,
     member: Token,

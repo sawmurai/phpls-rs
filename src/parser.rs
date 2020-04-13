@@ -40,6 +40,10 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub fn errors(&self) -> &Vec<String> {
+        self.errors.as_ref()
+    }
+
     /// Fast forwards to the end of the current statement or block
     fn error_fast_forward(&mut self) {
         while self.tokens.peek().is_some() {
@@ -81,11 +85,6 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-
-        if !self.errors.is_empty() {
-            println!("{:#?}", self.errors);
-        }
-
         Ok(statements)
     }
 
@@ -310,43 +309,23 @@ impl<'a> Parser<'a> {
         }
 
         loop {
-            let nullable = match self.next_token_one_of(&vec![TokenType::QuestionMark]) {
-                true => {
-                    self.tokens.next();
-                    true
-                }
-                false => false,
-            };
-
-            let t = match self.next_token_one_of(&vec![
-                TokenType::TypeString,
-                TokenType::TypeObject,
-                TokenType::TypeInt,
-                TokenType::TypeFloat,
-                TokenType::TypeBool,
-                TokenType::TypeArray,
-                TokenType::Identifier,
-            ]) {
-                true => match self.tokens.next() {
-                    Some(token) => Some(token.clone()),
-                    None => unreachable!("Should not happen!"),
-                },
-                false => None,
-            };
-
+            let t = self.argument_type()?;
             let name = self.consume_cloned(TokenType::Variable)?;
 
             let default = match self.next_token_one_of(&vec![TokenType::Assignment]) {
                 true => {
                     self.tokens.next();
 
-                    if let Some(default) = self.tokens.next() {
+                    if let Some(default) = self.tokens.peek() {
                         match default.t {
                             TokenType::LongNumber
                             | TokenType::DecimalNumber
                             | TokenType::ConstantEncapsedString
                             | TokenType::Null
-                            | TokenType::EncapsedAndWhitespaceString => Some(default.clone()),
+                            | TokenType::True
+                            | TokenType::False
+                            | TokenType::EncapsedAndWhitespaceString
+                            | TokenType::OpenBrackets => Some(self.primary()?),
                             _ => {
                                 return Err(format!(
                                     "Unexpected {:?} on line {}, col {}",
@@ -361,7 +340,7 @@ impl<'a> Parser<'a> {
                 false => None,
             };
 
-            arguments.push(FunctionArgument::new(t, name, nullable, default));
+            arguments.push(FunctionArgument::new(t, name, default));
 
             if self.next_token_one_of(&vec![TokenType::Comma]) {
                 self.tokens.next();
@@ -371,6 +350,46 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Some(arguments))
+    }
+
+    /// Parses the argument type of a function argument
+    ///
+    /// # Details
+    /// ```php
+    /// function my_funy (/** from here **/string/** to here **/ $a, int $b): ?int {
+    ///     echo "Hello!";
+    /// }
+    /// ```
+    fn argument_type(&mut self) -> Result<Option<ArgumentType>, String> {
+        let nullable = match self.next_token_one_of(&vec![TokenType::QuestionMark]) {
+            true => {
+                self.tokens.next();
+                true
+            }
+            false => false,
+        };
+
+        if let Some(token) = self.tokens.peek() {
+            match token.t {
+                TokenType::TypeString
+                | TokenType::TypeObject
+                | TokenType::TypeInt
+                | TokenType::TypeFloat
+                | TokenType::TypeBool
+                | TokenType::TypeArray
+                | TokenType::Callable
+                | TokenType::Identifier => Ok(Some(ArgumentType::primitive(
+                    self.tokens.next().unwrap().clone(),
+                    nullable,
+                ))),
+                TokenType::NamespaceSeparator => {
+                    Ok(Some(ArgumentType::path(self.path()?, nullable)))
+                }
+                _ => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     /// Parses the return type of a function, excluding the colon
@@ -401,7 +420,8 @@ impl<'a> Parser<'a> {
                 | TokenType::Callable
                 | TokenType::Void
                 | TokenType::Null
-                | TokenType::Identifier => Ok(ReturnType::new(token.clone(), nullable)),
+                | TokenType::Identifier => Ok(ReturnType::primitive(token.clone(), nullable)),
+                TokenType::NamespaceSeparator => Ok(ReturnType::path(self.path()?, nullable)),
                 _ => {
                     return Err(format!(
                         "Unexpected {:?} on line {}, col {}",
@@ -529,6 +549,9 @@ impl<'a> Parser<'a> {
                 }
                 TokenType::Declare => {
                     return self.declare_statement();
+                }
+                TokenType::Unset => {
+                    return self.unset_statement();
                 }
                 _ => {
                     let expr = self.expression_statement()?;
@@ -1132,6 +1155,14 @@ impl<'a> Parser<'a> {
         Ok(Box::new(DeclareStatement::new(directive, val)))
     }
 
+    /// Parses unset statements
+    fn unset_statement(&mut self) -> StatementResult {
+        self.consume_or_err(TokenType::Unset)?;
+        let vars = self.non_empty_parameter_list()?;
+
+        Ok(Box::new(UnsetStatement::new(vars)))
+    }
+
     fn expression_statement(&mut self) -> StatementResult {
         let value = self.expression()?;
 
@@ -1148,7 +1179,7 @@ impl<'a> Parser<'a> {
     /// can be assigned to. If it is, parse the r-value as another expression and wrap all up in an `Assignment`-expression. If not,
     /// return an error.
     fn assignment(&mut self) -> ExpressionResult {
-        let expr = self.equality()?;
+        let expr = self.logic()?;
 
         if let Some(Token {
             t: TokenType::Assignment,
@@ -1182,12 +1213,7 @@ impl<'a> Parser<'a> {
         let matches_ns = vec![TokenType::NamespaceSeparator];
         let matches_ident = vec![TokenType::Identifier];
 
-        loop {
-            // Next is another namespace separator
-            if !self.next_token_one_of(&matches_ns) {
-                break;
-            }
-
+        while self.next_token_one_of(&matches_ns) {
             self.consume_or_err(TokenType::NamespaceSeparator)?;
 
             if !self.next_token_one_of(&matches_ident) {
@@ -1206,6 +1232,22 @@ impl<'a> Parser<'a> {
         )))
     }
 
+    fn logic(&mut self) -> ExpressionResult {
+        let mut expr = self.equality()?;
+
+        let potential_matches = vec![TokenType::LogicOr, TokenType::LogicAnd];
+        // Todo: Make this an if and force && or || in between. Basically add a new non-terminal
+        while self.next_token_one_of(&potential_matches) {
+            // Unwrap should be fine since the condition already checks that there is a next element
+            let next = self.tokens.next().unwrap();
+            let right = self.equality()?;
+
+            expr = Box::new(Binary::new(expr, next.clone(), right));
+        }
+
+        Ok(expr)
+    }
+
     fn equality(&mut self) -> ExpressionResult {
         let mut expr = self.comparison()?;
 
@@ -1215,6 +1257,7 @@ impl<'a> Parser<'a> {
             TokenType::IsNotIdentical,
             TokenType::IsIdentical,
             TokenType::Coalesce,
+            TokenType::InstanceOf,
         ];
         // Todo: Make this an if and force && or || in between. Basically add a new non-terminal
         while self.next_token_one_of(&potential_matches) {
@@ -1269,7 +1312,10 @@ impl<'a> Parser<'a> {
         let potential_matches = vec![
             TokenType::Multiplication,
             TokenType::Division,
+            // TODO: Make sure precendence is the same, otherwise split
             TokenType::Concat,
+            TokenType::BinaryOr,
+            TokenType::BinaryAnd,
         ];
 
         while self.next_token_one_of(&potential_matches) {
@@ -1295,6 +1341,8 @@ impl<'a> Parser<'a> {
             TokenType::ObjectCast,
             TokenType::DoubleCast,
             TokenType::UnsetCast,
+            TokenType::Elipsis,
+            TokenType::Clone,
         ]) {
             let next = self.tokens.next().unwrap();
             let right = self.unary()?;
@@ -1382,10 +1430,14 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses all the arguments of a call
-    fn parameter_list(&mut self) -> Result<Vec<Box<dyn Expr>>, String> {
+    fn non_empty_parameter_list(&mut self) -> Result<Vec<Box<dyn Expr>>, String> {
         self.consume_or_err(TokenType::OpenParenthesis)?;
 
         let mut arguments = Vec::new();
+        arguments.push(self.expression()?);
+
+        self.consume_or_ignore(TokenType::Comma);
+
         while !self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
             arguments.push(self.expression()?);
 
@@ -1412,9 +1464,42 @@ impl<'a> Parser<'a> {
             TokenType::EncapsedAndWhitespaceString,
             TokenType::Variable,
             TokenType::Identifier,
-            TokenType::Unset,
+            TokenType::ConstDir,
+            TokenType::ConstFile,
+            TokenType::ConstFunction,
+            TokenType::ConstLine,
+            TokenType::ConstMethod,
+            TokenType::ConstTrait,
+            TokenType::ConstClass,
         ]) {
             return Ok(Box::new(Literal::new(self.tokens.next().unwrap().clone())));
+        }
+
+        if self.next_token_one_of(&vec![TokenType::HereDocStart]) {
+            self.consume_or_err(TokenType::HereDocStart)?;
+            let string = self.tokens.next().unwrap().clone();
+            self.consume_or_err(TokenType::HereDocEnd)?;
+
+            return Ok(Box::new(Literal::new(string)));
+        }
+
+        if self.next_token_one_of(&vec![TokenType::Isset, TokenType::Empty]) {
+            return Ok(Box::new(Call::new(
+                Box::new(Literal::new(self.tokens.next().unwrap().clone())),
+                self.non_empty_parameter_list()?,
+            )));
+        }
+
+        if self.next_token_one_of(&vec![
+            TokenType::Require,
+            TokenType::RequireOnce,
+            TokenType::Include,
+            TokenType::IncludeOnce,
+        ]) {
+            return Ok(Box::new(Call::new(
+                Box::new(Literal::new(self.tokens.next().unwrap().clone())),
+                vec![self.expression()?],
+            )));
         }
 
         if self.next_token_one_of(&vec![TokenType::NamespaceSeparator, TokenType::Identifier]) {
@@ -1458,7 +1543,7 @@ impl<'a> Parser<'a> {
         let use_list = match self.next_token_one_of(&vec![TokenType::Use]) {
             true => {
                 self.tokens.next();
-                Some(self.parameter_list()?)
+                Some(self.non_empty_parameter_list()?)
             }
             false => None,
         };

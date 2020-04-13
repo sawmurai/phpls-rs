@@ -818,6 +818,11 @@ impl<'a> Scanner<'a> {
             "__TRAIT__" => TokenType::ConstTrait,
             "__METHOD__" => TokenType::ConstMethod,
             "__FUNCTION__" => TokenType::ConstFunction,
+            "require" => TokenType::Require,
+            "require_once" => TokenType::RequireOnce,
+            "include" => TokenType::Include,
+            "include_once" => TokenType::IncludeOnce,
+            "instanceof" => TokenType::InstanceOf,
             _ => {
                 return None;
             }
