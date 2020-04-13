@@ -1239,7 +1239,7 @@ impl<'a> Parser<'a> {
 
     /// Parses an expression. This can be anything that evaluates to a value. A function call, a comparison or even an assignment
     fn expression(&mut self) -> ExpressionResult {
-        let assignment = self.assignment();
+        let assignment = self.logic();
 
         if self.next_token_one_of(&vec![TokenType::QuestionMark]) {
             self.tokens.next();
@@ -1263,52 +1263,6 @@ impl<'a> Parser<'a> {
         }
 
         assignment
-    }
-
-    /// Parses an assignment. First parses the l-value as a normal expression. Then determines if it is followed by an assignment
-    /// operator which says we are looking at an assignment. Then checks, if the already parsed l-value is something that values
-    /// can be assigned to. If it is, parse the r-value as another expression and wrap all up in an `Assignment`-expression. If not,
-    /// return an error.
-    fn assignment(&mut self) -> ExpressionResult {
-        let expr = self.logic()?;
-
-        if self.next_token_one_of(&vec![
-            TokenType::Assignment,
-            TokenType::BinaryAndAssignment,
-            TokenType::BinaryOrAssignment,
-            TokenType::ModuloAssignment,
-            TokenType::ConcatAssignment,
-            TokenType::XorAssignment,
-            TokenType::RightShiftAssignment,
-            TokenType::LeftShiftAssignment,
-            TokenType::ModuloAssignment,
-            TokenType::ConcatAssignment,
-            TokenType::XorAssignment,
-            TokenType::RightShiftAssignment,
-            TokenType::LeftShiftAssignment,
-            TokenType::PowerAssignment,
-            TokenType::CoalesceAssignment,
-            TokenType::PlusAssign,
-            TokenType::MinusAssign,
-            TokenType::MulAssign,
-            TokenType::DivAssign,
-        ]) {
-            // Past the assignment token
-            let operator = self.tokens.next().unwrap();
-            let value = self.assignment()?;
-
-            if expr.is_lvalue() {
-                return Ok(Box::new(Assignment::new(expr, operator.clone(), value)));
-            } else {
-                println!("{:#?}", expr);
-                return Err(format!(
-                    "Unable to assign value to expression on line {}, col {}",
-                    operator.line, operator.col
-                ));
-            }
-        }
-
-        Ok(expr)
     }
 
     fn logic(&mut self) -> ExpressionResult {
@@ -1351,7 +1305,7 @@ impl<'a> Parser<'a> {
     }
 
     fn comparison(&mut self) -> ExpressionResult {
-        let mut expr = self.addition()?;
+        let mut expr = self.assignment()?;
 
         let potential_matches = vec![
             TokenType::Greater,
@@ -1363,7 +1317,7 @@ impl<'a> Parser<'a> {
 
         while self.next_token_one_of(&potential_matches) {
             let next = self.tokens.next().unwrap();
-            let right = self.addition()?;
+            let right = self.assignment()?;
 
             expr = Box::new(Binary::new(expr, next.clone(), right));
         }
@@ -1371,6 +1325,51 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    /// Parses an assignment. First parses the l-value as a normal expression. Then determines if it is followed by an assignment
+    /// operator which says we are looking at an assignment. Then checks, if the already parsed l-value is something that values
+    /// can be assigned to. If it is, parse the r-value as another expression and wrap all up in an `Assignment`-expression. If not,
+    /// return an error.
+    fn assignment(&mut self) -> ExpressionResult {
+        let expr = self.addition()?;
+
+        if self.next_token_one_of(&vec![
+            TokenType::Assignment,
+            TokenType::BinaryAndAssignment,
+            TokenType::BinaryOrAssignment,
+            TokenType::ModuloAssignment,
+            TokenType::ConcatAssignment,
+            TokenType::XorAssignment,
+            TokenType::RightShiftAssignment,
+            TokenType::LeftShiftAssignment,
+            TokenType::ModuloAssignment,
+            TokenType::ConcatAssignment,
+            TokenType::XorAssignment,
+            TokenType::RightShiftAssignment,
+            TokenType::LeftShiftAssignment,
+            TokenType::PowerAssignment,
+            TokenType::CoalesceAssignment,
+            TokenType::PlusAssign,
+            TokenType::MinusAssign,
+            TokenType::MulAssign,
+            TokenType::DivAssign,
+        ]) {
+            // Past the assignment token
+            let operator = self.tokens.next().unwrap();
+            let value = self.assignment()?;
+
+            if expr.is_lvalue() {
+                return Ok(Box::new(Assignment::new(expr, operator.clone(), value)));
+            } else {
+                println!("{:#?}", expr);
+                return Err(format!(
+                    "Unable to assign value to expression on line {}, col {}",
+                    operator.line, operator.col
+                ));
+            }
+        }
+
+        Ok(expr)
+    }
     fn addition(&mut self) -> ExpressionResult {
         let mut expr = self.multiplication()?;
 
