@@ -15,6 +15,9 @@ pub trait Expr {
 
     /// Tells if the expression can be used as offset
     fn is_offset(&self) -> bool;
+
+    /// Tells if the expression can have values assigned
+    fn is_lvalue(&self) -> bool;
 }
 
 impl fmt::Debug for dyn Expr {
@@ -55,7 +58,11 @@ impl Expr for Unary {
     }
 
     fn is_offset(&self) -> bool {
-        true
+        false
+    }
+
+    fn is_lvalue(&self) -> bool {
+        false
     }
 }
 
@@ -92,6 +99,10 @@ impl Expr for PostUnary {
 
     fn is_offset(&self) -> bool {
         true
+    }
+
+    fn is_lvalue(&self) -> bool {
+        false
     }
 }
 
@@ -134,6 +145,10 @@ impl Expr for Binary {
 
     fn is_offset(&self) -> bool {
         true
+    }
+
+    fn is_lvalue(&self) -> bool {
+        false
     }
 }
 
@@ -181,6 +196,10 @@ impl Expr for Ternary {
     fn is_offset(&self) -> bool {
         true
     }
+
+    fn is_lvalue(&self) -> bool {
+        false
+    }
 }
 
 pub struct Literal {
@@ -215,6 +234,49 @@ impl Expr for Literal {
     fn is_offset(&self) -> bool {
         true
     }
+
+    fn is_lvalue(&self) -> bool {
+        self.value.t == TokenType::Variable
+    }
+}
+
+pub struct LexicalVariable {
+    by_ref: Option<Token>,
+    value: Token,
+}
+
+impl LexicalVariable {
+    pub fn new(by_ref: Option<Token>, value: Token) -> Self {
+        Self { by_ref, value }
+    }
+}
+
+impl Expr for LexicalVariable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("lexical variable")
+            .field("by_ref", &self.by_ref)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        Some(self.value.t.clone())
+    }
+
+    fn line(&self) -> u16 {
+        self.value.line
+    }
+
+    fn col(&self) -> u16 {
+        self.value.col
+    }
+
+    fn is_offset(&self) -> bool {
+        true
+    }
+
+    fn is_lvalue(&self) -> bool {
+        false
+    }
 }
 
 pub struct Grouping {
@@ -248,6 +310,10 @@ impl Expr for Grouping {
 
     fn is_offset(&self) -> bool {
         self.expr.is_offset()
+    }
+
+    fn is_lvalue(&self) -> bool {
+        false
     }
 }
 
@@ -289,17 +355,26 @@ impl Expr for PathExpression {
     fn is_offset(&self) -> bool {
         false
     }
+
+    fn is_lvalue(&self) -> bool {
+        false
+    }
 }
 
 pub struct Assignment {
     name: Box<dyn Expr>,
+    operator: Token,
     value: Box<dyn Expr>,
     // TODO: Think about having the operator here to be able to provide its location
 }
 
 impl Assignment {
-    pub fn new(name: Box<dyn Expr>, value: Box<dyn Expr>) -> Self {
-        Self { name, value }
+    pub fn new(name: Box<dyn Expr>, operator: Token, value: Box<dyn Expr>) -> Self {
+        Self {
+            name,
+            operator,
+            value,
+        }
     }
 }
 
@@ -307,6 +382,7 @@ impl Expr for Assignment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Assignment")
             .field("name", &self.name)
+            .field("operator", &self.operator)
             .field("value", &self.value)
             .finish()
     }
@@ -326,16 +402,21 @@ impl Expr for Assignment {
     fn is_offset(&self) -> bool {
         self.value.is_offset()
     }
+
+    fn is_lvalue(&self) -> bool {
+        false
+    }
 }
 
 pub struct ArrayPair {
     key: Option<Box<dyn Expr>>,
     value: Box<dyn Expr>,
+    by_ref: Option<Token>,
 }
 
 impl ArrayPair {
-    pub fn new(key: Option<Box<dyn Expr>>, value: Box<dyn Expr>) -> Self {
-        Self { key, value }
+    pub fn new(key: Option<Box<dyn Expr>>, value: Box<dyn Expr>, by_ref: Option<Token>) -> Self {
+        Self { key, value, by_ref }
     }
 }
 
@@ -344,6 +425,7 @@ impl Expr for ArrayPair {
         f.debug_struct("array-pair")
             .field("key", &self.key)
             .field("value", &self.value)
+            .field("by_ref", &self.by_ref)
             .finish()
     }
 
@@ -368,6 +450,10 @@ impl Expr for ArrayPair {
     }
 
     fn is_offset(&self) -> bool {
+        false
+    }
+
+    fn is_lvalue(&self) -> bool {
         false
     }
 }
@@ -408,8 +494,107 @@ impl Expr for Array {
     fn col(&self) -> u16 {
         self.start.col
     }
+
     fn is_offset(&self) -> bool {
         false
+    }
+
+    // True for destructuring
+    fn is_lvalue(&self) -> bool {
+        true
+    }
+}
+
+pub struct List {
+    start: Token,
+    elements: Vec<Box<dyn Expr>>,
+    end: Token,
+}
+
+impl List {
+    pub fn new(start: Token, elements: Vec<Box<dyn Expr>>, end: Token) -> Self {
+        Self {
+            start,
+            elements,
+            end,
+        }
+    }
+}
+
+impl Expr for List {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("list")
+            .field("start", &self.start)
+            .field("elements", &self.elements)
+            .field("end", &self.end)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.start.line
+    }
+
+    fn col(&self) -> u16 {
+        self.start.col
+    }
+
+    fn is_offset(&self) -> bool {
+        true
+    }
+
+    // True for destructuring
+    fn is_lvalue(&self) -> bool {
+        true
+    }
+}
+
+pub struct OldArray {
+    start: Token,
+    elements: Vec<Box<dyn Expr>>,
+    end: Token,
+}
+
+impl OldArray {
+    pub fn new(start: Token, elements: Vec<Box<dyn Expr>>, end: Token) -> Self {
+        Self {
+            start,
+            elements,
+            end,
+        }
+    }
+}
+
+impl Expr for OldArray {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("old-array")
+            .field("start", &self.start)
+            .field("elements", &self.elements)
+            .field("end", &self.end)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.start.line
+    }
+
+    fn col(&self) -> u16 {
+        self.start.col
+    }
+    fn is_offset(&self) -> bool {
+        false
+    }
+
+    // True for destructuring
+    fn is_lvalue(&self) -> bool {
+        true
     }
 }
 
@@ -443,7 +628,12 @@ impl Expr for Call {
     fn col(&self) -> u16 {
         self.callee.col()
     }
+
     fn is_offset(&self) -> bool {
+        true
+    }
+
+    fn is_lvalue(&self) -> bool {
         false
     }
 }
@@ -481,6 +671,10 @@ impl Expr for Instantiation {
     fn is_offset(&self) -> bool {
         false
     }
+
+    fn is_lvalue(&self) -> bool {
+        false
+    }
 }
 
 pub struct CloneExpression {
@@ -516,15 +710,19 @@ impl Expr for CloneExpression {
     fn is_offset(&self) -> bool {
         false
     }
+
+    fn is_lvalue(&self) -> bool {
+        false
+    }
 }
 pub struct Member {
     parent: Box<dyn Expr>,
-    member: Token,
+    member: Box<dyn Expr>,
     is_static: bool,
 }
 
 impl Member {
-    pub fn new(parent: Box<dyn Expr>, member: Token, is_static: bool) -> Self {
+    pub fn new(parent: Box<dyn Expr>, member: Box<dyn Expr>, is_static: bool) -> Self {
         Self {
             parent,
             member,
@@ -547,14 +745,18 @@ impl Expr for Member {
     }
 
     fn line(&self) -> u16 {
-        self.member.line
+        self.member.line()
     }
 
     fn col(&self) -> u16 {
-        self.member.col
+        self.member.col()
     }
 
     fn is_offset(&self) -> bool {
+        true
+    }
+
+    fn is_lvalue(&self) -> bool {
         true
     }
 }
@@ -593,9 +795,14 @@ impl Expr for Field {
     fn is_offset(&self) -> bool {
         true
     }
+
+    fn is_lvalue(&self) -> bool {
+        true
+    }
 }
 
 pub struct FunctionExpression {
+    is_static: bool,
     token: Token,
     arguments: Option<Vec<FunctionArgument>>,
     return_type: Option<ReturnType>,
@@ -605,6 +812,7 @@ pub struct FunctionExpression {
 
 impl FunctionExpression {
     pub fn new(
+        is_static: bool,
         token: Token,
         arguments: Option<Vec<FunctionArgument>>,
         return_type: Option<ReturnType>,
@@ -612,6 +820,7 @@ impl FunctionExpression {
         body: Box<dyn Stmt>,
     ) -> Self {
         Self {
+            is_static,
             token,
             arguments,
             return_type,
@@ -624,6 +833,7 @@ impl FunctionExpression {
 impl Expr for FunctionExpression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("function")
+            .field("is_static", &self.is_static)
             .field("token", &self.token)
             .field("arguments", &self.arguments)
             .field("return_type", &self.return_type)
@@ -646,5 +856,67 @@ impl Expr for FunctionExpression {
 
     fn is_offset(&self) -> bool {
         true
+    }
+
+    fn is_lvalue(&self) -> bool {
+        false
+    }
+}
+
+pub struct AnonymousClassExpression {
+    token: Token,
+    constructor_args: Option<Vec<Box<dyn Expr>>>,
+    implements: Option<Vec<Box<dyn Expr>>>,
+    extends: Option<Vec<Box<dyn Expr>>>,
+    body: Vec<Box<dyn Stmt>>,
+}
+
+impl AnonymousClassExpression {
+    pub fn new(
+        token: Token,
+        constructor_args: Option<Vec<Box<dyn Expr>>>,
+        implements: Option<Vec<Box<dyn Expr>>>,
+        extends: Option<Vec<Box<dyn Expr>>>,
+        body: Vec<Box<dyn Stmt>>,
+    ) -> Self {
+        Self {
+            token,
+            constructor_args,
+            implements,
+            extends,
+            body,
+        }
+    }
+}
+
+impl Expr for AnonymousClassExpression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("anonymous class")
+            .field("token", &self.token)
+            .field("constructor_args", &self.constructor_args)
+            .field("implements", &self.implements)
+            .field("extends", &self.extends)
+            .field("body", &self.body)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.token.line
+    }
+
+    fn col(&self) -> u16 {
+        self.token.col
+    }
+
+    fn is_offset(&self) -> bool {
+        true
+    }
+
+    fn is_lvalue(&self) -> bool {
+        false
     }
 }

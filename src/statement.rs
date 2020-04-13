@@ -187,8 +187,8 @@ pub struct ClassStatement {
     name: Token,
     is_abstract: bool,
     is_final: bool,
-    implements: Option<Vec<Token>>,
-    extends: Option<Vec<Token>>,
+    implements: Option<Vec<Box<dyn Expr>>>,
+    extends: Option<Vec<Box<dyn Expr>>>,
     body: Vec<Box<dyn Stmt>>,
 }
 
@@ -197,8 +197,8 @@ impl ClassStatement {
         name: Token,
         is_abstract: bool,
         is_final: bool,
-        implements: Option<Vec<Token>>,
-        extends: Option<Vec<Token>>,
+        implements: Option<Vec<Box<dyn Expr>>>,
+        extends: Option<Vec<Box<dyn Expr>>>,
         body: Vec<Box<dyn Stmt>>,
     ) -> Self {
         Self {
@@ -247,12 +247,12 @@ impl Stmt for TraitStatement {
 
 pub struct Interface {
     name: Token,
-    extends: Option<Vec<Token>>,
+    extends: Option<Vec<Box<dyn Expr>>>,
     body: Vec<Box<dyn Stmt>>,
 }
 
 impl Interface {
-    pub fn new(name: Token, extends: Option<Vec<Token>>, body: Vec<Box<dyn Stmt>>) -> Self {
+    pub fn new(name: Token, extends: Option<Vec<Box<dyn Expr>>>, body: Vec<Box<dyn Stmt>>) -> Self {
         Self {
             name,
             extends,
@@ -462,11 +462,25 @@ pub struct FunctionArgument {
     t: Option<ArgumentType>,
     name: Token,
     default: Option<Box<dyn Expr>>,
+    spread: bool,
+    by_ref: bool,
 }
 
 impl FunctionArgument {
-    pub fn new(t: Option<ArgumentType>, name: Token, default: Option<Box<dyn Expr>>) -> Self {
-        Self { t, name, default }
+    pub fn new(
+        t: Option<ArgumentType>,
+        name: Token,
+        default: Option<Box<dyn Expr>>,
+        spread: bool,
+        by_ref: bool,
+    ) -> Self {
+        Self {
+            t,
+            name,
+            default,
+            spread,
+            by_ref,
+        }
     }
 }
 
@@ -746,11 +760,12 @@ impl Stmt for SwitchCase {
 
 pub struct TokenStatement {
     token: Token,
+    expr: Option<Box<dyn Expr>>,
 }
 
 impl TokenStatement {
-    pub fn new(token: Token) -> Self {
-        Self { token }
+    pub fn new(token: Token, expr: Option<Box<dyn Expr>>) -> Self {
+        Self { token, expr }
     }
 }
 
@@ -758,6 +773,7 @@ impl Stmt for TokenStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("(token)")
             .field("token", &self.token)
+            .field("expr", &self.expr)
             .finish()
     }
 }

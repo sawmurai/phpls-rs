@@ -165,6 +165,7 @@ pub enum TokenType {
     Null,
     Namespace,
     Void,
+    Yield,
 
     // Types
     TypeBool,

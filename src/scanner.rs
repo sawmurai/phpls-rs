@@ -435,9 +435,9 @@ impl<'a> Scanner<'a> {
                             TokenType::DecimalNumber,
                             &format!("{}.{}", number, decimal),
                         );
+                    } else {
+                        self.push_named_token(TokenType::LongNumber, &number);
                     }
-
-                    self.push_named_token(TokenType::LongNumber, &number);
                 }
                 'a'..='z' | 'A'..='Z' | '_' | '\u{0080}'..='\u{00ff}' => {
                     let mut name = String::new();
@@ -823,6 +823,7 @@ impl<'a> Scanner<'a> {
             "include" => TokenType::Include,
             "include_once" => TokenType::IncludeOnce,
             "instanceof" => TokenType::InstanceOf,
+            "yield" => TokenType::Yield,
             _ => {
                 return None;
             }

@@ -76,7 +76,6 @@ fn main() -> Result<()> {
         Path::new(&std::env::args().nth(1).unwrap_or(String::from("."))),
         &mut token_stream_map,
     )?;
-    println!("Indexed!");
 
     Ok(())
 }

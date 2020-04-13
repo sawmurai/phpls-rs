@@ -56,6 +56,7 @@ impl<'a> Parser<'a> {
             }
 
             if self.next_token_one_of(&vec![TokenType::CloseCurly]) {
+                self.tokens.next();
                 break;
             }
         }
@@ -310,37 +311,26 @@ impl<'a> Parser<'a> {
 
         loop {
             let t = self.argument_type()?;
+            let spread = self.consume_or_ignore(TokenType::Elipsis).is_some();
+            let by_reference = self.consume_or_ignore(TokenType::BinaryAnd).is_some();
             let name = self.consume_cloned(TokenType::Variable)?;
 
             let default = match self.next_token_one_of(&vec![TokenType::Assignment]) {
                 true => {
                     self.tokens.next();
 
-                    if let Some(default) = self.tokens.peek() {
-                        match default.t {
-                            TokenType::LongNumber
-                            | TokenType::DecimalNumber
-                            | TokenType::ConstantEncapsedString
-                            | TokenType::Null
-                            | TokenType::True
-                            | TokenType::False
-                            | TokenType::EncapsedAndWhitespaceString
-                            | TokenType::OpenBrackets => Some(self.primary()?),
-                            _ => {
-                                return Err(format!(
-                                    "Unexpected {:?} on line {}, col {}",
-                                    default.t, default.line, default.col
-                                ));
-                            }
-                        }
-                    } else {
-                        return Err(String::from("Missing default value for argument!"));
-                    }
+                    Some(self.expression()?)
                 }
                 false => None,
             };
 
-            arguments.push(FunctionArgument::new(t, name, default));
+            arguments.push(FunctionArgument::new(
+                t,
+                name,
+                default,
+                spread,
+                by_reference,
+            ));
 
             if self.next_token_one_of(&vec![TokenType::Comma]) {
                 self.tokens.next();
@@ -377,12 +367,11 @@ impl<'a> Parser<'a> {
                 | TokenType::TypeFloat
                 | TokenType::TypeBool
                 | TokenType::TypeArray
-                | TokenType::Callable
-                | TokenType::Identifier => Ok(Some(ArgumentType::primitive(
+                | TokenType::Callable => Ok(Some(ArgumentType::primitive(
                     self.tokens.next().unwrap().clone(),
                     nullable,
                 ))),
-                TokenType::NamespaceSeparator => {
+                TokenType::NamespaceSeparator | TokenType::Identifier => {
                     Ok(Some(ArgumentType::path(self.path()?, nullable)))
                 }
                 _ => Ok(None),
@@ -532,12 +521,33 @@ impl<'a> Parser<'a> {
                 TokenType::Semicolon => {
                     return Ok(Box::new(TokenStatement::new(
                         self.consume_cloned(TokenType::Semicolon)?,
+                        None,
                     )));
                 }
-                // TODO: Add break/continue level, probably have separate statements. Same game with "return"
                 TokenType::Break | TokenType::Continue => {
-                    let statement =
-                        Box::new(TokenStatement::new(self.consume_cloned(token.t.clone())?));
+                    let token = self.consume_cloned(token.t.clone())?;
+
+                    let expr = match self.next_token_one_of(&vec![TokenType::Semicolon]) {
+                        true => None,
+                        false => Some(self.expression()?),
+                    };
+
+                    let statement = Box::new(TokenStatement::new(token, expr));
+
+                    self.consume_or_err(TokenType::Semicolon)?;
+
+                    return Ok(statement);
+                }
+                // Separate case because of the "yield ... from ..."
+                TokenType::Yield => {
+                    let token = self.consume_cloned(token.t.clone())?;
+
+                    let expr = match self.next_token_one_of(&vec![TokenType::Semicolon]) {
+                        true => None,
+                        false => Some(self.expression()?),
+                    };
+
+                    let statement = Box::new(TokenStatement::new(token, expr));
 
                     self.consume_or_err(TokenType::Semicolon)?;
 
@@ -1090,6 +1100,37 @@ impl<'a> Parser<'a> {
         )))
     }
 
+    fn anonymous_class(&mut self) -> ExpressionResult {
+        let token = self.consume_cloned(TokenType::Class)?;
+
+        let constructor_args = match self.next_token_one_of(&vec![TokenType::OpenParenthesis]) {
+            true => Some(self.parameter_list()?),
+            false => None,
+        };
+
+        let extends = match self.consume_or_ignore(TokenType::Extends) {
+            Some(_) => Some(self.identifier_list()?),
+            None => None,
+        };
+
+        let implements = match self.consume_or_ignore(TokenType::Implements) {
+            Some(_) => Some(self.identifier_list()?),
+            None => None,
+        };
+
+        self.consume_or_err(TokenType::OpenCurly)?;
+        let block = self.class_block()?;
+        self.consume_or_err(TokenType::CloseCurly)?;
+
+        Ok(Box::new(AnonymousClassExpression::new(
+            token,
+            constructor_args,
+            extends,
+            implements,
+            block,
+        )))
+    }
+
     /// Parses a trait
     fn trait_statement(&mut self) -> StatementResult {
         let name = self.consume_cloned(TokenType::Identifier)?;
@@ -1119,11 +1160,11 @@ impl<'a> Parser<'a> {
 
     // (("extends" identifier) (, "extends" identifier)*)?
     // (("implements" identifier) (, "implements" identifier)*)?
-    fn identifier_list(&mut self) -> Result<Vec<Token>, String> {
+    fn identifier_list(&mut self) -> Result<Vec<Box<dyn Expr>>, String> {
         let mut extends = Vec::new();
 
         loop {
-            extends.push(self.consume_cloned(TokenType::Identifier)?);
+            extends.push(self.path()?);
 
             if !self.next_token_one_of(&vec![TokenType::Comma]) {
                 break;
@@ -1204,23 +1245,38 @@ impl<'a> Parser<'a> {
     fn assignment(&mut self) -> ExpressionResult {
         let expr = self.logic()?;
 
-        if let Some(Token {
-            t: TokenType::Assignment,
-            line,
-            col,
-            ..
-        }) = self.tokens.peek()
-        {
+        if self.next_token_one_of(&vec![
+            TokenType::Assignment,
+            TokenType::BinaryAndAssignment,
+            TokenType::BinaryOrAssignment,
+            TokenType::ModuloAssignment,
+            TokenType::ConcatAssignment,
+            TokenType::XorAssignment,
+            TokenType::RightShiftAssignment,
+            TokenType::LeftShiftAssignment,
+            TokenType::ModuloAssignment,
+            TokenType::ConcatAssignment,
+            TokenType::XorAssignment,
+            TokenType::RightShiftAssignment,
+            TokenType::LeftShiftAssignment,
+            TokenType::PowerAssignment,
+            TokenType::CoalesceAssignment,
+            TokenType::PlusAssign,
+            TokenType::MinusAssign,
+            TokenType::MulAssign,
+            TokenType::DivAssign,
+        ]) {
             // Past the assignment token
-            self.tokens.next();
+            let operator = self.tokens.next().unwrap();
             let value = self.assignment()?;
 
-            if expr.is_offset() {
-                return Ok(Box::new(Assignment::new(expr, value)));
+            if expr.is_lvalue() {
+                return Ok(Box::new(Assignment::new(expr, operator.clone(), value)));
             } else {
+                println!("{:#?}", expr);
                 return Err(format!(
                     "Unable to assign value to expression on line {}, col {}",
-                    line, col
+                    operator.line, operator.col
                 ));
             }
         }
@@ -1302,6 +1358,7 @@ impl<'a> Parser<'a> {
             TokenType::GreaterOrEqual,
             TokenType::Smaller,
             TokenType::SmallerOrEqual,
+            TokenType::SpaceShip,
         ];
 
         while self.next_token_one_of(&potential_matches) {
@@ -1389,29 +1446,43 @@ impl<'a> Parser<'a> {
         Ok(primary)
     }
 
-    /// Parses class-member access and array access.
+    /// Parses class-member access and array access. This also includes non-method call member access!
     fn call(&mut self) -> ExpressionResult {
         let mut expr = self.primary()?;
 
         loop {
             if self.next_token_one_of(&vec![TokenType::OpenParenthesis]) {
                 expr = self.finish_call(expr)?;
+
+            // Accessing an object member
             } else if self.next_token_one_of(&vec![TokenType::ObjectOperator]) {
                 self.tokens.next();
-                expr = Box::new(Member::new(
-                    expr,
-                    self.consume_one_of_cloned(&vec![TokenType::Identifier, TokenType::Variable])?,
-                    false,
-                ));
+
+                // Using the ->{} syntax, so the member is the result of an expression
+                if self.consume_or_ignore(TokenType::OpenCurly).is_some() {
+                    expr = Box::new(Member::new(expr, self.expression()?, false));
+                    self.consume_or_err(TokenType::CloseCurly)?;
+
+                // Using the ->member syntax, so the member is either an identifier or a variable
+                } else {
+                    expr = Box::new(Member::new(
+                        expr,
+                        Box::new(Literal::new(self.consume_one_of_cloned(&vec![
+                            TokenType::Identifier,
+                            TokenType::Variable,
+                        ])?)),
+                        false,
+                    ));
+                }
             } else if self.next_token_one_of(&vec![TokenType::PaamayimNekudayim]) {
                 self.tokens.next();
                 expr = Box::new(Member::new(
                     expr,
-                    self.consume_one_of_cloned(&vec![
+                    Box::new(Literal::new(self.consume_one_of_cloned(&vec![
                         TokenType::Identifier,
                         TokenType::Variable,
                         TokenType::Class,
-                    ])?,
+                    ])?)),
                     true,
                 ));
             } else if self.next_token_one_of(&vec![TokenType::OpenBrackets]) {
@@ -1475,6 +1546,57 @@ impl<'a> Parser<'a> {
 
         Ok(arguments)
     }
+    /// Parses all the arguments of a call
+    fn parameter_list(&mut self) -> Result<Vec<Box<dyn Expr>>, String> {
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+
+        let mut arguments = Vec::new();
+        while !self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
+            arguments.push(self.expression()?);
+
+            if self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
+                break;
+            } else {
+                self.consume_or_err(TokenType::Comma)?;
+            }
+        }
+
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+
+        Ok(arguments)
+    }
+
+    /// Parses all the arguments of a call
+    fn non_empty_lexical_variables_list(&mut self) -> Result<Vec<Box<dyn Expr>>, String> {
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+
+        let mut arguments = Vec::new();
+        arguments.push(self.lexical_variable()?);
+
+        self.consume_or_ignore(TokenType::Comma);
+
+        while !self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
+            arguments.push(self.lexical_variable()?);
+
+            if self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
+                break;
+            } else {
+                self.consume_or_err(TokenType::Comma)?;
+            }
+        }
+
+        self.consume_or_err(TokenType::CloseParenthesis)?;
+
+        Ok(arguments)
+    }
+
+    /// Parses a lexical variable, used in a "use ()" list for example
+    fn lexical_variable(&mut self) -> Result<Box<dyn Expr>, String> {
+        Ok(Box::new(LexicalVariable::new(
+            self.consume_or_ignore(TokenType::BinaryAnd),
+            self.consume_cloned(TokenType::Variable)?,
+        )))
+    }
 
     fn primary(&mut self) -> ExpressionResult {
         if self.next_token_one_of(&vec![
@@ -1486,7 +1608,6 @@ impl<'a> Parser<'a> {
             TokenType::ConstantEncapsedString,
             TokenType::EncapsedAndWhitespaceString,
             TokenType::Variable,
-            TokenType::Identifier,
             TokenType::ConstDir,
             TokenType::ConstFile,
             TokenType::ConstFunction,
@@ -1496,6 +1617,11 @@ impl<'a> Parser<'a> {
             TokenType::ConstClass,
         ]) {
             return Ok(Box::new(Literal::new(self.tokens.next().unwrap().clone())));
+        }
+
+        if self.next_token_one_of(&vec![TokenType::NamespaceSeparator, TokenType::Identifier]) {
+            // Load path as identifier
+            return self.path();
         }
 
         if self.next_token_one_of(&vec![TokenType::HereDocStart]) {
@@ -1513,6 +1639,14 @@ impl<'a> Parser<'a> {
             )));
         }
 
+        if self.next_token_one_of(&vec![TokenType::TypeArray]) {
+            return self.old_array();
+        }
+
+        if self.next_token_one_of(&vec![TokenType::List]) {
+            return self.list();
+        }
+
         if self.next_token_one_of(&vec![
             TokenType::Require,
             TokenType::RequireOnce,
@@ -1523,11 +1657,6 @@ impl<'a> Parser<'a> {
                 Box::new(Literal::new(self.tokens.next().unwrap().clone())),
                 vec![self.expression()?],
             )));
-        }
-
-        if self.next_token_one_of(&vec![TokenType::NamespaceSeparator, TokenType::Identifier]) {
-            // Load path as identifier
-            return self.path();
         }
 
         if self.next_token_one_of(&vec![TokenType::OpenBrackets]) {
@@ -1541,32 +1670,43 @@ impl<'a> Parser<'a> {
 
             return Ok(Box::new(Grouping::new(expr)));
         } else if self.next_token_one_of(&vec![TokenType::Function]) {
-            return self.anonymous_function();
+            return self.anonymous_function(false);
+
+        // Can be either "static function ..." or "static::$lol"
+        } else if self.next_token_one_of(&vec![TokenType::Static]) {
+            let static_token = self.tokens.next().unwrap();
+
+            if self.next_token_one_of(&vec![TokenType::PaamayimNekudayim]) {
+                return Ok(Box::new(Literal::new(static_token.clone())));
+            }
+
+            return self.anonymous_function(true);
+        } else if self.next_token_one_of(&vec![TokenType::Class]) {
+            return self.anonymous_class();
         }
 
         let next = self.tokens.peek().unwrap();
         Err(format!("Unsupported primary {:?}", next))
     }
 
-    fn anonymous_function(&mut self) -> ExpressionResult {
+    fn anonymous_function(&mut self, is_static: bool) -> ExpressionResult {
         let token = self.consume_cloned(TokenType::Function)?;
 
         self.consume_or_err(TokenType::OpenParenthesis)?;
         let arguments = self.argument_list()?;
         self.consume_or_err(TokenType::CloseParenthesis)?;
 
+        let use_list = match self.next_token_one_of(&vec![TokenType::Use]) {
+            true => {
+                self.tokens.next();
+                Some(self.non_empty_lexical_variables_list()?)
+            }
+            false => None,
+        };
         let return_type = match self.next_token_one_of(&vec![TokenType::Colon]) {
             true => {
                 self.tokens.next();
                 Some(self.return_type()?)
-            }
-            false => None,
-        };
-
-        let use_list = match self.next_token_one_of(&vec![TokenType::Use]) {
-            true => {
-                self.tokens.next();
-                Some(self.non_empty_parameter_list()?)
             }
             false => None,
         };
@@ -1576,6 +1716,7 @@ impl<'a> Parser<'a> {
         self.consume_or_err(TokenType::CloseCurly)?;
 
         Ok(Box::new(FunctionExpression::new(
+            is_static,
             token,
             arguments,
             return_type,
@@ -1601,10 +1742,50 @@ impl<'a> Parser<'a> {
         )))
     }
 
+    fn old_array(&mut self) -> ExpressionResult {
+        let start = self.consume_cloned(TokenType::TypeArray)?;
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+        let mut elements = Vec::new();
+
+        while !self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
+            elements.push(self.array_pair()?);
+
+            self.consume_or_ignore(TokenType::Comma);
+        }
+
+        Ok(Box::new(OldArray::new(
+            start,
+            elements,
+            self.consume_cloned(TokenType::CloseParenthesis)?,
+        )))
+    }
+
+    /// Parses the list destructuring operation
+    fn list(&mut self) -> ExpressionResult {
+        let start = self.consume_cloned(TokenType::List)?;
+        self.consume_or_err(TokenType::OpenParenthesis)?;
+        let mut elements = Vec::new();
+
+        while !self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
+            elements.push(self.array_pair()?);
+
+            self.consume_or_ignore(TokenType::Comma);
+        }
+
+        Ok(Box::new(List::new(
+            start,
+            elements,
+            self.consume_cloned(TokenType::CloseParenthesis)?,
+        )))
+    }
+
     fn array_pair(&mut self) -> ExpressionResult {
+        let by_ref = self.consume_or_ignore(TokenType::BinaryAnd);
         let key = self.expression()?;
 
         if self.consume_or_ignore(TokenType::DoubleArrow).is_some() {
+            // TODO: Raise warning if key is access by reference ... this no works
+
             // Todo: Rather check for scalarity
             if !key.is_offset() {
                 return Err(format!(
@@ -1613,10 +1794,15 @@ impl<'a> Parser<'a> {
                     key.col(),
                 ));
             }
+            let by_ref = self.consume_or_ignore(TokenType::BinaryAnd);
 
-            Ok(Box::new(ArrayPair::new(Some(key), self.expression()?)))
+            Ok(Box::new(ArrayPair::new(
+                Some(key),
+                self.expression()?,
+                by_ref,
+            )))
         } else {
-            Ok(Box::new(ArrayPair::new(None, key)))
+            Ok(Box::new(ArrayPair::new(None, key, by_ref)))
         }
     }
 
