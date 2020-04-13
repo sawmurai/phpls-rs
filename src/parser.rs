@@ -1390,6 +1390,7 @@ impl<'a> Parser<'a> {
 
         let potential_matches = vec![
             TokenType::Multiplication,
+            TokenType::Power,
             TokenType::Division,
             // TODO: Make sure precendence is the same, otherwise split
             TokenType::Concat,
@@ -1427,12 +1428,6 @@ impl<'a> Parser<'a> {
             let right = self.unary()?;
 
             return Ok(Box::new(Unary::new(next.clone(), right)));
-        }
-
-        if self.next_token_one_of(&vec![TokenType::New]) {
-            let next = self.tokens.next().unwrap();
-
-            return Ok(Box::new(Instantiation::new(next.clone(), self.call()?)));
         }
 
         let primary = self.call()?;
@@ -1662,26 +1657,48 @@ impl<'a> Parser<'a> {
             let expr = self.array()?;
 
             return Ok(expr);
-        } else if self.next_token_one_of(&vec![TokenType::OpenParenthesis]) {
+        }
+
+        if self.next_token_one_of(&vec![TokenType::OpenParenthesis]) {
             self.consume_or_err(TokenType::OpenParenthesis)?;
             let expr = self.expression()?;
             self.consume_or_err(TokenType::CloseParenthesis)?;
 
             return Ok(Box::new(Grouping::new(expr)));
-        } else if self.next_token_one_of(&vec![TokenType::Function]) {
+        }
+
+        if self.next_token_one_of(&vec![TokenType::Function]) {
             return self.anonymous_function(false);
 
-        // Can be either "static function ..." or "static::$lol"
-        } else if self.next_token_one_of(&vec![TokenType::Static]) {
+            // Can be either "static function ..." or "static::$lol"
+        }
+
+        // Static is fun ... watch this ...
+        if self.next_token_one_of(&vec![TokenType::Static]) {
             let static_token = self.tokens.next().unwrap();
 
+            // Followed by ::? Probably a member access
             if self.next_token_one_of(&vec![TokenType::PaamayimNekudayim]) {
                 return Ok(Box::new(Literal::new(static_token.clone())));
             }
 
-            return self.anonymous_function(true);
-        } else if self.next_token_one_of(&vec![TokenType::Class]) {
+            // Followed by "function"? Static function expression
+            if self.next_token_one_of(&vec![TokenType::Function]) {
+                return self.anonymous_function(true);
+            }
+
+            // Otherwise probably used in a instantiation context
+            return Ok(Box::new(Literal::new(static_token.clone())));
+        }
+
+        if self.next_token_one_of(&vec![TokenType::Class]) {
             return self.anonymous_class();
+        }
+
+        if self.next_token_one_of(&vec![TokenType::New]) {
+            let next = self.tokens.next().unwrap();
+
+            return Ok(Box::new(Instantiation::new(next.clone(), self.call()?)));
         }
 
         let next = self.tokens.peek().unwrap();
@@ -1826,6 +1843,8 @@ impl<'a> Parser<'a> {
             if token.t != t {
                 return None;
             }
+        } else {
+            return None;
         }
 
         Some(self.tokens.next().unwrap().clone())
