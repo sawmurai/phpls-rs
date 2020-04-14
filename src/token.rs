@@ -58,6 +58,7 @@ pub enum TokenType {
     XorAssignment,
     PaamayimNekudayim,
     DoubleArrow,
+    ReferenceAssignment,
 
     // Three chars
     RightShiftAssignment,
@@ -78,6 +79,7 @@ pub enum TokenType {
     Identifier,
     DecimalNumber,
     LongNumber,
+    HexNumber,
     ConstantEncapsedString,
     EncapsedAndWhitespaceString,
     ShellEscape,
@@ -166,6 +168,7 @@ pub enum TokenType {
     Namespace,
     Void,
     Yield,
+    From,
 
     // Types
     TypeBool,
@@ -200,6 +203,90 @@ impl Token {
             col,
             line,
             label: Some(label.to_owned()),
+        }
+    }
+
+    pub fn is_identifier(&self) -> bool {
+        if self.label.is_some() {
+            return true;
+        }
+
+        match self.t {
+            TokenType::Exit
+            | TokenType::If
+            | TokenType::ElseIf
+            | TokenType::Else
+            | TokenType::EndIf
+            | TokenType::Echo
+            | TokenType::Include
+            | TokenType::IncludeOnce
+            | TokenType::Require
+            | TokenType::RequireOnce
+            | TokenType::Do
+            | TokenType::While
+            | TokenType::EndWhile
+            | TokenType::For
+            | TokenType::EndFor
+            | TokenType::Foreach
+            | TokenType::EndForeach
+            | TokenType::Declare
+            | TokenType::EndDeclare
+            | TokenType::As
+            | TokenType::Switch
+            | TokenType::EndSwitch
+            | TokenType::Case
+            | TokenType::Default
+            | TokenType::Break
+            | TokenType::Continue
+            | TokenType::Goto
+            | TokenType::Function
+            | TokenType::Fn
+            | TokenType::Const
+            | TokenType::Return
+            | TokenType::Try
+            | TokenType::Catch
+            | TokenType::Finally
+            | TokenType::Throw
+            | TokenType::Use
+            | TokenType::Insteadof
+            | TokenType::InstanceOf
+            | TokenType::Global
+            | TokenType::Static
+            | TokenType::Abstract
+            | TokenType::Final
+            | TokenType::Private
+            | TokenType::Protected
+            | TokenType::Public
+            | TokenType::Var
+            | TokenType::Unset
+            | TokenType::Isset
+            | TokenType::Empty
+            | TokenType::HaltCompiler
+            | TokenType::Class
+            | TokenType::Trait
+            | TokenType::Interface
+            | TokenType::Extends
+            | TokenType::Implements
+            | TokenType::List
+            | TokenType::Array
+            | TokenType::Callable
+            | TokenType::ConstLine
+            | TokenType::ConstFile
+            | TokenType::ConstDir
+            | TokenType::ConstClass
+            | TokenType::ConstTrait
+            | TokenType::ConstMethod
+            | TokenType::ConstFunction
+            | TokenType::New
+            | TokenType::Clone
+            | TokenType::True
+            | TokenType::False
+            | TokenType::Null
+            | TokenType::Namespace
+            | TokenType::Void
+            | TokenType::Yield
+            | TokenType::From => true,
+            _ => false,
         }
     }
 }

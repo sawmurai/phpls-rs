@@ -855,7 +855,7 @@ impl Expr for FunctionExpression {
     }
 
     fn is_offset(&self) -> bool {
-        true
+        false
     }
 
     fn is_lvalue(&self) -> bool {
@@ -913,7 +913,87 @@ impl Expr for AnonymousClassExpression {
     }
 
     fn is_offset(&self) -> bool {
-        true
+        false
+    }
+
+    fn is_lvalue(&self) -> bool {
+        false
+    }
+}
+
+pub struct YieldExpression {
+    token: Token,
+    what: Box<dyn Expr>,
+}
+
+impl YieldExpression {
+    pub fn new(token: Token, what: Box<dyn Expr>) -> Self {
+        Self { token, what }
+    }
+}
+
+impl Expr for YieldExpression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("yield")
+            .field("token", &self.token)
+            .field("what", &self.what)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.token.line
+    }
+
+    fn col(&self) -> u16 {
+        self.token.col
+    }
+
+    fn is_offset(&self) -> bool {
+        false
+    }
+
+    fn is_lvalue(&self) -> bool {
+        false
+    }
+}
+
+pub struct YieldFromExpression {
+    token: Token,
+    from: Box<dyn Expr>,
+}
+
+impl YieldFromExpression {
+    pub fn new(token: Token, from: Box<dyn Expr>) -> Self {
+        Self { token, from }
+    }
+}
+
+impl Expr for YieldFromExpression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("yield")
+            .field("token", &self.token)
+            .field("from", &self.from)
+            .finish()
+    }
+
+    fn token_type(&self) -> Option<TokenType> {
+        None
+    }
+
+    fn line(&self) -> u16 {
+        self.token.line
+    }
+
+    fn col(&self) -> u16 {
+        self.token.col
+    }
+
+    fn is_offset(&self) -> bool {
+        false
     }
 
     fn is_lvalue(&self) -> bool {

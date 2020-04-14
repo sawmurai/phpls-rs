@@ -19,6 +19,7 @@ fn visit_file(path: &Path) -> io::Result<()> {
             let p = path.to_str().unwrap().to_string();
 
             let content = fs::read_to_string(path)?;
+            //println!("Parsing {}", p);
             let mut scanner = Scanner::new(&content);
 
             if let Err(msg) = scanner.scan() {
@@ -30,13 +31,13 @@ fn visit_file(path: &Path) -> io::Result<()> {
             //t.insert(p, scanner.tokens);
 
             let mut parser = Parser::new(&scanner.tokens);
+            println!("{:#?}", &scanner.tokens);
             let result = parser.ast();
 
             if let Err(e) = result {
                 println!("{}: {:#?}", p, e);
             } else if !parser.errors().is_empty() {
-                println!("Errors parsing {}", p);
-                println!("Parsed {:#?}", parser.errors());
+                //println!("Errors {:#?}", parser.errors());
             } else {
                 //println!("{:#?}", result);
             }

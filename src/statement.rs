@@ -142,6 +142,7 @@ impl Stmt for NamespaceStatement {
 }
 
 pub struct UseStatement {
+    function_const: Option<Token>,
     path: Box<dyn Expr>,
     alias: Option<Token>,
     group: Option<Vec<Box<dyn Stmt>>>,
@@ -150,22 +151,29 @@ pub struct UseStatement {
 impl UseStatement {
     pub fn new(path: Box<dyn Expr>) -> Self {
         Self {
+            function_const: None,
             path,
             alias: None,
             group: None,
         }
     }
 
-    pub fn aliased(path: Box<dyn Expr>, alias: Token) -> Self {
+    pub fn aliased(function_const: Option<Token>, path: Box<dyn Expr>, alias: Token) -> Self {
         Self {
+            function_const,
             path,
             alias: Some(alias),
             group: None,
         }
     }
 
-    pub fn grouped(path: Box<dyn Expr>, group: Vec<Box<dyn Stmt>>) -> Self {
+    pub fn grouped(
+        function_const: Option<Token>,
+        path: Box<dyn Expr>,
+        group: Vec<Box<dyn Stmt>>,
+    ) -> Self {
         Self {
+            function_const,
             path,
             alias: None,
             group: Some(group),
@@ -176,6 +184,7 @@ impl UseStatement {
 impl Stmt for UseStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Use")
+            .field("function_const", &self.function_const)
             .field("path", &self.path)
             .field("alias", &self.alias)
             .field("group", &self.group)
@@ -826,6 +835,62 @@ impl Stmt for TryCatch {
             .field("try_block", &self.try_block)
             .field("catch_blocks", &self.catch_blocks)
             .field("finally_block", &self.finally_block)
+            .finish()
+    }
+}
+
+pub struct StaticVariablesStatement {
+    assignments: Vec<Box<dyn Expr>>,
+}
+
+impl StaticVariablesStatement {
+    pub fn new(assignments: Vec<Box<dyn Expr>>) -> Self {
+        Self { assignments }
+    }
+}
+
+impl Stmt for StaticVariablesStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("static vars")
+            .field("assignments", &self.assignments)
+            .finish()
+    }
+}
+
+pub struct GlobalVariablesStatement {
+    vars: Vec<Token>,
+}
+
+impl GlobalVariablesStatement {
+    pub fn new(vars: Vec<Token>) -> Self {
+        Self { vars }
+    }
+}
+
+impl Stmt for GlobalVariablesStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("global vars")
+            .field("vars", &self.vars)
+            .finish()
+    }
+}
+
+pub struct InlineHtml {
+    start: Token,
+    end: Token,
+}
+
+impl InlineHtml {
+    pub fn new(start: Token, end: Token) -> Self {
+        Self { start, end }
+    }
+}
+
+impl Stmt for InlineHtml {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("inline-html")
+            .field("start", &self.start)
+            .field("end", &self.end)
             .finish()
     }
 }

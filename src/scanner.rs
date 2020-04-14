@@ -13,16 +13,6 @@ enum Context {
     InComment,
 }
 
-/// Advance along a sequence of characters or bail out, if a mismatch occurs
-macro_rules! advance {
-    ($m:expr, $first:expr, $( $x:expr ),* ) => {
-        match $m {Some($first) => true, _ => false }
-        $(
-            && match $m {Some($x) => true, _ => false }
-        )*
-    };
-}
-
 /// The `Scanner` type is used to generate a token stream from an input string. The
 /// input string is the content of a PHP source file.
 pub struct Scanner<'a> {
@@ -79,15 +69,6 @@ impl<'a> Scanner<'a> {
         loop {
             if self.chars.peek().is_none() {
                 break;
-            }
-
-            if self.context == Context::OutScript {
-                if advance!(self.advance(), '<', '?', 'p', 'h', 'p') {
-                    self.context = Context::InScript;
-                    self.push_token(TokenType::ScriptStart);
-                } else {
-                    continue;
-                }
             }
 
             self.start_of_token = self.col;
@@ -215,6 +196,13 @@ impl<'a> Scanner<'a> {
                                 self.push_token(TokenType::LeftShift);
                             }
                         }
+                    }
+                    Some('?') => {
+                        self.advance();
+                        self.push_token(TokenType::ScriptStart);
+                        self.context = Context::InScript;
+
+                        // TODO: Skip "php" of "<?php"
                     }
                     Some('=') => {
                         self.advance();
@@ -405,6 +393,11 @@ impl<'a> Scanner<'a> {
 
                         self.push_token(TokenType::DoubleArrow);
                     }
+                    Some('&') => {
+                        self.advance();
+
+                        self.push_token(TokenType::ReferenceAssignment);
+                    }
                     _ => {
                         self.push_token(TokenType::Assignment);
                     }
@@ -424,6 +417,17 @@ impl<'a> Scanner<'a> {
                 '0'..='9' => {
                     let mut number = String::new();
                     number.push(c);
+
+                    if let Some('x') = self.chars.peek() {
+                        if c == '0' {
+                            self.advance();
+                            number.push_str(&self.collect_hex_number());
+                            self.push_named_token(TokenType::HexNumber, &number);
+
+                            continue;
+                        }
+                    }
+
                     number.push_str(&self.collect_number());
 
                     if let Some(&'.') = self.chars.peek() {
@@ -523,6 +527,10 @@ impl<'a> Scanner<'a> {
     }
 
     fn tokenize_here_doc(&mut self) -> Result<(), String> {
+        while let Some(' ') = self.chars.peek() {
+            self.advance();
+        }
+
         let marker = match self.chars.peek() {
             // TODO: Do not collect escaped!
             Some('"') => {
@@ -678,6 +686,21 @@ impl<'a> Scanner<'a> {
         number
     }
 
+    fn collect_hex_number(&mut self) -> String {
+        let mut number = String::new();
+
+        while let Some(&c) = self.chars.peek() {
+            if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' {
+                number.push(c);
+            } else {
+                break;
+            }
+            self.advance();
+        }
+
+        number
+    }
+
     fn advance(&mut self) -> Option<char> {
         self.pos += 1;
 
@@ -824,6 +847,7 @@ impl<'a> Scanner<'a> {
             "include_once" => TokenType::IncludeOnce,
             "instanceof" => TokenType::InstanceOf,
             "yield" => TokenType::Yield,
+            "from" => TokenType::From,
             _ => {
                 return None;
             }
