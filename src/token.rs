@@ -177,6 +177,7 @@ pub enum TokenType {
     TypeArray,
     TypeObject,
     TypeFloat,
+    TypeSelf,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -207,10 +208,6 @@ impl Token {
     }
 
     pub fn is_identifier(&self) -> bool {
-        if self.label.is_some() {
-            return true;
-        }
-
         match self.t {
             TokenType::Exit
             | TokenType::If
@@ -285,6 +282,15 @@ impl Token {
             | TokenType::Namespace
             | TokenType::Void
             | TokenType::Yield
+                // Types
+            | TokenType::TypeBool
+            | TokenType::TypeInt
+            | TokenType::TypeString
+            | TokenType::TypeArray
+            | TokenType::TypeObject
+            | TokenType::TypeFloat
+            | TokenType::TypeSelf
+            | TokenType::Identifier
             | TokenType::From => true,
             _ => false,
         }

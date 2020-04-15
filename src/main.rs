@@ -31,13 +31,13 @@ fn visit_file(path: &Path) -> io::Result<()> {
             //t.insert(p, scanner.tokens);
 
             let mut parser = Parser::new(&scanner.tokens);
-            println!("{:#?}", &scanner.tokens);
+            //println!("{:#?}", &scanner.tokens);
             let result = parser.ast();
 
             if let Err(e) = result {
                 println!("{}: {:#?}", p, e);
             } else if !parser.errors().is_empty() {
-                //println!("Errors {:#?}", parser.errors());
+                println!("Errors {:#?}", parser.errors());
             } else {
                 //println!("{:#?}", result);
             }

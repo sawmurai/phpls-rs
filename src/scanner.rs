@@ -202,7 +202,17 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::ScriptStart);
                         self.context = Context::InScript;
 
-                        // TODO: Skip "php" of "<?php"
+                        if let Some('p') = self.chars.peek() {
+                            self.advance();
+
+                            if let Some('h') = self.chars.peek() {
+                                self.advance();
+
+                                if let Some('p') = self.chars.peek() {
+                                    self.advance();
+                                }
+                            }
+                        }
                     }
                     Some('=') => {
                         self.advance();
@@ -848,6 +858,7 @@ impl<'a> Scanner<'a> {
             "instanceof" => TokenType::InstanceOf,
             "yield" => TokenType::Yield,
             "from" => TokenType::From,
+            "self" => TokenType::TypeSelf,
             _ => {
                 return None;
             }
