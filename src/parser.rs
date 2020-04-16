@@ -955,10 +955,12 @@ impl Parser {
     /// namespace /** from here **/My\Super\Duper\Namespace;/** to here **/
     /// ```
     fn namespace_statement(&mut self) -> StatementResult {
-        if let Some(type_ref) = self.type_ref()? {
-            // TODO: Implement block
-            self.consume_end_of_statement()?;
+        let type_ref = self.type_ref()?;
 
+        if self.next_token_one_of(&vec![TokenType::OpenCurly]) {
+            Ok(Box::new(NamespaceBlock::new(type_ref, self.block()?)))
+        } else if let Some(type_ref) = type_ref {
+            self.consume_end_of_statement()?;
             Ok(Box::new(NamespaceStatement::new(type_ref)))
         } else {
             Err("Empty path after namespace".to_owned())
@@ -1315,7 +1317,13 @@ impl Parser {
         let token = self.consume_cloned(TokenType::Class)?;
 
         let arguments = match self.next_token_one_of(&vec![TokenType::OpenParenthesis]) {
-            true => Some(self.parameter_list()?),
+            true => {
+                self.consume_or_err(TokenType::OpenParenthesis)?;
+                let result = Some(self.parameter_list()?);
+                self.consume_or_err(TokenType::CloseParenthesis)?;
+
+                result
+            }
             false => None,
         };
 
@@ -1777,11 +1785,11 @@ impl Parser {
                     self.consume_or_err(TokenType::CloseCurly)?;
 
                 // Using the ->member syntax, so the member is either an identifier or a variable
-                } else if let Some(variable) = self.consume_or_ignore(TokenType::Variable) {
+                } else if self.next_token_one_of(&vec![TokenType::Variable]) {
                     expr = Box::new(Node::Member {
                         object: expr,
                         arrow: os,
-                        member: Box::new(Node::Literal(variable)),
+                        member: self.variable()?,
                     });
                 } else {
                     expr = Box::new(Node::Member {
@@ -1790,12 +1798,33 @@ impl Parser {
                         member: Box::new(Node::Literal(self.consume_identifier_cloned()?)),
                     });
                 }
+            // Accessing a static class member
             } else if let Some(pn) = self.consume_or_ignore(TokenType::PaamayimNekudayim) {
-                expr = Box::new(Node::StaticMember {
-                    class: expr,
-                    pn,
-                    member: Box::new(Node::Literal(self.consume_member_cloned()?)),
-                });
+                // Class property
+                if self.next_token_one_of(&vec![TokenType::Variable]) {
+                    expr = Box::new(Node::StaticMember {
+                        class: expr,
+                        pn,
+                        member: self.variable()?,
+                    });
+
+                // Class method
+                } else if self.next_token_one_of(&vec![TokenType::OpenCurly]) {
+                    expr = Box::new(Node::StaticMethod {
+                        class: expr,
+                        pn,
+                        oc: self.consume_cloned(TokenType::OpenCurly)?,
+                        method: self.variable()?,
+                        cc: self.consume_cloned(TokenType::CloseCurly)?,
+                    });
+                // Class constant
+                } else {
+                    expr = Box::new(Node::StaticMember {
+                        class: expr,
+                        pn,
+                        member: Box::new(Node::Literal(self.consume_member_cloned()?)),
+                    });
+                }
             } else if let Some(ob) = self.consume_or_ignore(TokenType::OpenBrackets) {
                 // TODO: Think about a nicer solution for $a[] = ...
                 expr = match self.consume_or_ignore(TokenType::CloseBrackets) {
@@ -1878,9 +1907,8 @@ impl Parser {
     }
 
     /// Parses all the arguments of a call
+    /// Does not parse the surounding parenthesis so the caller can fetch and store them
     fn parameter_list(&mut self) -> Result<Vec<Box<Node>>, String> {
-        self.consume_or_err(TokenType::OpenParenthesis)?;
-
         let mut arguments = Vec::new();
         while !self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
             arguments.push(self.expression()?);
@@ -1891,8 +1919,6 @@ impl Parser {
                 self.consume_or_err(TokenType::Comma)?;
             }
         }
-
-        self.consume_or_err(TokenType::CloseParenthesis)?;
 
         Ok(arguments)
     }
@@ -1940,6 +1966,7 @@ impl Parser {
             TokenType::HexNumber,
             TokenType::ConstantEncapsedString,
             TokenType::EncapsedAndWhitespaceString,
+            TokenType::ShellEscape,
             TokenType::ConstDir,
             TokenType::ConstFile,
             TokenType::ConstFunction,
@@ -1984,7 +2011,7 @@ impl Parser {
                 return Ok(Box::new(Node::Exit {
                     exit,
                     op: Some(op),
-                    parameters: Some(self.non_empty_parameter_list()?),
+                    parameters: Some(self.parameter_list()?),
                     cp: Some(self.consume_cloned(TokenType::CloseParenthesis)?),
                 }));
             }
@@ -2085,9 +2112,13 @@ impl Parser {
         }
 
         if let Some(token) = self.consume_or_ignore(TokenType::Yield) {
+            if self.next_token_one_of(&vec![TokenType::Semicolon]) {
+                return Ok(Box::new(Node::Yield { token, expr: None }));
+            }
+
             return Ok(Box::new(Node::Yield {
                 token,
-                expr: self.array_pair()?,
+                expr: Some(self.array_pair()?),
             }));
         }
 

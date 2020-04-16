@@ -212,6 +212,25 @@ impl Stmt for NamespaceStatement {
     }
 }
 
+pub struct NamespaceBlock {
+    expression: Option<Box<Node>>,
+    block: Box<dyn Stmt>,
+}
+
+impl NamespaceBlock {
+    pub fn new(expression: Option<Box<Node>>, block: Box<dyn Stmt>) -> Self {
+        Self { expression, block }
+    }
+}
+
+impl Stmt for NamespaceBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Namespace block")
+            .field("expression", &self.expression)
+            .field("block", &self.block)
+            .finish()
+    }
+}
 pub struct UseStatement {
     imports: Vec<Node>,
 }

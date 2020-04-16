@@ -442,27 +442,43 @@ impl<'a> Scanner<'a> {
                     }
 
                     number.push_str(&self.collect_number());
+                    let mut number_type = TokenType::LongNumber;
 
                     if let Some(&'.') = self.chars.peek() {
                         self.advance();
 
                         let decimal = self.collect_number();
 
-                        self.push_named_token(
-                            TokenType::DecimalNumber,
-                            &format!("{}.{}", number, decimal),
-                        );
-                    } else if let Some(&'e') = self.chars.peek() {
+                        number.push(c);
+                        number.push_str(&decimal);
+
+                        number_type = TokenType::DecimalNumber;
+                    }
+
+                    if let Some(&'e') | Some(&'E') = self.chars.peek() {
                         self.advance();
+                        number.push('e');
+
+                        match self.chars.peek() {
+                            Some('-') => {
+                                self.advance();
+                                number.push('-')
+                            }
+                            Some('+') => {
+                                self.advance();
+                                number.push('+')
+                            }
+                            _ => {}
+                        }
 
                         let decimal = self.collect_number();
 
                         self.push_named_token(
                             TokenType::ExponentialNumber,
-                            &format!("{}e{}", number, decimal),
+                            &format!("{}{}", number, decimal),
                         );
                     } else {
-                        self.push_named_token(TokenType::LongNumber, &number);
+                        self.push_named_token(number_type, &number);
                     }
                 }
                 'a'..='z' | 'A'..='Z' | '_' | '\u{0080}'..='\u{00ff}' => {

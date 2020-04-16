@@ -121,6 +121,13 @@ pub enum Node {
         pn: Token,
         member: Box<Node>,
     },
+    StaticMethod {
+        class: Box<Node>,
+        pn: Token,
+        oc: Token,
+        method: Box<Node>,
+        cc: Token,
+    },
     Field {
         array: Box<Node>,
         ob: Token,
@@ -166,7 +173,7 @@ pub enum Node {
     },
     Yield {
         token: Token,
-        expr: Box<Node>,
+        expr: Option<Box<Node>>,
     },
     YieldFrom {
         token: Token,
