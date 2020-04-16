@@ -1,3 +1,5 @@
+#![allow(clippy::must_use_candidate)]
+
 use crate::scanner::Scanner;
 
 use crate::parser::Parser;

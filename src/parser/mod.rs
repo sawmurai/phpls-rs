@@ -8,6 +8,10 @@ type ArgumentListResult = Result<Option<Vec<Node>>, String>;
 type ExpressionResult = Result<Node, String>;
 type AstResult = Result<(Vec<Box<dyn Stmt>>, Vec<String>), String>;
 
+pub mod conditionals;
+pub mod loops;
+pub mod try_catch;
+
 /// Inspired by https://craftinginterpreters.com/statements-and-state.html
 ///
 /// Parses a token stream of a `Scanner` and generates an Abstract Syntax Tree
@@ -486,23 +490,23 @@ impl Parser {
                 }
                 TokenType::While => {
                     self.next();
-                    return self.while_statement();
+                    return loops::while_statement(self);
                 }
                 TokenType::Do => {
                     self.next();
-                    return self.do_while_statement();
+                    return loops::do_while_statement(self);
                 }
                 TokenType::For => {
                     self.next();
-                    return self.for_statement();
+                    return loops::for_statement(self);
                 }
                 TokenType::Foreach => {
                     self.next();
-                    return self.foreach_statement();
+                    return loops::foreach_statement(self);
                 }
                 TokenType::If => {
                     self.next();
-                    return self.if_statement();
+                    return conditionals::if_statement(self);
                 }
                 TokenType::OpenCurly => {
                     let block = self.block();
@@ -511,7 +515,7 @@ impl Parser {
                 }
                 TokenType::Switch => {
                     self.next();
-                    return self.switch_statement();
+                    return conditionals::switch_statement(self);
                 }
                 TokenType::Semicolon => {
                     return Ok(Box::new(TokenStatement::new(
@@ -536,7 +540,7 @@ impl Parser {
                 }
                 TokenType::Try => {
                     self.next();
-                    return self.try_catch_statement();
+                    return try_catch::try_catch_statement(self);
                 }
                 TokenType::Declare => {
                     return self.declare_statement();
@@ -596,64 +600,6 @@ impl Parser {
         Ok(Box::new(StaticVariablesStatement::new(variables)))
     }
 
-    /// Parses a try catch statement
-    ///
-    /// # Details
-    /// ```php
-    /// try /** from here **/(true) {
-    /// } catch (Exception $e) {}
-    ///     echo "stuff";
-    /// }
-    /// /** to here **/
-    /// ```
-    fn try_catch_statement(&mut self) -> StatementResult {
-        let try_block = self.block()?;
-
-        let mut catch_blocks = Vec::new();
-
-        while self.next_token_one_of(&[TokenType::Catch]) {
-            catch_blocks.push(self.catch_block()?);
-        }
-
-        let finally_block = match self.peek() {
-            Some(Token {
-                t: TokenType::Finally,
-                ..
-            }) => {
-                self.next();
-                Some(self.block()?)
-            }
-            _ => None,
-        };
-
-        Ok(Box::new(TryCatch::new(
-            try_block,
-            catch_blocks,
-            finally_block,
-        )))
-    }
-
-    /// Parses a catch block (including the catch-keyword, yes, I need to make my mind up about including / excluding the keyword)
-    ///
-    /// # Details
-    /// ```php
-    /// /** from here **/catch (Exception $e) {}
-    ///     echo "stuff";
-    /// }
-    /// /** to here **/
-    /// ```
-    fn catch_block(&mut self) -> StatementResult {
-        self.consume_or_err(TokenType::Catch)?;
-        self.consume_or_err(TokenType::OpenParenthesis)?;
-        let types = self.type_ref_union()?;
-        let var = self.consume_cloned(TokenType::Variable)?;
-        self.consume_or_err(TokenType::CloseParenthesis)?;
-
-        let catch_block = self.block()?;
-
-        Ok(Box::new(CatchBlock::new(types, var, catch_block)))
-    }
-
     /// Parses a path list, pipe separated. This needs to become a type-list!
     ///
     /// # Details
@@ -677,251 +623,6 @@ impl Parser {
         }
 
         Ok(paths)
-    }
-
-    /// Parses a switch case
-    ///
-    /// # Details
-    /// ```php
-    /// switch /** from here **/(true) {
-    ///     case "bla":
-    ///         echo "stuff";
-    /// }
-    /// /** to here **/
-    /// ```
-    fn switch_statement(&mut self) -> StatementResult {
-        self.consume_or_err(TokenType::OpenParenthesis)?;
-        let expr = self.expression()?;
-        self.consume_or_err(TokenType::CloseParenthesis)?;
-        self.consume_or_err(TokenType::OpenCurly)?;
-
-        let mut branches = Vec::new();
-        while !self.next_token_one_of(&[TokenType::CloseCurly]) {
-            let cases_current_branch = self.case_list()?;
-
-            let mut statements = Vec::new();
-            while !self.next_token_one_of(&[
-                TokenType::CloseCurly,
-                TokenType::Case,
-                TokenType::Default,
-            ]) {
-                statements.push(self.statement()?);
-            }
-
-            branches.push(SwitchBranch::new(cases_current_branch, statements));
-        }
-
-        self.next();
-
-        Ok(Box::new(SwitchCase::new(expr, branches)))
-    }
-
-    fn case_list(&mut self) -> Result<Vec<Option<Node>>, String> {
-        let mut cases_current_branch = Vec::new();
-
-        loop {
-            match self.peek() {
-                Some(Token {
-                    t: TokenType::Default,
-                    ..
-                }) => {
-                    cases_current_branch.push(None);
-                    self.next();
-                    self.consume_or_err(TokenType::Colon)
-                        .or_else(|_| self.consume_end_of_statement())?;
-                }
-                Some(Token {
-                    t: TokenType::Case, ..
-                }) => {
-                    self.next();
-                    cases_current_branch.push(Some(self.expression()?));
-                    self.consume_or_err(TokenType::Colon)
-                        .or_else(|_| self.consume_end_of_statement())?;
-                }
-                _ => {
-                    break;
-                }
-            }
-        }
-
-        Ok(cases_current_branch)
-    }
-
-    /// Parses a while loop
-    ///
-    /// # Details
-    /// ```php
-    /// while /** from here **/(true) {
-    ///     do_stuff();
-    /// }
-    /// /** to here **/
-    /// ```
-    fn while_statement(&mut self) -> StatementResult {
-        self.consume_or_err(TokenType::OpenParenthesis)?;
-        let condition = self.expression()?;
-        self.consume_or_err(TokenType::CloseParenthesis)?;
-        let body = match self.peek() {
-            Some(Token {
-                t: TokenType::OpenCurly,
-                ..
-            }) => self.block()?,
-            Some(_) => Box::new(Block::new(vec![self.statement()?])),
-            None => return Err(String::from("Unexpected EOF!")),
-        };
-
-        Ok(Box::new(WhileStatement::new(condition, body)))
-    }
-
-    /// Parses a foreach loop
-    ///
-    /// # Details
-    /// ```php
-    /// foreach /** from here **/($array as $k => $v) {
-    ///     do_stuff();
-    /// }
-    /// /** to here **/
-    /// ```
-    fn foreach_statement(&mut self) -> StatementResult {
-        self.consume_or_err(TokenType::OpenParenthesis)?;
-        let collection = self.expression()?;
-
-        self.consume_or_err(TokenType::As)?;
-        let key_value = self.array_pair()?;
-        self.consume_or_err(TokenType::CloseParenthesis)?;
-
-        let body = match self.peek() {
-            Some(Token {
-                t: TokenType::OpenCurly,
-                ..
-            }) => self.block()?,
-            Some(_) => Box::new(Block::new(vec![self.statement()?])),
-            None => return Err(String::from("Unexpected EOF!")),
-        };
-
-        Ok(Box::new(ForEachStatement::new(collection, key_value, body)))
-    }
-
-    /// Parses a do-while loop
-    ///
-    /// # Details
-    /// ```php
-    /// do
-    /// /** from here **/ {
-    ///     do_stuff();
-    /// } while (true);
-    /// /** to here **/
-    /// ```
-    fn do_while_statement(&mut self) -> StatementResult {
-        let body = self.block()?;
-
-        self.consume_or_err(TokenType::While)?;
-        self.consume_or_err(TokenType::OpenParenthesis)?;
-        let condition = self.expression()?;
-        self.consume_or_err(TokenType::CloseParenthesis)?;
-        self.consume_end_of_statement()?;
-
-        Ok(Box::new(DoWhileStatement::new(condition, body)))
-    }
-
-    /// Parses a for loop
-    ///
-    /// # Details
-    /// ```php
-    /// for /** from here **/ ($i = 0; $i < 100; $i++) {
-    ///     do_stuff();
-    /// }
-    /// /** to here **/
-    /// ```
-    fn for_statement(&mut self) -> StatementResult {
-        self.consume_or_err(TokenType::OpenParenthesis)?;
-
-        let mut init = Vec::new();
-        while !self.next_token_one_of(&[TokenType::Semicolon]) {
-            init.push(self.expression_statement()?);
-
-            if self.next_token_one_of(&[TokenType::Comma]) {
-                self.next();
-            } else {
-                break;
-            }
-        }
-
-        self.consume_or_err(TokenType::Semicolon)?;
-
-        let mut condition = Vec::new();
-        while !self.next_token_one_of(&[TokenType::Semicolon]) {
-            condition.push(self.expression_statement()?);
-
-            if self.next_token_one_of(&[TokenType::Comma]) {
-                self.next();
-            } else {
-                break;
-            }
-        }
-
-        self.consume_or_err(TokenType::Semicolon)?;
-
-        let mut step = Vec::new();
-        while !self.next_token_one_of(&[TokenType::CloseParenthesis]) {
-            step.push(self.expression_statement()?);
-
-            if self.next_token_one_of(&[TokenType::Comma]) {
-                self.next();
-            } else {
-                break;
-            }
-        }
-        self.consume_or_err(TokenType::CloseParenthesis)?;
-
-        let body = self.statement()?;
-
-        Ok(Box::new(ForStatement::new(init, condition, step, body)))
-    }
-
-    /// Parses an if statement
-    ///
-    /// # Details
-    /// ```php
-    /// if /** from here **/ (true) {
-    ///     do_stuff();
-    /// } elseif (false) {
-    ///     other_stuff();
-    /// } else {
-    ///     rest_stuff();
-    /// }
-    /// /** to here **/
-    /// ```
-    fn if_statement(&mut self) -> StatementResult {
-        self.consume_or_err(TokenType::OpenParenthesis)?;
-        let condition = self.expression()?;
-        self.consume_or_err(TokenType::CloseParenthesis)?;
-        let if_branch = IfBranch::new(condition, self.statement()?);
-
-        let mut elseif_branches = Vec::new();
-        while self.next_token_one_of(&[TokenType::ElseIf]) {
-            self.next();
-            self.consume_or_err(TokenType::OpenParenthesis)?;
-            let condition = self.expression()?;
-            self.consume_or_err(TokenType::CloseParenthesis)?;
-
-            elseif_branches.push(IfBranch::new(condition, self.statement()?));
-        }
-
-        let else_branch = match self.peek() {
-            Some(Token {
-                t: TokenType::Else, ..
-            }) => {
-                self.next();
-                Some(self.statement()?)
-            }
-            _ => None,
-        };
-
-        Ok(Box::new(IfStatement::new(
-            Box::new(if_branch),
-            elseif_branches,
-            else_branch,
-        )))
     }
 
     /// Parses a single namespace statement
