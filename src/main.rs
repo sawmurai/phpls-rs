@@ -27,14 +27,14 @@ fn visit_file(path: &Path) -> io::Result<()> {
                 // Later on we need to generate an AST, as well as an environment and the
                 // symbol table. This will then replace the token streams
                 //t.insert(p, scanner.tokens);
-                let mut parser = Parser::new(scanner.tokens);
+                let result = Parser::ast(scanner.tokens);
+
                 //println!("{:#?}", &scanner.tokens);
-                let result = parser.ast();
                 if let Err(e) = result {
                     println!("{}: {:#?}", p, e);
-                } else if !parser.errors().is_empty() {
+                } else if let Ok((_, errors)) = result {
                     println!("Parsing {}", p);
-                    println!("Errors {:#?}", parser.errors());
+                    println!("Errors {:#?}", errors);
                 } else {
                     //println!("{:#?}", result);
                 }

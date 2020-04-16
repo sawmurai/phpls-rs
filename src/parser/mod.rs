@@ -13,32 +13,10 @@ type ExpressionResult = Result<Box<Node>, String>;
 #[derive(Debug)]
 pub struct Parser {
     tokens: Vec<Token>,
-    literals: Vec<TokenType>,
     errors: Vec<String>,
 }
 
 impl Parser {
-    pub fn new(mut tokens: Vec<Token>) -> Self {
-        tokens.reverse();
-        Self {
-            tokens: tokens,
-            errors: Vec::new(),
-            literals: vec![
-                TokenType::False,
-                TokenType::True,
-                TokenType::Null,
-                TokenType::LongNumber,
-                TokenType::DecimalNumber,
-                TokenType::ExponentialNumber,
-                TokenType::HexNumber,
-                TokenType::BinaryNumber,
-                TokenType::ConstantEncapsedString,
-                TokenType::EncapsedAndWhitespaceString,
-                TokenType::Variable,
-            ],
-        }
-    }
-
     pub fn errors(&self) -> &Vec<String> {
         self.errors.as_ref()
     }
@@ -61,31 +39,39 @@ impl Parser {
         }
     }
 
-    /// Parses the entire token stream and returns an abstract syntax tree representation
+    /// Parses the entire token stream and returns an abstract syntax tree representation and a vector of
+    /// accumulated parse errors.
     ///
     /// # Example
     /// ```
     /// // Content contains the source code
     /// let mut scanner = Scanner::new(&content);
     /// scanner.scan()?;
-    /// let mut parser = Parser::new(&scanner.tokens);
-    /// parser.ast();
+    /// let Ok(ast, errors) = Parser::ast(scanner.tokens);
     /// ```
-    pub fn ast(&mut self) -> StatementListResult {
+    pub fn ast(mut tokens: Vec<Token>) -> Result<(Vec<Box<dyn Stmt>>, Vec<String>), String> {
+        tokens.reverse();
+
+        let mut parser = Parser {
+            tokens: tokens,
+            errors: Vec::new(),
+        };
+
         let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
 
-        self.consume_or_err(TokenType::ScriptStart)?;
+        parser.consume_or_err(TokenType::ScriptStart)?;
 
-        while self.peek().is_some() {
-            match self.statement() {
+        while parser.peek().is_some() {
+            match parser.statement() {
                 Ok(statement) => statements.push(statement),
                 Err(error) => {
-                    self.errors.push(error);
-                    self.error_fast_forward();
+                    parser.errors.push(error);
+                    parser.error_fast_forward();
                 }
             }
         }
-        Ok(statements)
+
+        Ok((statements, parser.errors))
     }
 
     /// Parses a code block, which basically is a vector of `dyn Stmt` / statements.
@@ -2447,8 +2433,6 @@ mod tests {
         let mut scanner = Scanner::new("<?php\n1 + 2 == 3;");
         scanner.scan().unwrap();
 
-        let mut parser = Parser::new(scanner.tokens);
-
-        println!("{:?}", parser.ast());
+        println!("{:?}", Parser::ast(scanner.tokens));
     }
 }
