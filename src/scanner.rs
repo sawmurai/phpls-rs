@@ -626,14 +626,11 @@ impl<'a> Scanner<'a> {
 
                 continue;
 
-            // This could still be the end, so skip blanks and tabs (they are added above anyway)
-            } else if potential_end && (c == ' ' || c == '\t') {
+            // Either this could still be the end, so skip blanks and tabs (they are added above anyway)
+            // or it can not be the end anymore.
+            } else if !potential_end || c == ' ' || c == '\t' {
                 self.advance();
-                continue;
 
-            // This can not be the end anymore ... no need to do more than collecting the chars
-            } else if !potential_end {
-                self.advance();
                 continue;
             }
 

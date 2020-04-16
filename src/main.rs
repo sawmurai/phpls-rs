@@ -76,7 +76,7 @@ fn main() -> Result<()> {
     let mut token_stream_map: HashMap<String, Vec<Token>> = HashMap::new();
 
     visit_dirs(
-        Path::new(&std::env::args().nth(1).unwrap_or(String::from("."))),
+        Path::new(&std::env::args().nth(1).unwrap_or_else(|| String::from("."))),
         &mut token_stream_map,
     )?;
 

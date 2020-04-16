@@ -59,13 +59,13 @@ pub enum Node {
 
     Array {
         ob: Token,
-        elements: Vec<Box<Node>>,
+        elements: Vec<Node>,
         cb: Token,
     },
     OldArray {
         token: Token,
         op: Token,
-        elements: Vec<Box<Node>>,
+        elements: Vec<Node>,
         cp: Token,
     },
     ArrayElement {
@@ -76,31 +76,31 @@ pub enum Node {
     List {
         token: Token,
         op: Token,
-        elements: Vec<Box<Node>>,
+        elements: Vec<Node>,
         cp: Token,
     },
     Call {
         callee: Box<Node>,
         op: Token,
-        parameters: Vec<Box<Node>>,
+        parameters: Vec<Node>,
         cp: Token,
     },
     Isset {
         isset: Token,
         op: Token,
-        parameters: Vec<Box<Node>>,
+        parameters: Vec<Node>,
         cp: Token,
     },
     Empty {
         empty: Token,
         op: Token,
-        parameters: Vec<Box<Node>>,
+        parameters: Vec<Node>,
         cp: Token,
     },
     Exit {
         exit: Token,
         op: Option<Token>,
-        parameters: Option<Vec<Box<Node>>>,
+        parameters: Option<Vec<Node>>,
         cp: Option<Token>,
     },
     New {
@@ -136,18 +136,18 @@ pub enum Node {
     },
     Static {
         token: Token,
-        expr: Vec<Box<Node>>,
+        expr: Vec<Node>,
     },
     Function {
         is_static: Option<Token>,
         token: Token,
         arguments: Option<Vec<Node>>,
-        uses: Option<Vec<Box<Node>>>,
-        return_type: Option<Box<Node>>,
+        uses: Option<Vec<Node>>,
+        return_type: Box<Option<Node>>,
         body: Box<dyn Stmt>,
     },
     FunctionArgument {
-        argument_type: Option<Box<Node>>,
+        argument_type: Box<Option<Node>>,
         name: Token,
         has_default: Option<Token>,
         default_value: Option<Box<Node>>,
@@ -166,9 +166,9 @@ pub enum Node {
     TypeRef(Vec<Token>),
     Class {
         token: Token,
-        arguments: Option<Vec<Box<Node>>>,
-        extends: Option<Vec<Box<Node>>>,
-        implements: Option<Vec<Box<Node>>>,
+        arguments: Option<Vec<Node>>,
+        extends: Option<Vec<Node>>,
+        implements: Option<Vec<Node>>,
         body: Vec<Box<dyn Stmt>>,
     },
     Yield {
@@ -201,7 +201,7 @@ pub enum Node {
     GroupedUse {
         parent: Box<Node>,
         oc: Token,
-        uses: Vec<Box<Node>>,
+        uses: Vec<Node>,
         cc: Token,
     },
 }

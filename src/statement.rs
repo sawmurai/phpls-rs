@@ -14,11 +14,11 @@ impl fmt::Debug for dyn Stmt {
 }
 
 pub struct ExpressionStatement {
-    expression: Box<Node>,
+    expression: Node,
 }
 
 impl ExpressionStatement {
-    pub fn new(expression: Box<Node>) -> Self {
+    pub fn new(expression: Node) -> Self {
         Self { expression }
     }
 }
@@ -32,11 +32,11 @@ impl Stmt for ExpressionStatement {
 }
 
 pub struct EchoStatement {
-    expressions: Vec<Box<Node>>,
+    expressions: Vec<Node>,
 }
 
 impl EchoStatement {
-    pub fn new(expressions: Vec<Box<Node>>) -> Self {
+    pub fn new(expressions: Vec<Node>) -> Self {
         Self { expressions }
     }
 }
@@ -68,11 +68,11 @@ impl Stmt for ConstStatement {
 }
 
 pub struct PrintStatement {
-    expressions: Vec<Box<Node>>,
+    expressions: Vec<Node>,
 }
 
 impl PrintStatement {
-    pub fn new(expressions: Vec<Box<Node>>) -> Self {
+    pub fn new(expressions: Vec<Node>) -> Self {
         Self { expressions }
     }
 }
@@ -121,11 +121,11 @@ impl Stmt for LabelStatement {
     }
 }
 pub struct ThrowStatement {
-    expression: Box<Node>,
+    expression: Node,
 }
 
 impl ThrowStatement {
-    pub fn new(expression: Box<Node>) -> Self {
+    pub fn new(expression: Node) -> Self {
         Self { expression }
     }
 }
@@ -159,11 +159,11 @@ impl Stmt for DeclareStatement {
 }
 
 pub struct UnsetStatement {
-    parameters: Vec<Box<Node>>,
+    parameters: Vec<Node>,
 }
 
 impl UnsetStatement {
-    pub fn new(parameters: Vec<Box<Node>>) -> Self {
+    pub fn new(parameters: Vec<Node>) -> Self {
         Self { parameters }
     }
 }
@@ -177,11 +177,11 @@ impl Stmt for UnsetStatement {
 }
 
 pub struct ReturnStatement {
-    expression: Option<Box<Node>>,
+    expression: Option<Node>,
 }
 
 impl ReturnStatement {
-    pub fn new(expression: Option<Box<Node>>) -> Self {
+    pub fn new(expression: Option<Node>) -> Self {
         Self { expression }
     }
 }
@@ -195,11 +195,11 @@ impl Stmt for ReturnStatement {
 }
 
 pub struct NamespaceStatement {
-    expression: Box<Node>,
+    expression: Node,
 }
 
 impl NamespaceStatement {
-    pub fn new(expression: Box<Node>) -> Self {
+    pub fn new(expression: Node) -> Self {
         Self { expression }
     }
 }
@@ -213,12 +213,12 @@ impl Stmt for NamespaceStatement {
 }
 
 pub struct NamespaceBlock {
-    expression: Option<Box<Node>>,
+    expression: Option<Node>,
     block: Box<dyn Stmt>,
 }
 
 impl NamespaceBlock {
-    pub fn new(expression: Option<Box<Node>>, block: Box<dyn Stmt>) -> Self {
+    pub fn new(expression: Option<Node>, block: Box<dyn Stmt>) -> Self {
         Self { expression, block }
     }
 }
@@ -287,11 +287,11 @@ impl Stmt for UseConstStatement {
 
 pub struct UseTraitStatement {
     token: Token,
-    type_refs: Vec<Box<Node>>,
+    type_refs: Vec<Node>,
 }
 
 impl UseTraitStatement {
-    pub fn new(token: Token, type_refs: Vec<Box<Node>>) -> Self {
+    pub fn new(token: Token, type_refs: Vec<Node>) -> Self {
         Self { token, type_refs }
     }
 }
@@ -308,8 +308,8 @@ pub struct ClassStatement {
     name: Token,
     is_abstract: bool,
     is_final: bool,
-    implements: Option<Vec<Box<Node>>>,
-    extends: Option<Vec<Box<Node>>>,
+    implements: Option<Vec<Node>>,
+    extends: Option<Vec<Node>>,
     body: Vec<Box<dyn Stmt>>,
 }
 
@@ -318,8 +318,8 @@ impl ClassStatement {
         name: Token,
         is_abstract: bool,
         is_final: bool,
-        implements: Option<Vec<Box<Node>>>,
-        extends: Option<Vec<Box<Node>>>,
+        implements: Option<Vec<Node>>,
+        extends: Option<Vec<Node>>,
         body: Vec<Box<dyn Stmt>>,
     ) -> Self {
         Self {
@@ -368,12 +368,12 @@ impl Stmt for TraitStatement {
 
 pub struct Interface {
     name: Token,
-    extends: Option<Vec<Box<Node>>>,
+    extends: Option<Vec<Node>>,
     body: Vec<Box<dyn Stmt>>,
 }
 
 impl Interface {
-    pub fn new(name: Token, extends: Option<Vec<Box<Node>>>, body: Vec<Box<dyn Stmt>>) -> Self {
+    pub fn new(name: Token, extends: Option<Vec<Node>>, body: Vec<Box<dyn Stmt>>) -> Self {
         Self {
             name,
             extends,
@@ -395,11 +395,11 @@ impl Stmt for Interface {
 pub struct ClassConstantDefinitionStatement {
     name: Token,
     visibility: Option<Token>,
-    value: Box<Node>,
+    value: Node,
 }
 
 impl ClassConstantDefinitionStatement {
-    pub fn new(name: Token, visibility: Option<Token>, value: Box<Node>) -> Self {
+    pub fn new(name: Token, visibility: Option<Token>, value: Node) -> Self {
         Self {
             name,
             visibility,
@@ -422,7 +422,7 @@ pub struct PropertyDefinitionStatement {
     name: Token,
     visibility: Option<Token>,
     is_abstract: Option<Token>,
-    value: Option<Box<Node>>,
+    value: Option<Node>,
     is_static: Option<Token>,
 }
 
@@ -431,7 +431,7 @@ impl PropertyDefinitionStatement {
         name: Token,
         visibility: Option<Token>,
         is_abstract: Option<Token>,
-        value: Option<Box<Node>>,
+        value: Option<Node>,
         is_static: Option<Token>,
     ) -> Self {
         Self {
@@ -538,14 +538,14 @@ impl Stmt for MethodDefinitionStatement {
 
 pub struct FunctionDefinitionStatement {
     arguments: Option<Vec<Node>>,
-    return_type: Option<Box<Node>>,
+    return_type: Option<Node>,
     body: Option<Box<dyn Stmt>>,
 }
 
 impl FunctionDefinitionStatement {
     pub fn new(
         arguments: Option<Vec<Node>>,
-        return_type: Option<Box<Node>>,
+        return_type: Option<Node>,
         body: Option<Box<dyn Stmt>>,
     ) -> Self {
         Self {
@@ -593,12 +593,12 @@ impl Stmt for NamedFunctionDefinitionStatement {
 }
 
 pub struct WhileStatement {
-    condition: Box<Node>,
+    condition: Node,
     body: Box<dyn Stmt>,
 }
 
 impl WhileStatement {
-    pub fn new(condition: Box<Node>, body: Box<dyn Stmt>) -> Self {
+    pub fn new(condition: Node, body: Box<dyn Stmt>) -> Self {
         Self { condition, body }
     }
 }
@@ -613,12 +613,12 @@ impl Stmt for WhileStatement {
 }
 
 pub struct DoWhileStatement {
-    condition: Box<Node>,
+    condition: Node,
     body: Box<dyn Stmt>,
 }
 
 impl DoWhileStatement {
-    pub fn new(condition: Box<Node>, body: Box<dyn Stmt>) -> Self {
+    pub fn new(condition: Node, body: Box<dyn Stmt>) -> Self {
         Self { condition, body }
     }
 }
@@ -667,13 +667,13 @@ impl Stmt for ForStatement {
 }
 
 pub struct ForEachStatement {
-    array: Box<Node>,
-    kv: Box<Node>,
+    array: Node,
+    kv: Node,
     body: Box<dyn Stmt>,
 }
 
 impl ForEachStatement {
-    pub fn new(array: Box<Node>, kv: Box<Node>, body: Box<dyn Stmt>) -> Self {
+    pub fn new(array: Node, kv: Node, body: Box<dyn Stmt>) -> Self {
         Self { array, kv, body }
     }
 }
@@ -707,12 +707,12 @@ impl Stmt for Block {
 
 #[derive(Debug)]
 pub struct IfBranch {
-    condition: Box<Node>,
+    condition: Node,
     body: Box<dyn Stmt>,
 }
 
 impl IfBranch {
-    pub fn new(condition: Box<Node>, body: Box<dyn Stmt>) -> Self {
+    pub fn new(condition: Node, body: Box<dyn Stmt>) -> Self {
         Self { condition, body }
     }
 }
@@ -746,14 +746,14 @@ impl Stmt for ElseBranch {
 
 pub struct IfStatement {
     if_branch: Box<IfBranch>,
-    else_if_branches: Vec<Box<IfBranch>>,
+    else_if_branches: Vec<IfBranch>,
     else_branch: Option<Box<dyn Stmt>>,
 }
 
 impl IfStatement {
     pub fn new(
         if_branch: Box<IfBranch>,
-        else_if_branches: Vec<Box<IfBranch>>,
+        else_if_branches: Vec<IfBranch>,
         else_branch: Option<Box<dyn Stmt>>,
     ) -> Self {
         Self {
@@ -777,12 +777,12 @@ impl Stmt for IfStatement {
 #[derive(Debug)]
 pub struct SwitchBranch {
     /// The one without an expression is the default branch
-    cases: Vec<Option<Box<Node>>>,
+    cases: Vec<Option<Node>>,
     body: Vec<Box<dyn Stmt>>,
 }
 
 impl SwitchBranch {
-    pub fn new(cases: Vec<Option<Box<Node>>>, body: Vec<Box<dyn Stmt>>) -> Self {
+    pub fn new(cases: Vec<Option<Node>>, body: Vec<Box<dyn Stmt>>) -> Self {
         Self { cases, body }
     }
 }
@@ -797,12 +797,12 @@ impl Stmt for SwitchBranch {
 }
 
 pub struct SwitchCase {
-    expr: Box<Node>,
-    branches: Vec<Box<SwitchBranch>>,
+    expr: Node,
+    branches: Vec<SwitchBranch>,
 }
 
 impl SwitchCase {
-    pub fn new(expr: Box<Node>, branches: Vec<Box<SwitchBranch>>) -> Self {
+    pub fn new(expr: Node, branches: Vec<SwitchBranch>) -> Self {
         Self { expr, branches }
     }
 }
@@ -818,11 +818,11 @@ impl Stmt for SwitchCase {
 
 pub struct TokenStatement {
     token: Token,
-    expr: Option<Box<Node>>,
+    expr: Option<Node>,
 }
 
 impl TokenStatement {
-    pub fn new(token: Token, expr: Option<Box<Node>>) -> Self {
+    pub fn new(token: Token, expr: Option<Node>) -> Self {
         Self { token, expr }
     }
 }
@@ -837,13 +837,13 @@ impl Stmt for TokenStatement {
 }
 
 pub struct CatchBlock {
-    types: Vec<Box<Node>>,
+    types: Vec<Node>,
     var: Token,
     body: Box<dyn Stmt>,
 }
 
 impl CatchBlock {
-    pub fn new(types: Vec<Box<Node>>, var: Token, body: Box<dyn Stmt>) -> Self {
+    pub fn new(types: Vec<Node>, var: Token, body: Box<dyn Stmt>) -> Self {
         Self { types, var, body }
     }
 }
@@ -907,11 +907,11 @@ impl Stmt for StaticVariablesStatement {
 }
 
 pub struct GlobalVariablesStatement {
-    vars: Vec<Box<Node>>,
+    vars: Vec<Node>,
 }
 
 impl GlobalVariablesStatement {
-    pub fn new(vars: Vec<Box<Node>>) -> Self {
+    pub fn new(vars: Vec<Node>) -> Self {
         Self { vars }
     }
 }
