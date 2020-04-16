@@ -83,6 +83,7 @@ pub enum TokenType {
     ExponentialNumber,
     LongNumber,
     HexNumber,
+    BinaryNumber,
     ConstantEncapsedString,
     EncapsedAndWhitespaceString,
     ShellEscape,

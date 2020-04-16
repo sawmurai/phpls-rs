@@ -18,28 +18,26 @@ fn visit_file(path: &Path) -> io::Result<()> {
         if ext == "php" {
             let p = path.to_str().unwrap().to_string();
 
-            let content = fs::read_to_string(path)?;
-            let mut scanner = Scanner::new(&content);
+            if let Ok(content) = fs::read_to_string(path) {
+                let mut scanner = Scanner::new(&content);
 
-            if let Err(msg) = scanner.scan() {
-                eprintln!("Could not read file {}: {}", &p, &msg);
-            }
-
-            // Later on we need to generate an AST, as well as an environment and the
-            // symbol table. This will then replace the token streams
-            //t.insert(p, scanner.tokens);
-
-            let mut parser = Parser::new(scanner.tokens);
-            //println!("{:#?}", &scanner.tokens);
-            let result = parser.ast();
-
-            if let Err(e) = result {
-                println!("{}: {:#?}", p, e);
-            } else if !parser.errors().is_empty() {
-                println!("Parsing {}", p);
-                println!("Errors {:#?}", parser.errors());
-            } else {
-                //println!("{:#?}", result);
+                if let Err(msg) = scanner.scan() {
+                    eprintln!("Could not read file {}: {}", &p, &msg);
+                }
+                // Later on we need to generate an AST, as well as an environment and the
+                // symbol table. This will then replace the token streams
+                //t.insert(p, scanner.tokens);
+                let mut parser = Parser::new(scanner.tokens);
+                //println!("{:#?}", &scanner.tokens);
+                let result = parser.ast();
+                if let Err(e) = result {
+                    println!("{}: {:#?}", p, e);
+                } else if !parser.errors().is_empty() {
+                    println!("Parsing {}", p);
+                    println!("Errors {:#?}", parser.errors());
+                } else {
+                    //println!("{:#?}", result);
+                }
             }
             //println!("{:#?}", parser.ast());
             //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {

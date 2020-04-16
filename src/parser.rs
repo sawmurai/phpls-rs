@@ -31,6 +31,7 @@ impl Parser {
                 TokenType::DecimalNumber,
                 TokenType::ExponentialNumber,
                 TokenType::HexNumber,
+                TokenType::BinaryNumber,
                 TokenType::ConstantEncapsedString,
                 TokenType::EncapsedAndWhitespaceString,
                 TokenType::Variable,
@@ -1409,6 +1410,7 @@ impl Parser {
             TokenType::DecimalNumber,
             TokenType::ExponentialNumber,
             TokenType::HexNumber,
+            TokenType::BinaryNumber,
             TokenType::ConstantEncapsedString,
             TokenType::EncapsedAndWhitespaceString,
         ])?;
@@ -1964,6 +1966,7 @@ impl Parser {
             TokenType::DecimalNumber,
             TokenType::ExponentialNumber,
             TokenType::HexNumber,
+            TokenType::BinaryNumber,
             TokenType::ConstantEncapsedString,
             TokenType::EncapsedAndWhitespaceString,
             TokenType::ShellEscape,

@@ -441,6 +441,16 @@ impl<'a> Scanner<'a> {
                         }
                     }
 
+                    if let Some('b') = self.chars.peek() {
+                        if c == '0' {
+                            self.advance();
+                            number.push_str(&self.collect_binary_number());
+                            self.push_named_token(TokenType::BinaryNumber, &number);
+
+                            continue;
+                        }
+                    }
+
                     number.push_str(&self.collect_number());
                     let mut number_type = TokenType::LongNumber;
 
@@ -744,6 +754,21 @@ impl<'a> Scanner<'a> {
 
         while let Some(&c) = self.chars.peek() {
             if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' {
+                number.push(c);
+            } else {
+                break;
+            }
+            self.advance();
+        }
+
+        number
+    }
+
+    fn collect_binary_number(&mut self) -> String {
+        let mut number = String::new();
+
+        while let Some(&c) = self.chars.peek() {
+            if c == '0' || c == '1' {
                 number.push(c);
             } else {
                 break;
