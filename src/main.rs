@@ -29,7 +29,7 @@ fn visit_file(path: &Path) -> io::Result<()> {
             // symbol table. This will then replace the token streams
             //t.insert(p, scanner.tokens);
 
-            let mut parser = Parser::new(&scanner.tokens);
+            let mut parser = Parser::new(scanner.tokens);
             //println!("{:#?}", &scanner.tokens);
             let result = parser.ast();
 

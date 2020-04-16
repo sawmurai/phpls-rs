@@ -12,6 +12,11 @@ pub enum Node {
         expr: Box<Node>,
         token: Token,
     },
+    Const {
+        name: Token,
+        token: Token,
+        value: Box<Node>,
+    },
     Binary {
         left: Box<Node>,
         token: Token,
@@ -29,6 +34,21 @@ pub enum Node {
     LexicalVariable {
         reference: Option<Token>,
         variable: Token,
+    },
+    AliasedVariable {
+        variable: Token,
+        expr: Box<Node>,
+    },
+    DynamicVariable {
+        variable: Token,
+        oc: Token,
+        expr: Box<Node>,
+        cc: Token,
+    },
+    StaticVariable {
+        variable: Token,
+        assignment: Option<Token>,
+        value: Option<Box<Node>>,
     },
     Operator(Token),
     Identifier(Token),
@@ -76,6 +96,12 @@ pub enum Node {
         op: Token,
         parameters: Vec<Box<Node>>,
         cp: Token,
+    },
+    Exit {
+        exit: Token,
+        op: Option<Token>,
+        parameters: Option<Vec<Box<Node>>>,
+        cp: Option<Token>,
     },
     New {
         token: Token,
@@ -149,6 +175,27 @@ pub enum Node {
     FileInclude {
         token: Token,
         resource: Box<Node>,
+    },
+    UseDeclaration {
+        declaration: Box<Node>,
+        aliased: Option<Token>,
+        alias: Option<Token>,
+    },
+    UseConst {
+        constant: Box<Node>,
+        aliased: Option<Token>,
+        alias: Option<Token>,
+    },
+    UseFunction {
+        function: Box<Node>,
+        aliased: Option<Token>,
+        alias: Option<Token>,
+    },
+    GroupedUse {
+        parent: Box<Node>,
+        oc: Token,
+        uses: Vec<Box<Node>>,
+        cc: Token,
     },
 }
 

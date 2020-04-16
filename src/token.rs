@@ -30,7 +30,7 @@ pub enum TokenType {
     Silencer,
     BitwiseNegation,
     Modulo,
-    Xor,
+    BinaryXor,
 
     // Two chars
     Increment,
@@ -68,6 +68,9 @@ pub enum TokenType {
     SpaceShip,
     CoalesceAssignment,
     Elipsis,
+    LogicXor,
+    ConstNan,
+    ConstInf,
 
     // Four chars
 
@@ -77,6 +80,7 @@ pub enum TokenType {
     // Variable length
     Identifier,
     DecimalNumber,
+    ExponentialNumber,
     LongNumber,
     HexNumber,
     ConstantEncapsedString,
@@ -100,6 +104,7 @@ pub enum TokenType {
     Else,
     EndIf,
     Echo,
+    Print,
     Include,
     IncludeOnce,
     Require,
@@ -167,7 +172,7 @@ pub enum TokenType {
     Namespace,
     Void,
     Yield,
-    From,
+    YieldFrom,
 
     // Types
     TypeBool,
@@ -184,7 +189,7 @@ pub struct Token {
     pub col: u16,
     pub line: u16,
     pub t: TokenType,
-    label: Option<String>,
+    pub label: Option<String>,
 }
 
 impl Token {
@@ -234,7 +239,7 @@ impl Token {
             TokenType::Concat |
             TokenType::BitwiseNegation |
             TokenType::Modulo |
-            TokenType::Xor |
+            TokenType::BinaryXor |
 
             // Two chars
             TokenType::Increment |
@@ -343,6 +348,8 @@ impl Token {
             | TokenType::ConstTrait
             | TokenType::ConstMethod
             | TokenType::ConstFunction
+            | TokenType::ConstNan
+            | TokenType::ConstInf
             | TokenType::New
             | TokenType::Clone
             | TokenType::True
@@ -359,8 +366,8 @@ impl Token {
             | TokenType::TypeObject
             | TokenType::TypeFloat
             | TokenType::TypeSelf
-            | TokenType::Identifier
-            | TokenType::From => true,
+            | TokenType::Print
+            | TokenType::Identifier => true,
             _ => false,
         }
     }

@@ -49,6 +49,42 @@ impl Stmt for EchoStatement {
     }
 }
 
+pub struct ConstStatement {
+    constants: Vec<Node>,
+}
+
+impl ConstStatement {
+    pub fn new(constants: Vec<Node>) -> Self {
+        Self { constants }
+    }
+}
+
+impl Stmt for ConstStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("const")
+            .field("constants", &self.constants)
+            .finish()
+    }
+}
+
+pub struct PrintStatement {
+    expressions: Vec<Box<Node>>,
+}
+
+impl PrintStatement {
+    pub fn new(expressions: Vec<Box<Node>>) -> Self {
+        Self { expressions }
+    }
+}
+
+impl Stmt for PrintStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("print")
+            .field("expressions", &self.expressions)
+            .finish()
+    }
+}
+
 pub struct GotoStatement {
     label: Token,
 }
@@ -65,6 +101,25 @@ impl Stmt for GotoStatement {
     }
 }
 
+pub struct LabelStatement {
+    label: Token,
+    colon: Token,
+}
+
+impl LabelStatement {
+    pub fn new(label: Token, colon: Token) -> Self {
+        Self { label, colon }
+    }
+}
+
+impl Stmt for LabelStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("label")
+            .field("label", &self.label)
+            .field("colon", &self.colon)
+            .finish()
+    }
+}
 pub struct ThrowStatement {
     expression: Box<Node>,
 }
@@ -158,52 +213,55 @@ impl Stmt for NamespaceStatement {
 }
 
 pub struct UseStatement {
-    function_const: Option<Token>,
-    path: Box<Node>,
-    alias: Option<Token>,
-    group: Option<Vec<Box<dyn Stmt>>>,
+    imports: Vec<Node>,
 }
 
 impl UseStatement {
-    pub fn new(path: Box<Node>) -> Self {
-        Self {
-            function_const: None,
-            path,
-            alias: None,
-            group: None,
-        }
-    }
-
-    pub fn aliased(function_const: Option<Token>, path: Box<Node>, alias: Token) -> Self {
-        Self {
-            function_const,
-            path,
-            alias: Some(alias),
-            group: None,
-        }
-    }
-
-    pub fn grouped(
-        function_const: Option<Token>,
-        path: Box<Node>,
-        group: Vec<Box<dyn Stmt>>,
-    ) -> Self {
-        Self {
-            function_const,
-            path,
-            alias: None,
-            group: Some(group),
-        }
+    pub fn new(imports: Vec<Node>) -> Self {
+        Self { imports }
     }
 }
 
 impl Stmt for UseStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Use")
-            .field("function_const", &self.function_const)
-            .field("path", &self.path)
-            .field("alias", &self.alias)
-            .field("group", &self.group)
+            .field("imports", &self.imports)
+            .finish()
+    }
+}
+
+pub struct UseFunctionStatement {
+    imports: Vec<Node>,
+}
+
+impl UseFunctionStatement {
+    pub fn new(imports: Vec<Node>) -> Self {
+        Self { imports }
+    }
+}
+
+impl Stmt for UseFunctionStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Use function")
+            .field("imports", &self.imports)
+            .finish()
+    }
+}
+
+pub struct UseConstStatement {
+    imports: Vec<Node>,
+}
+
+impl UseConstStatement {
+    pub fn new(imports: Vec<Node>) -> Self {
+        Self { imports }
+    }
+}
+
+impl Stmt for UseConstStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Use const")
+            .field("imports", &self.imports)
             .finish()
     }
 }
@@ -344,18 +402,18 @@ impl Stmt for ClassConstantDefinitionStatement {
 pub struct PropertyDefinitionStatement {
     name: Token,
     visibility: Option<Token>,
-    is_abstract: bool,
+    is_abstract: Option<Token>,
     value: Option<Box<Node>>,
-    is_static: bool,
+    is_static: Option<Token>,
 }
 
 impl PropertyDefinitionStatement {
     pub fn new(
         name: Token,
         visibility: Option<Token>,
-        is_abstract: bool,
+        is_abstract: Option<Token>,
         value: Option<Box<Node>>,
-        is_static: bool,
+        is_static: Option<Token>,
     ) -> Self {
         Self {
             name,
@@ -418,9 +476,9 @@ pub struct MethodDefinitionStatement {
     by_ref: Option<Token>,
     name: Token,
     visibility: Option<Token>,
-    is_abstract: bool,
+    is_abstract: Option<Token>,
     function: Box<dyn Stmt>,
-    is_static: bool,
+    is_static: Option<Token>,
 }
 
 impl MethodDefinitionStatement {
@@ -429,9 +487,9 @@ impl MethodDefinitionStatement {
         by_ref: Option<Token>,
         name: Token,
         visibility: Option<Token>,
-        is_abstract: bool,
+        is_abstract: Option<Token>,
         function: Box<dyn Stmt>,
-        is_static: bool,
+        is_static: Option<Token>,
     ) -> Self {
         Self {
             is_final,
@@ -812,11 +870,11 @@ impl Stmt for TryCatch {
 }
 
 pub struct StaticVariablesStatement {
-    assignments: Vec<Box<Node>>,
+    assignments: Vec<Node>,
 }
 
 impl StaticVariablesStatement {
-    pub fn new(assignments: Vec<Box<Node>>) -> Self {
+    pub fn new(assignments: Vec<Node>) -> Self {
         Self { assignments }
     }
 }
@@ -830,11 +888,11 @@ impl Stmt for StaticVariablesStatement {
 }
 
 pub struct GlobalVariablesStatement {
-    vars: Vec<Token>,
+    vars: Vec<Box<Node>>,
 }
 
 impl GlobalVariablesStatement {
-    pub fn new(vars: Vec<Token>) -> Self {
+    pub fn new(vars: Vec<Box<Node>>) -> Self {
         Self { vars }
     }
 }

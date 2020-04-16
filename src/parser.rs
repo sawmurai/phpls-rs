@@ -2,10 +2,6 @@ use crate::expression::*;
 use crate::statement::*;
 use crate::token::{Token, TokenType};
 
-use std::iter::Iterator;
-use std::iter::Peekable;
-use std::slice::Iter;
-
 type StatementResult = Result<Box<dyn Stmt>, String>;
 type StatementListResult = Result<Vec<Box<dyn Stmt>>, String>;
 type ArgumentListResult = Result<Option<Vec<Node>>, String>;
@@ -15,16 +11,17 @@ type ExpressionResult = Result<Box<Node>, String>;
 ///
 /// Parses a token stream of a `Scanner` and generates an Abstract Syntax Tree
 #[derive(Debug)]
-pub struct Parser<'a> {
-    tokens: Peekable<Iter<'a, Token>>,
+pub struct Parser {
+    tokens: Vec<Token>,
     literals: Vec<TokenType>,
     errors: Vec<String>,
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(tokens: &'a Vec<Token>) -> Self {
+impl Parser {
+    pub fn new(mut tokens: Vec<Token>) -> Self {
+        tokens.reverse();
         Self {
-            tokens: tokens.iter().peekable(),
+            tokens: tokens,
             errors: Vec::new(),
             literals: vec![
                 TokenType::False,
@@ -32,6 +29,7 @@ impl<'a> Parser<'a> {
                 TokenType::Null,
                 TokenType::LongNumber,
                 TokenType::DecimalNumber,
+                TokenType::ExponentialNumber,
                 TokenType::HexNumber,
                 TokenType::ConstantEncapsedString,
                 TokenType::EncapsedAndWhitespaceString,
@@ -46,17 +44,17 @@ impl<'a> Parser<'a> {
 
     /// Fast forwards to the end of the current statement or block
     fn error_fast_forward(&mut self) {
-        while self.tokens.peek().is_some() {
-            self.tokens.next();
+        while self.peek().is_some() {
+            self.next();
 
             if self.next_token_one_of(&vec![TokenType::Semicolon]) {
-                self.tokens.next();
+                self.next();
 
                 break;
             }
 
             if self.next_token_one_of(&vec![TokenType::CloseCurly]) {
-                self.tokens.next();
+                self.next();
                 break;
             }
         }
@@ -77,7 +75,7 @@ impl<'a> Parser<'a> {
 
         self.consume_or_err(TokenType::ScriptStart)?;
 
-        while self.tokens.peek().is_some() {
+        while self.peek().is_some() {
             match self.statement() {
                 Ok(statement) => statements.push(statement),
                 Err(error) => {
@@ -101,9 +99,10 @@ impl<'a> Parser<'a> {
     pub fn block(&mut self) -> Result<Box<dyn Stmt>, String> {
         let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
 
+        self.consume_or_err(TokenType::OpenCurly)?;
+
         // TODO: Make sure namespace etc can not pop up here
-        while !self.next_token_one_of(&vec![TokenType::CloseCurly]) && self.tokens.peek().is_some()
-        {
+        while !self.next_token_one_of(&vec![TokenType::CloseCurly]) && self.peek().is_some() {
             match self.statement() {
                 Ok(statement) => statements.push(statement),
                 Err(error) => {
@@ -112,6 +111,8 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+
+        self.consume_or_err(TokenType::CloseCurly)?;
 
         Ok(Box::new(Block::new(statements)))
     }
@@ -135,22 +136,34 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            let mut is_abstract = self.consume_or_ignore(TokenType::Abstract).is_some();
-            let is_final = self.consume_or_ignore(TokenType::Final);
+            let mut is_abstract = None;
+            let mut is_final = None;
+            let mut visibility = None;
+            let mut is_static = None;
 
-            let visibility = self.consume_one_of_cloned_or_ignore(&vec![
+            // Collect all modifiers
+            while self.next_token_one_of(&vec![
+                TokenType::Abstract,
+                TokenType::Final,
                 TokenType::Public,
                 TokenType::Var,
                 TokenType::Private,
                 TokenType::Protected,
-            ]);
-
-            if !is_abstract {
-                is_abstract = self.consume_or_ignore(TokenType::Abstract).is_some();
+                TokenType::Static,
+            ]) {
+                is_abstract = self.consume_or_ignore(TokenType::Abstract);
+                is_final = self.consume_or_ignore(TokenType::Final);
+                visibility = self.consume_one_of_cloned_or_ignore(&vec![
+                    TokenType::Public,
+                    TokenType::Var,
+                    TokenType::Private,
+                    TokenType::Protected,
+                ]);
+                is_static = self.consume_or_ignore(TokenType::Static);
             }
 
             if self.next_token_one_of(&vec![TokenType::Const]) {
-                self.tokens.next();
+                self.next();
                 let name = self.consume_identifier_cloned()?;
 
                 self.consume_or_err(TokenType::Assignment)?;
@@ -165,12 +178,10 @@ impl<'a> Parser<'a> {
                 continue;
             };
 
-            let is_static = self.consume_or_ignore(TokenType::Static).is_some();
-
-            if let Some(next) = self.tokens.peek() {
+            if let Some(next) = self.peek() {
                 match next.t {
                     TokenType::Function => {
-                        self.tokens.next();
+                        self.next();
 
                         let by_ref = self.consume_or_ignore(TokenType::BinaryAnd);
                         let name = self.consume_identifier_cloned()?;
@@ -193,7 +204,7 @@ impl<'a> Parser<'a> {
                             let assignment =
                                 match self.next_token_one_of(&vec![TokenType::Assignment]) {
                                     true => {
-                                        self.tokens.next();
+                                        self.next();
                                         Some(self.expression()?)
                                     }
                                     false => None,
@@ -202,9 +213,9 @@ impl<'a> Parser<'a> {
                             statements.push(Box::new(PropertyDefinitionStatement::new(
                                 name,
                                 visibility.clone(),
-                                is_abstract,
+                                is_abstract.clone(),
                                 assignment,
-                                is_static,
+                                is_static.clone(),
                             )));
 
                             if !self.next_token_one_of(&vec![TokenType::Comma]) {
@@ -212,7 +223,7 @@ impl<'a> Parser<'a> {
                             }
 
                             // The comma
-                            self.tokens.next();
+                            self.next();
                         }
 
                         self.consume_end_of_statement()?;
@@ -231,7 +242,7 @@ impl<'a> Parser<'a> {
             if let Some(Token {
                 t: TokenType::CloseCurly,
                 ..
-            }) = self.tokens.peek()
+            }) = self.peek()
             {
                 break;
             }
@@ -266,9 +277,7 @@ impl<'a> Parser<'a> {
             )));
         }
 
-        self.consume_or_err(TokenType::OpenCurly)?;
         let body = self.block()?;
-        self.consume_or_err(TokenType::CloseCurly)?;
 
         return Ok(Box::new(FunctionDefinitionStatement::new(
             arguments,
@@ -341,7 +350,7 @@ impl<'a> Parser<'a> {
             });
 
             if self.next_token_one_of(&vec![TokenType::Comma]) {
-                self.tokens.next();
+                self.next();
             } else {
                 break;
             }
@@ -405,109 +414,116 @@ impl<'a> Parser<'a> {
     /// /** to here **/
     /// ```
     fn statement(&mut self) -> StatementResult {
-        if let Some(&token) = self.tokens.peek() {
+        if let Some(token) = self.peek() {
             match token.t {
                 TokenType::ScriptEnd => {
                     return self.inline_html();
                 }
                 TokenType::Function => {
-                    self.tokens.next();
+                    self.next();
 
                     return self.named_function();
                 }
                 TokenType::Namespace => {
-                    self.tokens.next();
+                    self.next();
 
                     return self.namespace_statement();
                 }
                 TokenType::Use => {
-                    self.tokens.next();
+                    self.next();
+
+                    if let Some(_) = self.consume_or_ignore(TokenType::Function) {
+                        return self.use_function_statement();
+                    }
+
+                    if let Some(_) = self.consume_or_ignore(TokenType::Const) {
+                        return self.use_const_statement();
+                    }
 
                     return self.use_statement();
                 }
-                TokenType::Static => {
-                    let expr = self.expression_statement()?;
+                TokenType::Const => {
+                    self.next();
 
-                    // Find a way to associate the sometimes following var list to the static keyword
-                    return Ok(expr);
-                    // TODO: Issue a warning if the assignment uses values that are not defined at compile-time (variables etc.)
-                    //return self.static_variables();
+                    return self.const_statement();
                 }
                 TokenType::Global => {
-                    self.tokens.next();
+                    self.next();
 
                     return self.global_variables();
                 }
                 TokenType::Echo => {
-                    self.tokens.next();
+                    self.next();
 
                     return self.echo_statement();
                 }
+                TokenType::Print => {
+                    self.next();
+
+                    return self.print_statement();
+                }
                 TokenType::Goto => {
-                    self.tokens.next();
+                    self.next();
 
                     return self.goto_statement();
                 }
                 TokenType::Return => {
-                    self.tokens.next();
+                    self.next();
 
                     return self.return_statement();
                 }
                 TokenType::Throw => {
-                    self.tokens.next();
+                    self.next();
 
                     return self.throw_statement();
                 }
                 TokenType::Class => {
-                    self.tokens.next();
+                    self.next();
                     return self.class_statement(false, false);
                 }
                 TokenType::Trait => {
-                    self.tokens.next();
+                    self.next();
                     return self.trait_statement();
                 }
                 TokenType::Abstract => {
-                    self.tokens.next();
+                    self.next();
                     return self.abstract_class_statement();
                 }
                 TokenType::Final => {
-                    self.tokens.next();
+                    self.next();
                     return self.final_class_statement();
                 }
                 TokenType::Interface => {
-                    self.tokens.next();
+                    self.next();
                     return self.interface();
                 }
                 TokenType::While => {
-                    self.tokens.next();
+                    self.next();
                     return self.while_statement();
                 }
                 TokenType::Do => {
-                    self.tokens.next();
+                    self.next();
                     return self.do_while_statement();
                 }
                 TokenType::For => {
-                    self.tokens.next();
+                    self.next();
                     return self.for_statement();
                 }
                 TokenType::Foreach => {
-                    self.tokens.next();
+                    self.next();
                     return self.foreach_statement();
                 }
                 TokenType::If => {
-                    self.tokens.next();
+                    self.next();
                     return self.if_statement();
                 }
                 TokenType::OpenCurly => {
-                    self.tokens.next();
                     let block = self.block();
-
-                    self.consume_or_err(TokenType::CloseCurly)?;
 
                     return block;
                 }
                 TokenType::Switch => {
-                    self.tokens.next();
+                    self.next();
                     return self.switch_statement();
                 }
                 TokenType::Semicolon => {
@@ -516,14 +532,8 @@ impl<'a> Parser<'a> {
                         None,
                     )));
                 }
-                TokenType::Exit => {
-                    return Ok(Box::new(TokenStatement::new(
-                        self.consume_cloned(TokenType::Exit)?,
-                        None,
-                    )));
-                }
                 TokenType::Break | TokenType::Continue => {
-                    let token = self.consume_cloned(token.t.clone())?;
+                    let token = self.next().unwrap();
 
                     let expr = match self.next_token_one_of(&vec![TokenType::Semicolon]) {
                         true => None,
@@ -537,7 +547,7 @@ impl<'a> Parser<'a> {
                     return Ok(statement);
                 }
                 TokenType::Try => {
-                    self.tokens.next();
+                    self.next();
                     return self.try_catch_statement();
                 }
                 TokenType::Declare => {
@@ -546,9 +556,24 @@ impl<'a> Parser<'a> {
                 TokenType::Unset => {
                     return self.unset_statement();
                 }
-                // Support labels here
-                // TokenType::Identifier => {}
                 _ => {
+                    if let Some(static_token) = self.consume_or_ignore(TokenType::Static) {
+                        if self.next_token_one_of(&vec![TokenType::Variable]) {
+                            return self.static_variables();
+                        } else {
+                            // Back on the stack
+                            self.tokens.push(static_token);
+                        }
+
+                    // Labels
+                    } else if let Some(identifier) = self.consume_or_ignore(TokenType::Identifier) {
+                        if let Some(colon) = self.consume_or_ignore(TokenType::Colon) {
+                            return Ok(Box::new(LabelStatement::new(identifier, colon)));
+                        } else {
+                            // Back on the stack
+                            self.tokens.push(identifier);
+                        }
+                    }
                     let expr = self.expression_statement()?;
 
                     self.consume_end_of_statement()?;
@@ -559,6 +584,28 @@ impl<'a> Parser<'a> {
         }
 
         return Err(String::from("Unexpected EOF!"));
+    }
+
+    fn static_variables(&mut self) -> StatementResult {
+        let mut variables = Vec::new();
+
+        loop {
+            let variable = self.consume_cloned(TokenType::Variable)?;
+
+            if let Some(assignment) = self.consume_or_ignore(TokenType::Assignment) {
+                variables.push(Node::StaticVariable {
+                    variable,
+                    assignment: Some(assignment),
+                    value: Some(self.expression()?),
+                });
+            }
+
+            if let None = self.consume_or_ignore(TokenType::Comma) {
+                break;
+            }
+        }
+
+        Ok(Box::new(StaticVariablesStatement::new(variables)))
     }
 
     /// Parses a try catch statement
@@ -572,27 +619,21 @@ impl<'a> Parser<'a> {
     /// /** to here **/
     /// ```
     fn try_catch_statement(&mut self) -> StatementResult {
-        self.consume_or_err(TokenType::OpenCurly)?;
         let try_block = self.block()?;
-        self.consume_or_err(TokenType::CloseCurly)?;
 
-        // Needs to have at least one, so we unroll one iteration
         let mut catch_blocks = Vec::new();
-        catch_blocks.push(self.catch_block()?);
 
         while self.next_token_one_of(&vec![TokenType::Catch]) {
             catch_blocks.push(self.catch_block()?);
         }
 
-        let finally_block = match self.tokens.peek() {
+        let finally_block = match self.peek() {
             Some(Token {
                 t: TokenType::Finally,
                 ..
             }) => {
-                self.tokens.next();
-                self.consume_or_err(TokenType::OpenCurly)?;
+                self.next();
                 let b = Some(self.block()?);
-                self.consume_or_err(TokenType::CloseCurly)?;
                 b
             }
             _ => None,
@@ -621,9 +662,7 @@ impl<'a> Parser<'a> {
         let var = self.consume_cloned(TokenType::Variable)?;
         self.consume_or_err(TokenType::CloseParenthesis)?;
 
-        self.consume_or_err(TokenType::OpenCurly)?;
         let catch_block = self.block()?;
-        self.consume_or_err(TokenType::CloseCurly)?;
 
         Ok(Box::new(CatchBlock::new(types, var, catch_block)))
     }
@@ -688,7 +727,7 @@ impl<'a> Parser<'a> {
             )));
         }
 
-        self.tokens.next();
+        self.next();
 
         Ok(Box::new(SwitchCase::new(expr, branches)))
     }
@@ -697,20 +736,20 @@ impl<'a> Parser<'a> {
         let mut cases_current_branch = Vec::new();
 
         loop {
-            match self.tokens.peek() {
+            match self.peek() {
                 Some(Token {
                     t: TokenType::Default,
                     ..
                 }) => {
                     cases_current_branch.push(None);
-                    self.tokens.next();
+                    self.next();
                     self.consume_or_err(TokenType::Colon)
                         .or_else(|_| self.consume_end_of_statement())?;
                 }
                 Some(Token {
                     t: TokenType::Case, ..
                 }) => {
-                    self.tokens.next();
+                    self.next();
                     cases_current_branch.push(Some(self.expression()?));
                     self.consume_or_err(TokenType::Colon)
                         .or_else(|_| self.consume_end_of_statement())?;
@@ -737,14 +776,12 @@ impl<'a> Parser<'a> {
         self.consume_or_err(TokenType::OpenParenthesis)?;
         let condition = self.expression()?;
         self.consume_or_err(TokenType::CloseParenthesis)?;
-        let body = match self.tokens.peek() {
+        let body = match self.peek() {
             Some(Token {
                 t: TokenType::OpenCurly,
                 ..
             }) => {
-                self.tokens.next();
                 let block = self.block()?;
-                self.tokens.next();
 
                 block
             }
@@ -772,14 +809,12 @@ impl<'a> Parser<'a> {
         let key_value = self.array_pair()?;
         self.consume_or_err(TokenType::CloseParenthesis)?;
 
-        let body = match self.tokens.peek() {
+        let body = match self.peek() {
             Some(Token {
                 t: TokenType::OpenCurly,
                 ..
             }) => {
-                self.tokens.next();
                 let block = self.block()?;
-                self.tokens.next();
 
                 block
             }
@@ -801,9 +836,7 @@ impl<'a> Parser<'a> {
     /// /** to here **/
     /// ```
     fn do_while_statement(&mut self) -> StatementResult {
-        self.consume_or_err(TokenType::OpenCurly)?;
         let body = self.block()?;
-        self.consume_or_err(TokenType::CloseCurly)?;
 
         self.consume_or_err(TokenType::While)?;
         self.consume_or_err(TokenType::OpenParenthesis)?;
@@ -831,7 +864,7 @@ impl<'a> Parser<'a> {
             init.push(self.expression_statement()?);
 
             if self.next_token_one_of(&vec![TokenType::Comma]) {
-                self.tokens.next();
+                self.next();
             } else {
                 break;
             }
@@ -844,7 +877,7 @@ impl<'a> Parser<'a> {
             condition.push(self.expression_statement()?);
 
             if self.next_token_one_of(&vec![TokenType::Comma]) {
-                self.tokens.next();
+                self.next();
             } else {
                 break;
             }
@@ -857,16 +890,14 @@ impl<'a> Parser<'a> {
             step.push(self.expression_statement()?);
 
             if self.next_token_one_of(&vec![TokenType::Comma]) {
-                self.tokens.next();
+                self.next();
             } else {
                 break;
             }
         }
         self.consume_or_err(TokenType::CloseParenthesis)?;
 
-        self.consume_or_err(TokenType::OpenCurly)?;
-        let body = self.block()?;
-        self.consume_or_err(TokenType::CloseCurly)?;
+        let body = self.statement()?;
 
         Ok(Box::new(ForStatement::new(init, condition, step, body)))
     }
@@ -892,7 +923,7 @@ impl<'a> Parser<'a> {
 
         let mut elseif_branches = Vec::new();
         while self.next_token_one_of(&vec![TokenType::ElseIf]) {
-            self.tokens.next();
+            self.next();
             self.consume_or_err(TokenType::OpenParenthesis)?;
             let condition = self.expression()?;
             self.consume_or_err(TokenType::CloseParenthesis)?;
@@ -900,11 +931,11 @@ impl<'a> Parser<'a> {
             elseif_branches.push(Box::new(IfBranch::new(condition, self.statement()?)));
         }
 
-        let else_branch = match self.tokens.peek() {
+        let else_branch = match self.peek() {
             Some(Token {
                 t: TokenType::Else, ..
             }) => {
-                self.tokens.next();
+                self.next();
                 Some(self.statement()?)
             }
             _ => None,
@@ -934,44 +965,210 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // use -> "use" ("function" | "const")? path (("{" use_group "}") | ("as" identifier))?
-    fn use_statement(&mut self) -> StatementResult {
-        let function_const = self
-            .consume_or_ignore(TokenType::Function)
-            .or_else(|| self.consume_or_ignore(TokenType::Const));
+    fn const_statement(&mut self) -> StatementResult {
+        let mut constants = Vec::new();
 
-        let path = self.non_empty_type_ref()?;
+        constants.push(Node::Const {
+            name: self.consume_identifier_cloned()?,
+            token: self.consume_cloned(TokenType::Assignment)?,
+            value: self.expression()?,
+        });
 
-        let next = if let Some(next) = self.tokens.peek() {
-            next
+        while let None = self.consume_or_ignore(TokenType::Semicolon) {
+            self.consume_or_err(TokenType::Comma)?;
+            constants.push(Node::Const {
+                name: self.consume_identifier_cloned()?,
+                token: self.consume_cloned(TokenType::Assignment)?,
+                value: self.expression()?,
+            });
+        }
+
+        Ok(Box::new(ConstStatement::new(constants)))
+    }
+
+    fn symbol_import(&mut self) -> Result<Box<Node>, String> {
+        if let Some(_) = self.consume_or_ignore(TokenType::Function) {
+            let name = self.non_empty_type_ref()?;
+
+            if let Some(alias) = self.consume_or_ignore(TokenType::As) {
+                return Ok(Box::new(Node::UseFunction {
+                    function: name,
+                    aliased: Some(alias),
+                    alias: Some(self.consume_cloned(TokenType::Identifier)?),
+                }));
+            } else {
+                return Ok(Box::new(Node::UseFunction {
+                    function: name,
+                    aliased: None,
+                    alias: None,
+                }));
+            }
+        }
+
+        if let Some(_) = self.consume_or_ignore(TokenType::Const) {
+            let name = self.non_empty_type_ref()?;
+
+            if let Some(alias) = self.consume_or_ignore(TokenType::As) {
+                return Ok(Box::new(Node::UseConst {
+                    constant: name,
+                    aliased: Some(alias),
+                    alias: Some(self.consume_cloned(TokenType::Identifier)?),
+                }));
+            } else {
+                return Ok(Box::new(Node::UseConst {
+                    constant: name,
+                    aliased: None,
+                    alias: None,
+                }));
+            }
+        }
+
+        let name = self.non_empty_type_ref()?;
+
+        if let Some(alias) = self.consume_or_ignore(TokenType::As) {
+            return Ok(Box::new(Node::UseDeclaration {
+                declaration: name,
+                aliased: Some(alias),
+                alias: Some(self.consume_cloned(TokenType::Identifier)?),
+            }));
         } else {
-            return Err(format!("Unexpected EOF"));
-        };
+            return Ok(Box::new(Node::UseDeclaration {
+                declaration: name,
+                aliased: None,
+                alias: None,
+            }));
+        }
+    }
 
-        let stmt = match next.t {
-            TokenType::As => {
-                self.tokens.next();
-                UseStatement::aliased(
-                    function_const,
-                    path,
-                    self.consume_cloned(TokenType::Identifier)?,
-                )
+    fn symbol_imports(&mut self) -> Result<Vec<Box<Node>>, String> {
+        let mut symbols = Vec::new();
+
+        symbols.push(self.symbol_import()?);
+
+        loop {
+            if let Some(_) = self.consume_or_ignore(TokenType::Comma) {
+                if !self.next_token_one_of(&vec![
+                    TokenType::Identifier,
+                    TokenType::Const,
+                    TokenType::Function,
+                ]) {
+                    break;
+                }
+
+                symbols.push(self.symbol_import()?);
+            } else {
+                break;
             }
-            TokenType::OpenCurly => {
-                self.tokens.next();
-                UseStatement::grouped(function_const, path, self.use_group()?)
+        }
+
+        Ok(symbols)
+    }
+
+    fn use_function_statement(&mut self) -> StatementResult {
+        let mut symbols = Vec::new();
+
+        loop {
+            let name = self.non_empty_type_ref()?;
+
+            if let Some(alias) = self.consume_or_ignore(TokenType::As) {
+                symbols.push(Node::UseFunction {
+                    function: name,
+                    aliased: Some(alias),
+                    alias: Some(self.consume_cloned(TokenType::Identifier)?),
+                });
+            } else {
+                symbols.push(Node::UseFunction {
+                    function: name,
+                    aliased: None,
+                    alias: None,
+                });
             }
-            TokenType::Semicolon => UseStatement::new(path),
-            _ => {
-                return Err(format!(
-                    "Unexpected {:?} on line {}, col {}",
-                    next.t, next.line, next.col
-                ));
+
+            if let Some(_) = self.consume_or_ignore(TokenType::Comma) {
+                continue;
             }
-        };
+
+            break;
+        }
+
         self.consume_end_of_statement()?;
 
-        Ok(Box::new(stmt))
+        Ok(Box::new(UseFunctionStatement::new(symbols)))
+    }
+
+    fn use_const_statement(&mut self) -> StatementResult {
+        let mut symbols = Vec::new();
+
+        loop {
+            let name = self.non_empty_type_ref()?;
+
+            if let Some(alias) = self.consume_or_ignore(TokenType::As) {
+                symbols.push(Node::UseConst {
+                    constant: name,
+                    aliased: Some(alias),
+                    alias: Some(self.consume_cloned(TokenType::Identifier)?),
+                });
+            } else {
+                symbols.push(Node::UseConst {
+                    constant: name,
+                    aliased: None,
+                    alias: None,
+                });
+            }
+
+            if let Some(_) = self.consume_or_ignore(TokenType::Comma) {
+                continue;
+            }
+
+            break;
+        }
+
+        self.consume_end_of_statement()?;
+
+        Ok(Box::new(UseConstStatement::new(symbols)))
+    }
+
+    // use -> "use" ("function" | "const")? path (("{" use_group "}") | ("as" identifier))?
+    fn use_statement(&mut self) -> StatementResult {
+        let mut imports = Vec::new();
+
+        loop {
+            let declaration = self.non_empty_namespace_ref()?;
+
+            // Ends with \, so it should be followed by a group wrapped in curly braces
+            if declaration.last().unwrap().t == TokenType::NamespaceSeparator {
+                imports.push(Node::GroupedUse {
+                    parent: Box::new(Node::TypeRef(declaration)),
+                    oc: self.consume_cloned(TokenType::OpenCurly)?,
+                    uses: self.symbol_imports()?,
+                    cc: self.consume_cloned(TokenType::CloseCurly)?,
+                });
+            // Is aliased
+            } else if let Some(aliased) = self.consume_or_ignore(TokenType::As) {
+                imports.push(Node::UseDeclaration {
+                    declaration: Box::new(Node::TypeRef(declaration)),
+                    aliased: Some(aliased),
+                    alias: Some(self.consume_cloned(TokenType::Identifier)?),
+                });
+            // Is a regular use
+            } else {
+                imports.push(Node::UseDeclaration {
+                    declaration: Box::new(Node::TypeRef(declaration)),
+                    aliased: None,
+                    alias: None,
+                });
+            }
+
+            if let Some(_) = self.consume_or_ignore(TokenType::Comma) {
+                continue;
+            }
+
+            self.consume_end_of_statement()?;
+
+            break;
+        }
+
+        Ok(Box::new(UseStatement::new(imports)))
     }
 
     // use -> "use" identifier (, identifier)*
@@ -998,67 +1195,14 @@ impl<'a> Parser<'a> {
         Ok(type_refs)
     }
 
-    // use_group -> (grouped_use ",")* grouped_use
-    fn use_group(&mut self) -> StatementListResult {
-        let mut group = Vec::new();
-
-        loop {
-            group.push(self.grouped_use_statement()?);
-
-            match self.tokens.next() {
-                Some(Token {
-                    t: TokenType::Comma,
-                    ..
-                }) => {
-                    continue;
-                }
-                Some(Token {
-                    t: TokenType::CloseCurly,
-                    ..
-                }) => {
-                    break;
-                }
-                Some(Token { t, line, col, .. }) => {
-                    return Err(format!("Unexpected {:?} on line {}, col {}", t, line, col));
-                }
-                _ => {
-                    return Err(format!("Unexpected EOF"));
-                }
-            }
-        }
-
-        Ok(group)
-    }
-
-    // grouped_use -> path ("as" identifier)?"
-    fn grouped_use_statement(&mut self) -> StatementResult {
-        let path = self.non_empty_type_ref()?;
-
-        let next = if let Some(next) = self.tokens.peek() {
-            next
-        } else {
-            return Err(String::from("Unexpected EOF"));
-        };
-
-        let stmt = match next.t {
-            TokenType::As => {
-                self.tokens.next();
-                UseStatement::aliased(None, path, self.consume_cloned(TokenType::Identifier)?)
-            }
-            _ => UseStatement::new(path),
-        };
-
-        Ok(Box::new(stmt))
-    }
-
     fn global_variables(&mut self) -> StatementResult {
         let mut vars = Vec::new();
-        vars.push(self.consume_cloned(TokenType::Variable)?);
+        vars.push(self.variable()?);
 
         self.consume_or_ignore(TokenType::Comma);
 
         while !self.next_token_one_of(&vec![TokenType::Semicolon]) {
-            vars.push(self.consume_cloned(TokenType::Variable)?);
+            vars.push(self.variable()?);
 
             if self.next_token_one_of(&vec![TokenType::Semicolon]) {
                 break;
@@ -1085,6 +1229,17 @@ impl<'a> Parser<'a> {
 
         Ok(Box::new(EchoStatement::new(values)))
     }
+
+    fn print_statement(&mut self) -> StatementResult {
+        let mut values = Vec::new();
+
+        values.push(self.expression()?);
+
+        self.consume_end_of_statement()?;
+
+        Ok(Box::new(PrintStatement::new(values)))
+    }
+
     fn goto_statement(&mut self) -> StatementResult {
         let label = self.consume_identifier_cloned()?;
 
@@ -1116,21 +1271,21 @@ impl<'a> Parser<'a> {
 
     // abstract_class -> "abstract" class
     fn abstract_class_statement(&mut self) -> StatementResult {
-        self.tokens.next();
+        self.next();
 
         self.class_statement(true, false)
     }
 
     // final_class -> "final" class
     fn final_class_statement(&mut self) -> StatementResult {
-        self.tokens.next();
+        self.next();
 
         self.class_statement(false, true)
     }
 
     // class -> "class" identifier (extends identifier_list)? (implements identifier_list)?
     fn class_statement(&mut self, is_abstract: bool, is_final: bool) -> StatementResult {
-        let name = self.consume_cloned(TokenType::Identifier)?;
+        let name = self.consume_identifier_cloned()?;
 
         let extends = match self.consume_or_ignore(TokenType::Extends) {
             Some(_) => Some(self.identifier_list()?),
@@ -1226,7 +1381,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            self.tokens.next();
+            self.next();
         }
 
         Ok(extends)
@@ -1244,6 +1399,7 @@ impl<'a> Parser<'a> {
             TokenType::Null,
             TokenType::LongNumber,
             TokenType::DecimalNumber,
+            TokenType::ExponentialNumber,
             TokenType::HexNumber,
             TokenType::ConstantEncapsedString,
             TokenType::EncapsedAndWhitespaceString,
@@ -1277,9 +1433,9 @@ impl<'a> Parser<'a> {
             path.push(ns);
         }
 
-        while let Some(identifier) = self.tokens.peek() {
+        while let Some(identifier) = self.peek() {
             if identifier.is_identifier() {
-                path.push(self.tokens.next().unwrap().clone());
+                path.push(self.next().unwrap().clone());
 
                 if let Some(ns) = self.consume_or_ignore(TokenType::NamespaceSeparator) {
                     path.push(ns);
@@ -1321,6 +1477,37 @@ impl<'a> Parser<'a> {
         Ok(Box::new(Node::TypeRef(path)))
     }
 
+    // non_empty_namespace_ref -> "\"? identifier ("\" identifier)* "\"?
+    fn non_empty_namespace_ref(&mut self) -> Result<Vec<Token>, String> {
+        let mut path = Vec::new();
+
+        if let Some(ns) = self.consume_or_ignore(TokenType::NamespaceSeparator) {
+            path.push(ns);
+        }
+
+        path.push(self.consume_identifier_cloned()?);
+
+        loop {
+            if let Some(ns) = self.consume_or_ignore(TokenType::NamespaceSeparator) {
+                path.push(ns);
+            } else {
+                break;
+            }
+
+            if let Some(ident) = self.peek() {
+                if ident.is_identifier() {
+                    path.push(self.next().unwrap());
+
+                    continue;
+                }
+            }
+
+            break;
+        }
+
+        Ok(path)
+    }
+
     /// Parses an expression. This can be anything that evaluates to a value. A function call, a comparison or even an assignment
     fn expression(&mut self) -> ExpressionResult {
         let expr = self.logic();
@@ -1351,11 +1538,11 @@ impl<'a> Parser<'a> {
     fn logic(&mut self) -> ExpressionResult {
         let mut expr = self.equality()?;
 
-        let potential_matches = vec![TokenType::LogicOr, TokenType::LogicAnd];
+        let potential_matches = vec![TokenType::LogicOr, TokenType::LogicAnd, TokenType::LogicXor];
         // Todo: Make this an if and force && or || in between. Basically add a new non-terminal
         while self.next_token_one_of(&potential_matches) {
             // Unwrap should be fine since the condition already checks that there is a next element
-            let next = self.tokens.next().unwrap();
+            let next = self.next().unwrap();
             let right = self.equality()?;
 
             expr = Box::new(Node::Binary {
@@ -1382,7 +1569,7 @@ impl<'a> Parser<'a> {
         // Todo: Make this an if and force && or || in between. Basically add a new non-terminal
         while self.next_token_one_of(&potential_matches) {
             // Unwrap should be fine since the condition already checks that there is a next element
-            let next = self.tokens.next().unwrap();
+            let next = self.next().unwrap();
             let right = self.comparison()?;
 
             expr = Box::new(Node::Binary {
@@ -1407,7 +1594,7 @@ impl<'a> Parser<'a> {
         ];
 
         while self.next_token_one_of(&potential_matches) {
-            let next = self.tokens.next().unwrap();
+            let next = self.next().unwrap();
             let right = self.assignment()?;
 
             expr = Box::new(Node::Binary {
@@ -1449,7 +1636,7 @@ impl<'a> Parser<'a> {
             TokenType::DivAssign,
         ]) {
             // Past the assignment token
-            let operator = self.tokens.next().unwrap();
+            let operator = self.next().unwrap();
             let value = self.assignment()?;
 
             if expr.is_lvalue() {
@@ -1468,6 +1655,7 @@ impl<'a> Parser<'a> {
 
         Ok(expr)
     }
+
     fn addition(&mut self) -> ExpressionResult {
         let mut expr = self.multiplication()?;
 
@@ -1478,11 +1666,12 @@ impl<'a> Parser<'a> {
             TokenType::RightShift,
             TokenType::BinaryAnd,
             TokenType::BinaryOr,
+            TokenType::BinaryXor,
             TokenType::Modulo,
         ];
 
         while self.next_token_one_of(&potential_matches) {
-            let next = self.tokens.next().unwrap();
+            let next = self.next().unwrap();
             let right = self.multiplication()?;
 
             expr = Box::new(Node::Binary {
@@ -1509,7 +1698,7 @@ impl<'a> Parser<'a> {
         ];
 
         while self.next_token_one_of(&potential_matches) {
-            let next = self.tokens.next().unwrap();
+            let next = self.next().unwrap();
             let right = self.unary()?;
 
             expr = Box::new(Node::Binary {
@@ -1526,6 +1715,7 @@ impl<'a> Parser<'a> {
         if self.next_token_one_of(&vec![
             TokenType::Negation,
             TokenType::Minus,
+            TokenType::Plus,
             TokenType::Increment,
             TokenType::Decrement,
             TokenType::BoolCast,
@@ -1541,7 +1731,7 @@ impl<'a> Parser<'a> {
             TokenType::BinaryAnd,
             TokenType::BitwiseNegation,
         ]) {
-            let next = self.tokens.next().unwrap();
+            let next = self.next().unwrap();
             let right = self.unary()?;
 
             return Ok(Box::new(Node::Unary {
@@ -1553,7 +1743,7 @@ impl<'a> Parser<'a> {
         let primary = self.call()?;
 
         if self.next_token_one_of(&vec![TokenType::Increment, TokenType::Decrement]) {
-            let next = self.tokens.next().unwrap();
+            let next = self.next().unwrap();
 
             return Ok(Box::new(Node::PostUnary {
                 token: next.clone(),
@@ -1746,10 +1936,10 @@ impl<'a> Parser<'a> {
             TokenType::Null,
             TokenType::LongNumber,
             TokenType::DecimalNumber,
+            TokenType::ExponentialNumber,
             TokenType::HexNumber,
             TokenType::ConstantEncapsedString,
             TokenType::EncapsedAndWhitespaceString,
-            TokenType::Variable,
             TokenType::ConstDir,
             TokenType::ConstFile,
             TokenType::ConstFunction,
@@ -1757,8 +1947,14 @@ impl<'a> Parser<'a> {
             TokenType::ConstMethod,
             TokenType::ConstTrait,
             TokenType::ConstClass,
+            TokenType::ConstNan,
+            TokenType::ConstInf,
         ]) {
-            return Ok(Box::new(Node::Literal(self.tokens.next().unwrap().clone())));
+            return Ok(Box::new(Node::Literal(self.next().unwrap().clone())));
+        }
+
+        if self.next_token_one_of(&vec![TokenType::Variable]) {
+            return self.variable();
         }
 
         if self.next_token_one_of(&vec![TokenType::NamespaceSeparator, TokenType::Identifier]) {
@@ -1768,7 +1964,7 @@ impl<'a> Parser<'a> {
 
         if self.next_token_one_of(&vec![TokenType::HereDocStart]) {
             self.consume_or_err(TokenType::HereDocStart)?;
-            let string = self.tokens.next().unwrap().clone();
+            let string = self.next().unwrap().clone();
             self.consume_or_err(TokenType::HereDocEnd)?;
 
             return Ok(Box::new(Node::Literal(string)));
@@ -1780,6 +1976,24 @@ impl<'a> Parser<'a> {
                 op: self.consume_cloned(TokenType::OpenParenthesis)?,
                 parameters: self.non_empty_parameter_list()?,
                 cp: self.consume_cloned(TokenType::CloseParenthesis)?,
+            }));
+        }
+
+        if let Some(exit) = self.consume_or_ignore(TokenType::Exit) {
+            if let Some(op) = self.consume_or_ignore(TokenType::OpenParenthesis) {
+                return Ok(Box::new(Node::Exit {
+                    exit,
+                    op: Some(op),
+                    parameters: Some(self.non_empty_parameter_list()?),
+                    cp: Some(self.consume_cloned(TokenType::CloseParenthesis)?),
+                }));
+            }
+
+            return Ok(Box::new(Node::Exit {
+                exit,
+                op: None,
+                parameters: None,
+                cp: None,
             }));
         }
 
@@ -1871,21 +2085,52 @@ impl<'a> Parser<'a> {
         }
 
         if let Some(token) = self.consume_or_ignore(TokenType::Yield) {
-            if let Some(from) = self.consume_or_ignore(TokenType::From) {
-                return Ok(Box::new(Node::YieldFrom {
-                    token: from,
-                    expr: self.expression()?,
-                }));
-            }
-
             return Ok(Box::new(Node::Yield {
                 token,
                 expr: self.array_pair()?,
             }));
         }
 
-        let next = self.tokens.peek().unwrap();
+        if let Some(from) = self.consume_or_ignore(TokenType::YieldFrom) {
+            return Ok(Box::new(Node::YieldFrom {
+                token: from,
+                expr: self.expression()?,
+            }));
+        }
+
+        let next = self.next().unwrap();
+
+        // Maybe some sort of other identifier?
+        if next.is_identifier() {
+            return Ok(Box::new(Node::Literal(next)));
+        }
+
         Err(format!("Unsupported primary {:?}", next))
+    }
+
+    fn variable(&mut self) -> ExpressionResult {
+        let variable = self.consume_cloned(TokenType::Variable)?;
+
+        // Named, regular variable. No problem here.
+        if variable.label.is_some() {
+            return Ok(Box::new(Node::Literal(variable)));
+        }
+
+        // Dynamic member ${expr}
+        if let Some(oc) = self.consume_or_ignore(TokenType::OpenCurly) {
+            return Ok(Box::new(Node::DynamicVariable {
+                variable,
+                oc,
+                expr: self.expression()?,
+                cc: self.consume_cloned(TokenType::CloseCurly)?,
+            }));
+        }
+
+        // Aliased variable $$$$a
+        return Ok(Box::new(Node::AliasedVariable {
+            variable,
+            expr: self.primary()?,
+        }));
     }
 
     fn anonymous_function(&mut self, is_static: Option<Token>) -> ExpressionResult {
@@ -1897,16 +2142,14 @@ impl<'a> Parser<'a> {
 
         let uses = match self.next_token_one_of(&vec![TokenType::Use]) {
             true => {
-                self.tokens.next();
+                self.next();
                 Some(self.non_empty_lexical_variables_list()?)
             }
             false => None,
         };
         let return_type = self.return_type()?;
 
-        self.consume_or_err(TokenType::OpenCurly)?;
         let body = self.block()?;
-        self.consume_or_err(TokenType::CloseCurly)?;
 
         Ok(Box::new(Node::Function {
             is_static,
@@ -1923,6 +2166,12 @@ impl<'a> Parser<'a> {
         let mut elements = Vec::new();
 
         while !self.next_token_one_of(&vec![TokenType::CloseBrackets]) {
+            // TODO: This is only allowed in a destructuring context. Probably need to split
+            // this
+            if let Some(_) = self.consume_or_ignore(TokenType::Comma) {
+                continue;
+            }
+
             elements.push(self.array_pair()?);
 
             self.consume_or_ignore(TokenType::Comma);
@@ -1981,10 +2230,7 @@ impl<'a> Parser<'a> {
 
     fn array_pair(&mut self) -> ExpressionResult {
         // At this point key might as well be the value
-        let key = match self.next_token_one_of(&vec![TokenType::BinaryAnd]) {
-            true => self.lexical_variable()?,
-            false => self.expression()?,
-        };
+        let key = self.expression()?;
 
         if let Some(arrow) = self.consume_or_ignore(TokenType::DoubleArrow) {
             // TODO: Raise warning if key is access by reference ... this no works
@@ -2019,10 +2265,18 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn next(&mut self) -> Option<Token> {
+        self.tokens.pop()
+    }
+
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.last().clone()
+    }
+
     fn consume_end_of_statement(&mut self) -> Result<(), String> {
-        if let Some(token) = self.tokens.peek() {
+        if let Some(token) = self.peek() {
             if token.t == TokenType::Semicolon || token.t == TokenType::ScriptEnd {
-                self.tokens.next();
+                self.next();
                 return Ok(());
             }
 
@@ -2036,9 +2290,9 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_or_err(&mut self, t: TokenType) -> Result<(), String> {
-        if let Some(token) = self.tokens.peek() {
+        if let Some(token) = self.peek() {
             if token.t == t {
-                self.tokens.next();
+                self.next();
                 return Ok(());
             }
 
@@ -2051,7 +2305,7 @@ impl<'a> Parser<'a> {
         Err(format!("Expected {:?}, found end of file.", t))
     }
     fn consume_or_ignore(&mut self, t: TokenType) -> Option<Token> {
-        if let Some(&token) = self.tokens.peek() {
+        if let Some(token) = self.peek() {
             if token.t != t {
                 return None;
             }
@@ -2059,13 +2313,13 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        Some(self.tokens.next().unwrap().clone())
+        Some(self.next().unwrap())
     }
 
     fn consume_cloned(&mut self, t: TokenType) -> Result<Token, String> {
-        if let Some(token) = self.tokens.next() {
+        if let Some(token) = self.next() {
             if token.t == t {
-                return Ok(token.clone());
+                return Ok(token);
             }
 
             return Err(format!(
@@ -2078,9 +2332,9 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_identifier_cloned(&mut self) -> Result<Token, String> {
-        if let Some(token) = self.tokens.next() {
+        if let Some(token) = self.next() {
             if token.is_identifier() {
-                return Ok(token.clone());
+                return Ok(token);
             }
 
             return Err(format!(
@@ -2093,9 +2347,9 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_member_cloned(&mut self) -> Result<Token, String> {
-        if let Some(token) = self.tokens.next() {
+        if let Some(token) = self.next() {
             if token.is_identifier() || token.t == TokenType::Variable {
-                return Ok(token.clone());
+                return Ok(token);
             }
 
             return Err(format!(
@@ -2108,10 +2362,10 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_one_of_cloned(&mut self, types: &Vec<TokenType>) -> Result<Token, String> {
-        if let Some(token) = self.tokens.next() {
+        if let Some(token) = self.next() {
             for tt in types.iter().as_ref() {
                 if token.t == *tt {
-                    return Ok(token.clone());
+                    return Ok(token);
                 }
             }
 
@@ -2125,10 +2379,10 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_one_of_cloned_or_ignore(&mut self, types: &Vec<TokenType>) -> Option<Token> {
-        if let Some(token) = self.tokens.peek() {
+        if let Some(token) = self.peek() {
             for tt in types.iter().as_ref() {
                 if token.t == *tt {
-                    return Some(self.tokens.next().unwrap().clone());
+                    return Some(self.next().unwrap());
                 }
             }
         }
@@ -2137,7 +2391,7 @@ impl<'a> Parser<'a> {
     }
 
     fn next_token_one_of(&mut self, types: &Vec<TokenType>) -> bool {
-        if let Some(&token) = self.tokens.peek() {
+        if let Some(token) = self.peek() {
             for tt in types {
                 if *tt == token.t {
                     return true;
@@ -2159,7 +2413,7 @@ mod tests {
         let mut scanner = Scanner::new("<?php\n1 + 2 == 3;");
         scanner.scan().unwrap();
 
-        let mut parser = Parser::new(&scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens);
 
         println!("{:?}", parser.ast());
     }

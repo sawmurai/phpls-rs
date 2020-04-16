@@ -315,7 +315,7 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::XorAssignment);
                     }
                     _ => {
-                        self.push_token(TokenType::Xor);
+                        self.push_token(TokenType::BinaryXor);
                     }
                 },
                 '+' => match self.chars.peek() {
@@ -418,18 +418,15 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::Assignment);
                     }
                 },
-                '$' => match self.chars.peek() {
-                    Some('$') => {
-                        // Do not advance to allow for recursion. There might be crazy shit like
-                        // $$$$$$foo
+                '$' => {
+                    let name = self.collect_identifer();
+
+                    if name != "" {
+                        self.push_named_token(TokenType::Variable, &name);
+                    } else {
                         self.push_token(TokenType::Variable);
                     }
-                    _ => {
-                        let name = self.collect_identifer();
-
-                        self.push_named_token(TokenType::Variable, &name);
-                    }
-                },
+                }
                 '0'..='9' => {
                     let mut number = String::new();
                     number.push(c);
@@ -455,6 +452,15 @@ impl<'a> Scanner<'a> {
                             TokenType::DecimalNumber,
                             &format!("{}.{}", number, decimal),
                         );
+                    } else if let Some(&'e') = self.chars.peek() {
+                        self.advance();
+
+                        let decimal = self.collect_number();
+
+                        self.push_named_token(
+                            TokenType::ExponentialNumber,
+                            &format!("{}e{}", number, decimal),
+                        );
                     } else {
                         self.push_named_token(TokenType::LongNumber, &number);
                     }
@@ -466,8 +472,10 @@ impl<'a> Scanner<'a> {
 
                     if let Some(t) = self.map_keyword(&name) {
                         match self.chars.peek() {
+                            // TODO: Refactor this detection as it has problems with spaces
+                            // in the type cast ... like (  string  )
                             Some(')') => {
-                                // Potential type cast, check if identifier coult match
+                                // Potential type cast, check if identifier could match
                                 if let Some(cast_to) = self.map_cast(&t) {
                                     // Looks like a match ... was the previously recorded token an open parenthesis?
                                     if let Some(last_token) = self.tokens.pop() {
@@ -490,6 +498,19 @@ impl<'a> Scanner<'a> {
                                 self.push_token(t);
                             }
                         };
+                    } else if name == "from" {
+                        // Combine yield from to one token ...
+
+                        if let Some(previous_token) = self.tokens.last() {
+                            if previous_token.t == TokenType::Yield {
+                                self.tokens.pop();
+                                self.push_token(TokenType::YieldFrom);
+                            } else {
+                                self.push_named_token(TokenType::Identifier, &name);
+                            }
+                        } else {
+                            self.push_named_token(TokenType::Identifier, &name);
+                        }
                     } else {
                         self.push_named_token(TokenType::Identifier, &name);
                     }
@@ -786,13 +807,19 @@ impl<'a> Scanner<'a> {
 
     /// Returns the correct TokenType for a registered keyword
     fn map_keyword(&self, ident: &str) -> Option<TokenType> {
-        Some(match ident {
+        match ident {
+            "INF" => return Some(TokenType::ConstInf),
+            "NAN" => return Some(TokenType::ConstNan),
+            _ => {}
+        };
+
+        Some(match ident.to_lowercase().as_ref() {
             "bool" | "boolean" => TokenType::TypeBool,
             "int" | "integer" => TokenType::TypeInt,
             "string" | "binary" => TokenType::TypeString,
             "array" => TokenType::TypeArray,
             "object" => TokenType::TypeObject,
-            "float" => TokenType::TypeFloat,
+            "float" | "double" => TokenType::TypeFloat,
             "void" => TokenType::Void,
             "new" => TokenType::New,
             "clone" => TokenType::Clone,
@@ -852,7 +879,10 @@ impl<'a> Scanner<'a> {
             "list" => TokenType::List,
             "callable" => TokenType::Callable,
             "and" => TokenType::LogicAnd,
+            "or" => TokenType::LogicOr,
+            "xor" => TokenType::LogicXor,
             "namespace" => TokenType::Namespace,
+            "print" => TokenType::Print,
             "__LINE__" => TokenType::ConstLine,
             "__FILE__" => TokenType::ConstFile,
             "__DIR__" => TokenType::ConstDir,
@@ -866,7 +896,6 @@ impl<'a> Scanner<'a> {
             "include_once" => TokenType::IncludeOnce,
             "instanceof" => TokenType::InstanceOf,
             "yield" => TokenType::Yield,
-            "from" => TokenType::From,
             "self" => TokenType::TypeSelf,
             _ => {
                 return None;
