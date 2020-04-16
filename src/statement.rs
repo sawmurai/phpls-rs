@@ -32,20 +32,36 @@ impl Stmt for ExpressionStatement {
 }
 
 pub struct EchoStatement {
-    expression: Box<Node>,
+    expressions: Vec<Box<Node>>,
 }
 
 impl EchoStatement {
-    pub fn new(expression: Box<Node>) -> Self {
-        Self { expression }
+    pub fn new(expressions: Vec<Box<Node>>) -> Self {
+        Self { expressions }
     }
 }
 
 impl Stmt for EchoStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Echo")
-            .field("expression", &self.expression)
+            .field("expressions", &self.expressions)
             .finish()
+    }
+}
+
+pub struct GotoStatement {
+    label: Token,
+}
+
+impl GotoStatement {
+    pub fn new(label: Token) -> Self {
+        Self { label }
+    }
+}
+
+impl Stmt for GotoStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("goto").field("label", &self.label).finish()
     }
 }
 
@@ -192,6 +208,25 @@ impl Stmt for UseStatement {
     }
 }
 
+pub struct UseTraitStatement {
+    token: Token,
+    type_refs: Vec<Box<Node>>,
+}
+
+impl UseTraitStatement {
+    pub fn new(token: Token, type_refs: Vec<Box<Node>>) -> Self {
+        Self { token, type_refs }
+    }
+}
+
+impl Stmt for UseTraitStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Use trait")
+            .field("token", &self.token)
+            .field("type_refs", &self.type_refs)
+            .finish()
+    }
+}
 pub struct ClassStatement {
     name: Token,
     is_abstract: bool,
@@ -379,6 +414,8 @@ impl Stmt for MethodDeclarationStatement {
 }
 
 pub struct MethodDefinitionStatement {
+    is_final: Option<Token>,
+    by_ref: Option<Token>,
     name: Token,
     visibility: Option<Token>,
     is_abstract: bool,
@@ -388,6 +425,8 @@ pub struct MethodDefinitionStatement {
 
 impl MethodDefinitionStatement {
     pub fn new(
+        is_final: Option<Token>,
+        by_ref: Option<Token>,
         name: Token,
         visibility: Option<Token>,
         is_abstract: bool,
@@ -395,6 +434,8 @@ impl MethodDefinitionStatement {
         is_static: bool,
     ) -> Self {
         Self {
+            is_final,
+            by_ref,
             name,
             visibility,
             is_abstract,
@@ -407,6 +448,8 @@ impl MethodDefinitionStatement {
 impl Stmt for MethodDefinitionStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("method")
+            .field("is_final", &self.is_final)
+            .field("by_ref", &self.by_ref)
             .field("name", &self.name)
             .field("visibility", &self.visibility)
             .field("is_abstract", &self.is_abstract)
@@ -447,19 +490,25 @@ impl Stmt for FunctionDefinitionStatement {
 }
 
 pub struct NamedFunctionDefinitionStatement {
+    by_ref: Option<Token>,
     name: Token,
     function: Box<dyn Stmt>,
 }
 
 impl NamedFunctionDefinitionStatement {
-    pub fn new(name: Token, function: Box<dyn Stmt>) -> Self {
-        Self { name, function }
+    pub fn new(by_ref: Option<Token>, name: Token, function: Box<dyn Stmt>) -> Self {
+        Self {
+            by_ref,
+            name,
+            function,
+        }
     }
 }
 
 impl Stmt for NamedFunctionDefinitionStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("named-function")
+            .field("by_ref", &self.by_ref)
             .field("name", &self.name)
             .field("function", &self.function)
             .finish()
@@ -800,11 +849,11 @@ impl Stmt for GlobalVariablesStatement {
 
 pub struct InlineHtml {
     start: Token,
-    end: Token,
+    end: Option<Token>,
 }
 
 impl InlineHtml {
-    pub fn new(start: Token, end: Token) -> Self {
+    pub fn new(start: Token, end: Option<Token>) -> Self {
         Self { start, end }
     }
 }

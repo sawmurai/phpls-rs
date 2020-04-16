@@ -102,7 +102,8 @@ impl<'a> Parser<'a> {
         let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
 
         // TODO: Make sure namespace etc can not pop up here
-        while !self.next_token_one_of(&vec![TokenType::CloseCurly]) {
+        while !self.next_token_one_of(&vec![TokenType::CloseCurly]) && self.tokens.peek().is_some()
+        {
             match self.statement() {
                 Ok(statement) => statements.push(statement),
                 Err(error) => {
@@ -128,13 +129,14 @@ impl<'a> Parser<'a> {
         let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
 
         while !self.next_token_one_of(&vec![TokenType::CloseCurly]) {
-            if self.consume_or_ignore(TokenType::Use).is_some() {
-                statements.push(self.use_statement()?);
+            if self.next_token_one_of(&vec![TokenType::Use]) {
+                statements.push(self.use_trait_statement()?);
 
                 continue;
             }
 
             let mut is_abstract = self.consume_or_ignore(TokenType::Abstract).is_some();
+            let is_final = self.consume_or_ignore(TokenType::Final);
 
             let visibility = self.consume_one_of_cloned_or_ignore(&vec![
                 TokenType::Public,
@@ -149,7 +151,7 @@ impl<'a> Parser<'a> {
 
             if self.next_token_one_of(&vec![TokenType::Const]) {
                 self.tokens.next();
-                let name = self.consume_cloned(TokenType::Identifier)?;
+                let name = self.consume_identifier_cloned()?;
 
                 self.consume_or_err(TokenType::Assignment)?;
                 statements.push(Box::new(ClassConstantDefinitionStatement::new(
@@ -158,7 +160,7 @@ impl<'a> Parser<'a> {
                     self.expression()?,
                 )));
 
-                self.consume_or_err(TokenType::Semicolon)?;
+                self.consume_end_of_statement()?;
 
                 continue;
             };
@@ -170,9 +172,12 @@ impl<'a> Parser<'a> {
                     TokenType::Function => {
                         self.tokens.next();
 
-                        let name = self.consume_cloned(TokenType::Identifier)?;
+                        let by_ref = self.consume_or_ignore(TokenType::BinaryAnd);
+                        let name = self.consume_identifier_cloned()?;
 
                         statements.push(Box::new(MethodDefinitionStatement::new(
+                            is_final,
+                            by_ref,
                             name,
                             visibility,
                             is_abstract,
@@ -210,7 +215,7 @@ impl<'a> Parser<'a> {
                             self.tokens.next();
                         }
 
-                        self.consume_or_err(TokenType::Semicolon)?;
+                        self.consume_end_of_statement()?;
                     }
                     _ => {
                         return Err(format!(
@@ -284,7 +289,8 @@ impl<'a> Parser<'a> {
     /// ```
     fn named_function(&mut self) -> StatementResult {
         Ok(Box::new(NamedFunctionDefinitionStatement::new(
-            self.consume_cloned(TokenType::Identifier)?,
+            self.consume_or_ignore(TokenType::BinaryAnd),
+            self.consume_identifier_cloned()?,
             self.anonymous_function_statement()?,
         )))
     }
@@ -294,7 +300,7 @@ impl<'a> Parser<'a> {
 
         Ok(Box::new(InlineHtml::new(
             start,
-            self.consume_cloned(TokenType::ScriptStart)?,
+            self.consume_or_ignore(TokenType::ScriptStart),
         )))
     }
 
@@ -420,17 +426,12 @@ impl<'a> Parser<'a> {
                     return self.use_statement();
                 }
                 TokenType::Static => {
-                    let token = self.tokens.next();
+                    let expr = self.expression_statement()?;
 
-                    // If followed by :: it is something else ... offload to call
-                    if self.next_token_one_of(&vec![TokenType::PaamayimNekudayim]) {
-                        return Ok(Box::new(ExpressionStatement::new(
-                            self.init_call(Box::new(Node::Literal(token.unwrap().clone())))?,
-                        )));
-                    }
-
+                    // Find a way to associate the sometimes following var list to the static keyword
+                    return Ok(expr);
                     // TODO: Issue a warning if the assignment uses values that are not defined at compile-time (variables etc.)
-                    return self.static_variables();
+                    //return self.static_variables();
                 }
                 TokenType::Global => {
                     self.tokens.next();
@@ -441,6 +442,11 @@ impl<'a> Parser<'a> {
                     self.tokens.next();
 
                     return self.echo_statement();
+                }
+                TokenType::Goto => {
+                    self.tokens.next();
+
+                    return self.goto_statement();
                 }
                 TokenType::Return => {
                     self.tokens.next();
@@ -510,6 +516,12 @@ impl<'a> Parser<'a> {
                         None,
                     )));
                 }
+                TokenType::Exit => {
+                    return Ok(Box::new(TokenStatement::new(
+                        self.consume_cloned(TokenType::Exit)?,
+                        None,
+                    )));
+                }
                 TokenType::Break | TokenType::Continue => {
                     let token = self.consume_cloned(token.t.clone())?;
 
@@ -520,7 +532,7 @@ impl<'a> Parser<'a> {
 
                     let statement = Box::new(TokenStatement::new(token, expr));
 
-                    self.consume_or_err(TokenType::Semicolon)?;
+                    self.consume_end_of_statement()?;
 
                     return Ok(statement);
                 }
@@ -534,10 +546,12 @@ impl<'a> Parser<'a> {
                 TokenType::Unset => {
                     return self.unset_statement();
                 }
+                // Support labels here
+                // TokenType::Identifier => {}
                 _ => {
                     let expr = self.expression_statement()?;
 
-                    self.consume_or_err(TokenType::Semicolon)?;
+                    self.consume_end_of_statement()?;
 
                     return Ok(expr);
                 }
@@ -691,7 +705,7 @@ impl<'a> Parser<'a> {
                     cases_current_branch.push(None);
                     self.tokens.next();
                     self.consume_or_err(TokenType::Colon)
-                        .or_else(|_| self.consume_or_err(TokenType::Semicolon))?;
+                        .or_else(|_| self.consume_end_of_statement())?;
                 }
                 Some(Token {
                     t: TokenType::Case, ..
@@ -699,7 +713,7 @@ impl<'a> Parser<'a> {
                     self.tokens.next();
                     cases_current_branch.push(Some(self.expression()?));
                     self.consume_or_err(TokenType::Colon)
-                        .or_else(|_| self.consume_or_err(TokenType::Semicolon))?;
+                        .or_else(|_| self.consume_end_of_statement())?;
                 }
                 _ => {
                     break;
@@ -795,7 +809,7 @@ impl<'a> Parser<'a> {
         self.consume_or_err(TokenType::OpenParenthesis)?;
         let condition = self.expression()?;
         self.consume_or_err(TokenType::CloseParenthesis)?;
-        self.consume_or_err(TokenType::Semicolon)?;
+        self.consume_end_of_statement()?;
 
         Ok(Box::new(DoWhileStatement::new(condition, body)))
     }
@@ -813,7 +827,7 @@ impl<'a> Parser<'a> {
         self.consume_or_err(TokenType::OpenParenthesis)?;
 
         let mut init = Vec::new();
-        loop {
+        while !self.next_token_one_of(&vec![TokenType::Semicolon]) {
             init.push(self.expression_statement()?);
 
             if self.next_token_one_of(&vec![TokenType::Comma]) {
@@ -826,7 +840,7 @@ impl<'a> Parser<'a> {
         self.consume_or_err(TokenType::Semicolon)?;
 
         let mut condition = Vec::new();
-        loop {
+        while !self.next_token_one_of(&vec![TokenType::Semicolon]) {
             condition.push(self.expression_statement()?);
 
             if self.next_token_one_of(&vec![TokenType::Comma]) {
@@ -839,7 +853,7 @@ impl<'a> Parser<'a> {
         self.consume_or_err(TokenType::Semicolon)?;
 
         let mut step = Vec::new();
-        loop {
+        while !self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
             step.push(self.expression_statement()?);
 
             if self.next_token_one_of(&vec![TokenType::Comma]) {
@@ -912,7 +926,7 @@ impl<'a> Parser<'a> {
     fn namespace_statement(&mut self) -> StatementResult {
         if let Some(type_ref) = self.type_ref()? {
             // TODO: Implement block
-            self.consume_or_err(TokenType::Semicolon)?;
+            self.consume_end_of_statement()?;
 
             Ok(Box::new(NamespaceStatement::new(type_ref)))
         } else {
@@ -955,9 +969,33 @@ impl<'a> Parser<'a> {
                 ));
             }
         };
-        self.consume_or_err(TokenType::Semicolon)?;
+        self.consume_end_of_statement()?;
 
         Ok(Box::new(stmt))
+    }
+
+    // use -> "use" identifier (, identifier)*
+    fn use_trait_statement(&mut self) -> StatementResult {
+        let statement = Box::new(UseTraitStatement::new(
+            self.consume_cloned(TokenType::Use)?,
+            self.type_ref_list()?,
+        ));
+
+        self.consume_end_of_statement()?;
+
+        Ok(statement)
+    }
+
+    fn type_ref_list(&mut self) -> Result<Vec<Box<Node>>, String> {
+        let mut type_refs = Vec::new();
+
+        type_refs.push(self.non_empty_type_ref()?);
+
+        while self.consume_or_ignore(TokenType::Comma).is_some() {
+            type_refs.push(self.non_empty_type_ref()?);
+        }
+
+        Ok(type_refs)
     }
 
     // use_group -> (grouped_use ",")* grouped_use
@@ -1013,27 +1051,6 @@ impl<'a> Parser<'a> {
         Ok(Box::new(stmt))
     }
 
-    fn static_variables(&mut self) -> StatementResult {
-        let mut vars = Vec::new();
-        vars.push(self.consume_assigment()?);
-
-        self.consume_or_ignore(TokenType::Comma);
-
-        while !self.next_token_one_of(&vec![TokenType::Semicolon]) {
-            vars.push(self.consume_assigment()?);
-
-            if self.next_token_one_of(&vec![TokenType::Semicolon]) {
-                break;
-            } else {
-                self.consume_or_err(TokenType::Comma)?;
-            }
-        }
-
-        self.consume_or_err(TokenType::Semicolon)?;
-
-        Ok(Box::new(StaticVariablesStatement::new(vars)))
-    }
-
     fn global_variables(&mut self) -> StatementResult {
         let mut vars = Vec::new();
         vars.push(self.consume_cloned(TokenType::Variable)?);
@@ -1050,51 +1067,48 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.consume_or_err(TokenType::Semicolon)?;
+        self.consume_end_of_statement()?;
 
         Ok(Box::new(GlobalVariablesStatement::new(vars)))
     }
 
-    fn consume_assigment(&mut self) -> ExpressionResult {
-        let var = Box::new(Node::Literal(self.consume_cloned(TokenType::Variable)?));
-
-        let assignment = self.consume_or_ignore(TokenType::Assignment);
-
-        if assignment.is_some() {
-            Ok(Box::new(Node::Binary {
-                left: var,
-                token: assignment.unwrap(),
-                right: self.expression()?,
-            }))
-        } else {
-            Ok(var)
-        }
-    }
-
     fn echo_statement(&mut self) -> StatementResult {
-        let value = self.expression()?;
+        let mut values = Vec::new();
 
-        self.consume_or_err(TokenType::Semicolon)?;
+        values.push(self.expression()?);
 
-        Ok(Box::new(EchoStatement::new(value)))
+        while self.consume_or_ignore(TokenType::Comma).is_some() {
+            values.push(self.expression()?);
+        }
+
+        self.consume_end_of_statement()?;
+
+        Ok(Box::new(EchoStatement::new(values)))
+    }
+    fn goto_statement(&mut self) -> StatementResult {
+        let label = self.consume_identifier_cloned()?;
+
+        self.consume_end_of_statement()?;
+
+        Ok(Box::new(GotoStatement::new(label)))
     }
 
     fn throw_statement(&mut self) -> StatementResult {
         let value = self.expression()?;
 
-        self.consume_or_err(TokenType::Semicolon)?;
+        self.consume_end_of_statement()?;
 
         Ok(Box::new(ThrowStatement::new(value)))
     }
 
     fn return_statement(&mut self) -> StatementResult {
         if self.next_token_one_of(&vec![TokenType::Semicolon]) {
-            self.consume_or_err(TokenType::Semicolon)?;
+            self.consume_end_of_statement()?;
             Ok(Box::new(ReturnStatement::new(None)))
         } else {
             let value = self.expression()?;
 
-            self.consume_or_err(TokenType::Semicolon)?;
+            self.consume_end_of_statement()?;
 
             Ok(Box::new(ReturnStatement::new(Some(value))))
         }
@@ -1433,7 +1447,6 @@ impl<'a> Parser<'a> {
             TokenType::MinusAssign,
             TokenType::MulAssign,
             TokenType::DivAssign,
-            TokenType::ReferenceAssignment,
         ]) {
             // Past the assignment token
             let operator = self.tokens.next().unwrap();
@@ -1525,6 +1538,8 @@ impl<'a> Parser<'a> {
             TokenType::Elipsis,
             TokenType::Clone,
             TokenType::Silencer,
+            TokenType::BinaryAnd,
+            TokenType::BitwiseNegation,
         ]) {
             let next = self.tokens.next().unwrap();
             let right = self.unary()?;
@@ -1589,11 +1604,7 @@ impl<'a> Parser<'a> {
                 expr = Box::new(Node::StaticMember {
                     class: expr,
                     pn,
-                    member: Box::new(Node::Literal(self.consume_one_of_cloned(&vec![
-                        TokenType::Identifier,
-                        TokenType::Variable,
-                        TokenType::Class,
-                    ])?)),
+                    member: Box::new(Node::Literal(self.consume_member_cloned()?)),
                 });
             } else if let Some(ob) = self.consume_or_ignore(TokenType::OpenBrackets) {
                 // TODO: Think about a nicer solution for $a[] = ...
@@ -1611,6 +1622,20 @@ impl<'a> Parser<'a> {
                         cb: self.consume_cloned(TokenType::CloseBrackets)?,
                     }),
                 };
+            } else if let Some(oc) = self.consume_or_ignore(TokenType::OpenCurly) {
+                expr = Box::new(Node::Field {
+                    array: expr,
+                    ob: oc,
+                    index: Some(self.expression()?),
+                    cb: self.consume_cloned(TokenType::CloseCurly)?,
+                });
+            } else if let Some(assignment) = self.consume_or_ignore(TokenType::Assignment) {
+                // Something like static::$member = 1;
+                expr = Box::new(Node::Binary {
+                    left: expr,
+                    token: assignment,
+                    right: self.expression()?,
+                });
             } else {
                 break;
             }
@@ -1855,7 +1880,7 @@ impl<'a> Parser<'a> {
 
             return Ok(Box::new(Node::Yield {
                 token,
-                expr: self.expression()?,
+                expr: self.array_pair()?,
             }));
         }
 
@@ -1936,6 +1961,11 @@ impl<'a> Parser<'a> {
         let mut elements = Vec::new();
 
         while !self.next_token_one_of(&vec![TokenType::CloseParenthesis]) {
+            // Empty element ... list(,,,$a)
+            if let Some(_) = self.consume_or_ignore(TokenType::Comma) {
+                continue;
+            }
+
             elements.push(self.array_pair()?);
 
             self.consume_or_ignore(TokenType::Comma);
@@ -1989,6 +2019,22 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn consume_end_of_statement(&mut self) -> Result<(), String> {
+        if let Some(token) = self.tokens.peek() {
+            if token.t == TokenType::Semicolon || token.t == TokenType::ScriptEnd {
+                self.tokens.next();
+                return Ok(());
+            }
+
+            return Err(format!(
+                "Expected end of statement, found {:?} on line {}, col {}",
+                token.t, token.line, token.col
+            ));
+        }
+
+        Ok(())
+    }
+
     fn consume_or_err(&mut self, t: TokenType) -> Result<(), String> {
         if let Some(token) = self.tokens.peek() {
             if token.t == t {
@@ -2004,7 +2050,6 @@ impl<'a> Parser<'a> {
 
         Err(format!("Expected {:?}, found end of file.", t))
     }
-
     fn consume_or_ignore(&mut self, t: TokenType) -> Option<Token> {
         if let Some(&token) = self.tokens.peek() {
             if token.t != t {
@@ -2040,6 +2085,21 @@ impl<'a> Parser<'a> {
 
             return Err(format!(
                 "Expected Identifier, found {:?} on line {}, col {}",
+                token.t, token.line, token.col
+            ));
+        }
+
+        Err(format!("Expected Identifier, found end of file."))
+    }
+
+    fn consume_member_cloned(&mut self) -> Result<Token, String> {
+        if let Some(token) = self.tokens.next() {
+            if token.is_identifier() || token.t == TokenType::Variable {
+                return Ok(token.clone());
+            }
+
+            return Err(format!(
+                "Expected Identifier or Variable, found {:?} on line {}, col {}",
                 token.t, token.line, token.col
             ));
         }

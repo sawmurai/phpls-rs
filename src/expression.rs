@@ -103,7 +103,7 @@ pub enum Node {
     },
     Static {
         token: Token,
-        expr: Box<Node>,
+        expr: Vec<Box<Node>>,
     },
     Function {
         is_static: Option<Token>,

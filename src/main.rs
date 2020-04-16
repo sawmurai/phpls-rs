@@ -19,7 +19,6 @@ fn visit_file(path: &Path) -> io::Result<()> {
             let p = path.to_str().unwrap().to_string();
 
             let content = fs::read_to_string(path)?;
-            //println!("Parsing {}", p);
             let mut scanner = Scanner::new(&content);
 
             if let Err(msg) = scanner.scan() {
@@ -37,6 +36,7 @@ fn visit_file(path: &Path) -> io::Result<()> {
             if let Err(e) = result {
                 println!("{}: {:#?}", p, e);
             } else if !parser.errors().is_empty() {
+                println!("Parsing {}", p);
                 println!("Errors {:#?}", parser.errors());
             } else {
                 //println!("{:#?}", result);
@@ -56,6 +56,10 @@ fn visit_dirs(dir: &Path, t: &mut HashMap<String, Vec<Token>>) -> io::Result<()>
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
+
+            // if path.ends_with("vendor") {
+            //    continue;
+            // }
 
             if path.is_dir() {
                 visit_dirs(&path, t)?;

@@ -90,6 +90,10 @@ impl<'a> Scanner<'a> {
                 continue;
             }
 
+            if self.context == Context::OutScript && c != '<' {
+                continue;
+            }
+
             match c {
                 ' ' | '\t' | '\r' | '\n' => {}
                 ':' => match self.chars.peek() {
@@ -199,8 +203,8 @@ impl<'a> Scanner<'a> {
                     }
                     Some('?') => {
                         self.advance();
-                        self.push_token(TokenType::ScriptStart);
                         self.context = Context::InScript;
+                        self.push_token(TokenType::ScriptStart);
 
                         if let Some('p') = self.chars.peek() {
                             self.advance();
@@ -293,6 +297,13 @@ impl<'a> Scanner<'a> {
                     Some('=') => {
                         self.advance();
                         self.push_token(TokenType::ConcatAssignment);
+                    }
+                    Some('0'..='9') => {
+                        self.advance();
+
+                        let decimal = self.collect_number();
+
+                        self.push_named_token(TokenType::DecimalNumber, &format!("0.{}", decimal));
                     }
                     _ => {
                         self.push_token(TokenType::Concat);
@@ -402,11 +413,6 @@ impl<'a> Scanner<'a> {
                         self.advance();
 
                         self.push_token(TokenType::DoubleArrow);
-                    }
-                    Some('&') => {
-                        self.advance();
-
-                        self.push_token(TokenType::ReferenceAssignment);
                     }
                     _ => {
                         self.push_token(TokenType::Assignment);
@@ -749,6 +755,9 @@ impl<'a> Scanner<'a> {
     }
 
     fn push_token(&mut self, t: TokenType) {
+        if self.context != Context::InScript {
+            return;
+        }
         self.tokens
             .push(Token::new(t, self.line as u16, self.start_of_token as u16));
     }

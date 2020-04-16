@@ -58,7 +58,6 @@ pub enum TokenType {
     XorAssignment,
     PaamayimNekudayim,
     DoubleArrow,
-    ReferenceAssignment,
 
     // Three chars
     RightShiftAssignment,
@@ -207,6 +206,76 @@ impl Token {
         }
     }
 
+    pub fn is_binary_operator(&self) -> bool {
+        match self.t {
+            TokenType::Plus |
+            TokenType::Minus |
+            TokenType::Multiplication |
+            TokenType::Division |
+            TokenType::Greater |
+            TokenType::Smaller |
+            TokenType::QuestionMark |
+            TokenType::ExclamationMark |
+            TokenType::Assignment |
+            TokenType::Variable |
+            TokenType::OpenParenthesis |
+            TokenType::CloseParenthesis |
+            TokenType::OpenCurly |
+            TokenType::CloseCurly |
+            TokenType::OpenBrackets |
+            TokenType::CloseBrackets |
+            TokenType::Semicolon |
+            TokenType::LogicOr |
+            TokenType::LogicAnd |
+            TokenType::BinaryOr |
+            TokenType::BinaryAnd |
+            TokenType::Negation |
+            TokenType::Colon |
+            TokenType::Concat |
+            TokenType::BitwiseNegation |
+            TokenType::Modulo |
+            TokenType::Xor |
+
+            // Two chars
+            TokenType::Increment |
+            TokenType::Decrement |
+            TokenType::Power |
+            TokenType::PlusAssign |
+            TokenType::MinusAssign |
+            TokenType::MulAssign |
+            TokenType::DivAssign |
+            TokenType::LineComment |
+            TokenType::MultilineComment |
+            TokenType::RightShift |
+            TokenType::LeftShift |
+            TokenType::ScriptEnd |
+            TokenType::IsNotEqual |
+            TokenType::IsEqual |
+            TokenType::GreaterOrEqual |
+            TokenType::SmallerOrEqual |
+            TokenType::Coalesce |
+            TokenType::BinaryAndAssignment |
+            TokenType::BinaryOrAssignment |
+            TokenType::ObjectOperator |
+            TokenType::ModuloAssignment |
+            TokenType::ConcatAssignment |
+            TokenType::XorAssignment |
+            TokenType::PaamayimNekudayim |
+            TokenType::DoubleArrow |
+
+            // Three chars
+            TokenType::RightShiftAssignment |
+            TokenType::LeftShiftAssignment |
+            TokenType::IsNotIdentical |
+            TokenType::IsIdentical |
+            TokenType::PowerAssignment |
+            TokenType::SpaceShip |
+            TokenType::CoalesceAssignment  => true,
+            _ => false
+        
+        }
+    }
+
     pub fn is_identifier(&self) -> bool {
         match self.t {
             TokenType::Exit
@@ -284,8 +353,8 @@ impl Token {
             | TokenType::Yield
                 // Types
             | TokenType::TypeBool
-            | TokenType::TypeInt
             | TokenType::TypeString
+            | TokenType::TypeInt
             | TokenType::TypeArray
             | TokenType::TypeObject
             | TokenType::TypeFloat
