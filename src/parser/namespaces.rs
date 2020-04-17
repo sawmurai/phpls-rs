@@ -4,7 +4,7 @@ use crate::parser::{Parser, StatementResult};
 use crate::statement::*;
 use crate::token::TokenType;
 
-/// Parses a single namespace statement
+/// Parses a single namespace statement or namespace block
 ///
 /// # Details
 /// ```php
