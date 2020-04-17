@@ -12,12 +12,12 @@ pub mod arrays;
 pub mod calls;
 pub mod classes;
 pub mod conditionals;
-pub mod declarations;
 pub mod exception_handling;
 pub mod expressions;
 pub mod functions;
 pub mod keywords;
 pub mod loops;
+pub mod namespaces;
 pub mod types;
 pub mod variables;
 
@@ -156,20 +156,20 @@ impl Parser {
                 TokenType::Namespace => {
                     self.next();
 
-                    return declarations::namespace_statement(self);
+                    return namespaces::namespace_statement(self);
                 }
                 TokenType::Use => {
                     self.next();
 
                     if self.consume_or_ignore(TokenType::Function).is_some() {
-                        return declarations::use_function_statement(self);
+                        return namespaces::use_function_statement(self);
                     }
 
                     if self.consume_or_ignore(TokenType::Const).is_some() {
-                        return declarations::use_const_statement(self);
+                        return namespaces::use_const_statement(self);
                     }
 
-                    return declarations::use_statement(self);
+                    return namespaces::use_statement(self);
                 }
                 TokenType::Const => {
                     self.next();

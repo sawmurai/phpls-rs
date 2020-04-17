@@ -1,5 +1,4 @@
 use crate::expression::Node;
-use crate::parser::declarations;
 use crate::parser::{expressions, functions, types};
 use crate::parser::{ExpressionResult, Parser, StatementListResult, StatementResult};
 use crate::statement::*;
@@ -101,7 +100,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
 
     while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
         if parser.next_token_one_of(&[TokenType::Use]) {
-            statements.push(declarations::use_trait_statement(parser)?);
+            statements.push(use_trait_statement(parser)?);
 
             continue;
         }
@@ -219,17 +218,6 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
     Ok(statements)
 }
 
-/// Parses a trait
-pub(crate) fn trait_statement(parser: &mut Parser) -> StatementResult {
-    let name = parser.consume(TokenType::Identifier)?;
-
-    parser.consume_or_err(TokenType::OpenCurly)?;
-    let block = class_block(parser)?;
-    parser.consume_or_err(TokenType::CloseCurly)?;
-
-    Ok(Box::new(TraitStatement::new(name, block)))
-}
-
 /// Parses an interface definition
 pub(crate) fn interface(parser: &mut Parser) -> StatementResult {
     let name = parser.consume(TokenType::Identifier)?;
@@ -261,4 +249,27 @@ fn identifier_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
         parser.next();
     }
     Ok(extends)
+}
+
+/// Parses a trait
+pub(crate) fn trait_statement(parser: &mut Parser) -> StatementResult {
+    let name = parser.consume(TokenType::Identifier)?;
+
+    parser.consume_or_err(TokenType::OpenCurly)?;
+    let block = class_block(parser)?;
+    parser.consume_or_err(TokenType::CloseCurly)?;
+
+    Ok(Box::new(TraitStatement::new(name, block)))
+}
+
+// use -> "use" identifier (, identifier)*
+pub(crate) fn use_trait_statement(parser: &mut Parser) -> StatementResult {
+    let statement = Box::new(UseTraitStatement::new(
+        parser.consume(TokenType::Use)?,
+        types::type_ref_list(parser)?,
+    ));
+
+    parser.consume_end_of_statement()?;
+
+    Ok(statement)
 }

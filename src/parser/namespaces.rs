@@ -203,15 +203,3 @@ pub(crate) fn use_statement(parser: &mut Parser) -> StatementResult {
 
     Ok(Box::new(UseStatement::new(imports)))
 }
-
-// use -> "use" identifier (, identifier)*
-pub(crate) fn use_trait_statement(parser: &mut Parser) -> StatementResult {
-    let statement = Box::new(UseTraitStatement::new(
-        parser.consume(TokenType::Use)?,
-        types::type_ref_list(parser)?,
-    ));
-
-    parser.consume_end_of_statement()?;
-
-    Ok(statement)
-}
