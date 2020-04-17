@@ -1,7 +1,6 @@
 use crate::expression::Node;
-use crate::parser::{expressions, Parser, StatementResult};
-use crate::statement::*;
-use crate::token::TokenType;
+use crate::parser::{expressions, ExpressionResult, Parser};
+use crate::token::{Token, TokenType};
 
 pub(crate) fn variable(parser: &mut Parser) -> Result<Node, String> {
     let variable = parser.consume(TokenType::Variable)?;
@@ -28,7 +27,8 @@ pub(crate) fn variable(parser: &mut Parser) -> Result<Node, String> {
     })
 }
 
-pub(crate) fn global_variables(parser: &mut Parser) -> StatementResult {
+pub(crate) fn global_variables(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Global)?;
     let mut vars = Vec::new();
     vars.push(variable(parser)?);
 
@@ -46,17 +46,19 @@ pub(crate) fn global_variables(parser: &mut Parser) -> StatementResult {
 
     parser.consume_end_of_statement()?;
 
-    Ok(Box::new(GlobalVariablesStatement::new(vars)))
+    Ok(Node::GlobalVariablesStatement { token, vars })
 }
 
-pub(crate) fn static_variables(parser: &mut Parser) -> StatementResult {
-    let mut variables = Vec::new();
+/// Parses a static variables definition. The token is passed as a parameter as it needs to be fetched
+/// in the main loop to tell `static $a` from `static::$a`.
+pub(crate) fn static_variables(parser: &mut Parser, token: Token) -> ExpressionResult {
+    let mut assignments = Vec::new();
 
     loop {
         let variable = parser.consume(TokenType::Variable)?;
 
         if let Some(assignment) = parser.consume_or_ignore(TokenType::Assignment) {
-            variables.push(Node::StaticVariable {
+            assignments.push(Node::StaticVariable {
                 variable,
                 assignment: Some(assignment),
                 value: Some(Box::new(expressions::expression(parser)?)),
@@ -67,10 +69,13 @@ pub(crate) fn static_variables(parser: &mut Parser) -> StatementResult {
             break;
         }
     }
-    Ok(Box::new(StaticVariablesStatement::new(variables)))
+
+    Ok(Node::StaticVariablesStatement { token, assignments })
 }
 
-pub(crate) fn const_statement(parser: &mut Parser) -> StatementResult {
+/// Parses a global variables definition
+pub(crate) fn const_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Const)?;
     let mut constants = Vec::new();
 
     constants.push(Node::Const {
@@ -88,7 +93,7 @@ pub(crate) fn const_statement(parser: &mut Parser) -> StatementResult {
         });
     }
 
-    Ok(Box::new(ConstStatement::new(constants)))
+    Ok(Node::ConstStatement { token, constants })
 }
 
 /// Parses all the arguments of a call
@@ -116,7 +121,7 @@ pub(crate) fn non_empty_lexical_variables_list(parser: &mut Parser) -> Result<Ve
 }
 
 /// Parses a lexical variable, used in a "use ()" list for example
-pub(crate) fn lexical_variable(parser: &mut Parser) -> Result<Node, String> {
+pub(crate) fn lexical_variable(parser: &mut Parser) -> ExpressionResult {
     Ok(Node::LexicalVariable {
         reference: parser.consume_or_ignore(TokenType::BinaryAnd),
         variable: parser.consume(TokenType::Variable)?,

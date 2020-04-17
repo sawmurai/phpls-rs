@@ -1,12 +1,9 @@
 use crate::expression::*;
-use crate::statement::*;
 use crate::token::{Token, TokenType};
 
-type StatementResult = Result<Box<dyn Stmt>, String>;
-type StatementListResult = Result<Vec<Box<dyn Stmt>>, String>;
 type ArgumentListResult = Result<Option<Vec<Node>>, String>;
 type ExpressionResult = Result<Node, String>;
-type AstResult = Result<(Vec<Box<dyn Stmt>>, Vec<String>), String>;
+type AstResult = Result<(Vec<Node>, Vec<String>), String>;
 
 pub mod arrays;
 pub mod calls;
@@ -49,7 +46,7 @@ impl Parser {
             errors: Vec::new(),
         };
 
-        let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
+        let mut statements: Vec<Node> = Vec::new();
 
         parser.consume_or_err(TokenType::ScriptStart)?;
 
@@ -85,7 +82,7 @@ impl Parser {
         }
     }
 
-    /// Parses a code block, which basically is a vector of `dyn Stmt` / statements.
+    /// Parses a code block, which basically is a vector of `Node` / statements.
     /// It expects to already be past the `{` and it will read until it encounters a `}`
     ///
     /// # Details
@@ -94,10 +91,10 @@ impl Parser {
     /// // Parse here
     /// }
     /// ```
-    pub fn block(&mut self) -> Result<Box<dyn Stmt>, String> {
-        let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
+    pub fn block(&mut self) -> ExpressionResult {
+        let mut statements: Vec<Node> = Vec::new();
 
-        self.consume_or_err(TokenType::OpenCurly)?;
+        let oc = self.consume(TokenType::OpenCurly)?;
 
         // TODO: Make sure namespace etc can not pop up here
         while !self.next_token_one_of(&[TokenType::CloseCurly]) && self.peek().is_some() {
@@ -110,9 +107,9 @@ impl Parser {
             }
         }
 
-        self.consume_or_err(TokenType::CloseCurly)?;
+        let cc = self.consume(TokenType::CloseCurly)?;
 
-        Ok(Box::new(Block::new(statements)))
+        Ok(Node::Block { oc, statements, cc })
     }
 
     /// Parses sudden appearances of inline HTML.
@@ -123,13 +120,11 @@ impl Parser {
     /// ?><h1>HTML</h1><?php
     /// echo "This is PHP ... again!";
     /// ```
-    fn inline_html(&mut self) -> StatementResult {
-        let start = self.consume(TokenType::ScriptEnd)?;
-
-        Ok(Box::new(InlineHtml::new(
-            start,
-            self.consume_or_ignore(TokenType::ScriptStart),
-        )))
+    fn inline_html(&mut self) -> ExpressionResult {
+        Ok(Node::InlineHtml {
+            start: self.consume(TokenType::ScriptEnd)?,
+            end: self.consume_or_ignore(TokenType::ScriptStart),
+        })
     }
 
     /// Parses a single statement (offloaded depending on which statement was encountered)
@@ -142,25 +137,13 @@ impl Parser {
     /// }
     /// /** to here **/
     /// ```
-    fn statement(&mut self) -> StatementResult {
+    fn statement(&mut self) -> ExpressionResult {
         if let Some(token) = self.peek() {
             match token.t {
-                TokenType::ScriptEnd => {
-                    return self.inline_html();
-                }
-                TokenType::Function => {
-                    self.next();
-
-                    return functions::named_function(self);
-                }
-                TokenType::Namespace => {
-                    self.next();
-
-                    return namespaces::namespace_statement(self);
-                }
+                TokenType::ScriptEnd => return self.inline_html(),
+                TokenType::Function => return functions::named_function(self),
+                TokenType::Namespace => return namespaces::namespace_statement(self),
                 TokenType::Use => {
-                    self.next();
-
                     if self.consume_or_ignore(TokenType::Function).is_some() {
                         return namespaces::use_function_statement(self);
                     }
@@ -171,49 +154,15 @@ impl Parser {
 
                     return namespaces::use_statement(self);
                 }
-                TokenType::Const => {
-                    self.next();
-
-                    return variables::const_statement(self);
-                }
-                TokenType::Global => {
-                    self.next();
-
-                    return variables::global_variables(self);
-                }
-                TokenType::Echo => {
-                    self.next();
-
-                    return keywords::echo_statement(self);
-                }
-                TokenType::Print => {
-                    self.next();
-
-                    return keywords::print_statement(self);
-                }
-                TokenType::Goto => {
-                    self.next();
-
-                    return keywords::goto_statement(self);
-                }
-                TokenType::Return => {
-                    self.next();
-
-                    return functions::return_statement(self);
-                }
-                TokenType::Throw => {
-                    self.next();
-
-                    return exception_handling::throw_statement(self);
-                }
-                TokenType::Class => {
-                    self.next();
-                    return classes::class_statement(self, false, false);
-                }
-                TokenType::Trait => {
-                    self.next();
-                    return classes::trait_statement(self);
-                }
+                TokenType::Const => return variables::const_statement(self),
+                TokenType::Global => return variables::global_variables(self),
+                TokenType::Echo => return keywords::echo_statement(self),
+                TokenType::Print => return keywords::print_statement(self),
+                TokenType::Goto => return keywords::goto_statement(self),
+                TokenType::Return => return functions::return_statement(self),
+                TokenType::Throw => return exception_handling::throw_statement(self),
+                TokenType::Class => return classes::class_statement(self, None, None),
+                TokenType::Trait => return classes::trait_statement(self),
                 TokenType::Abstract => {
                     self.next();
                     return classes::abstract_class_statement(self);
@@ -222,44 +171,21 @@ impl Parser {
                     self.next();
                     return classes::final_class_statement(self);
                 }
-                TokenType::Interface => {
-                    self.next();
-                    return classes::interface(self);
-                }
-                TokenType::While => {
-                    self.next();
-                    return loops::while_statement(self);
-                }
-                TokenType::Do => {
-                    self.next();
-                    return loops::do_while_statement(self);
-                }
-                TokenType::For => {
-                    self.next();
-                    return loops::for_statement(self);
-                }
-                TokenType::Foreach => {
-                    self.next();
-                    return loops::foreach_statement(self);
-                }
-                TokenType::If => {
-                    self.next();
-                    return conditionals::if_statement(self);
-                }
+                TokenType::Interface => return classes::interface(self),
+                TokenType::While => return loops::while_statement(self),
+                TokenType::Do => return loops::do_while_statement(self),
+                TokenType::For => return loops::for_statement(self),
+                TokenType::Foreach => return loops::foreach_statement(self),
+                TokenType::If => return conditionals::if_statement(self),
                 TokenType::OpenCurly => {
-                    let block = self.block();
-
-                    return block;
+                    return self.block();
                 }
-                TokenType::Switch => {
-                    self.next();
-                    return conditionals::switch_statement(self);
-                }
+                TokenType::Switch => return conditionals::switch_statement(self),
                 TokenType::Semicolon => {
-                    return Ok(Box::new(TokenStatement::new(
-                        self.consume(TokenType::Semicolon)?,
-                        None,
-                    )));
+                    return Ok(Node::TokenStatement {
+                        token: self.consume(TokenType::Semicolon)?,
+                        expr: None,
+                    });
                 }
                 TokenType::Break | TokenType::Continue => {
                     let token = self.next().unwrap();
@@ -267,41 +193,34 @@ impl Parser {
                     let expr = if self.next_token_one_of(&[TokenType::Semicolon]) {
                         None
                     } else {
-                        Some(expressions::expression(self)?)
+                        Some(Box::new(expressions::expression(self)?))
                     };
 
-                    let statement = Box::new(TokenStatement::new(token, expr));
+                    let statement = Node::TokenStatement { token, expr };
 
                     self.consume_end_of_statement()?;
 
                     return Ok(statement);
                 }
-                TokenType::Try => {
-                    self.next();
-                    return exception_handling::try_catch_statement(self);
-                }
-                TokenType::Declare => {
-                    return keywords::declare_statement(self);
-                }
-                TokenType::Unset => {
-                    return keywords::unset_statement(self);
-                }
+                TokenType::Try => return exception_handling::try_catch_statement(self),
+                TokenType::Declare => return keywords::declare_statement(self),
+                TokenType::Unset => return keywords::unset_statement(self),
                 _ => {
                     if let Some(static_token) = self.consume_or_ignore(TokenType::Static) {
                         if self.next_token_one_of(&[TokenType::Variable]) {
-                            return variables::static_variables(self);
+                            return variables::static_variables(self, static_token);
                         } else {
                             // Back on the stack
                             self.tokens.push(static_token);
                         }
 
                     // Labels
-                    } else if let Some(identifier) = self.consume_or_ignore(TokenType::Identifier) {
+                    } else if let Some(label) = self.consume_or_ignore(TokenType::Identifier) {
                         if let Some(colon) = self.consume_or_ignore(TokenType::Colon) {
-                            return Ok(Box::new(LabelStatement::new(identifier, colon)));
+                            return Ok(Node::LabelStatement { label, colon });
                         } else {
                             // Back on the stack
-                            self.tokens.push(identifier);
+                            self.tokens.push(label);
                         }
                     }
                     let expr = expressions::expression_statement(self)?;

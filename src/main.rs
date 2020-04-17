@@ -12,7 +12,6 @@ use std::path::Path;
 pub mod expression;
 pub mod parser;
 pub mod scanner;
-pub mod statement;
 pub mod token;
 
 fn visit_file(path: &Path) -> io::Result<()> {

@@ -9,7 +9,7 @@ use crate::token::TokenType;
 pub(crate) fn array(parser: &mut Parser) -> ExpressionResult {
     let start = parser.consume(TokenType::OpenBrackets)?;
     let mut elements = Vec::new();
-
+    println!("asd");
     while !parser.next_token_one_of(&[TokenType::CloseBrackets]) {
         // TODO: This is only allowed in a destructuring context. Probably need to split
         // this
@@ -82,5 +82,58 @@ pub(crate) fn array_pair(parser: &mut Parser) -> ExpressionResult {
             arrow: None,
             value: Box::new(key),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::Parser;
+    use crate::token::{Token, TokenType};
+
+    #[test]
+    fn test_parses_an_array() {
+        let mut tokens = vec![
+            Token::new(TokenType::OpenBrackets, 1, 1),
+            Token::named(TokenType::LongNumber, 1, 1, "10"),
+            Token::new(TokenType::Comma, 1, 1),
+            Token::named(TokenType::LongNumber, 1, 1, "12"),
+            Token::new(TokenType::CloseBrackets, 10, 10),
+        ];
+        tokens.reverse();
+
+        let mut parser = Parser {
+            errors: Vec::new(),
+            tokens,
+        };
+
+        let expected = Node::Array {
+            ob: Token::new(TokenType::OpenBrackets, 1, 1),
+            cb: Token::new(TokenType::CloseBrackets, 10, 10),
+            elements: vec![
+                Node::ArrayElement {
+                    key: None,
+                    arrow: None,
+                    value: Box::new(Node::Literal(Token::named(
+                        TokenType::LongNumber,
+                        1,
+                        1,
+                        "10",
+                    ))),
+                },
+                Node::ArrayElement {
+                    key: None,
+                    arrow: None,
+                    value: Box::new(Node::Literal(Token::named(
+                        TokenType::LongNumber,
+                        1,
+                        1,
+                        "12",
+                    ))),
+                },
+            ],
+        };
+
+        assert_eq!(expected, array(&mut parser).unwrap());
     }
 }

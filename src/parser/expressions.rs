@@ -1,13 +1,14 @@
 use crate::expression::{Expr, Node};
 use crate::parser::{arrays, calls, classes, functions, keywords, types, variables};
-use crate::parser::{ExpressionResult, Parser, StatementResult};
-use crate::statement::*;
+use crate::parser::{ExpressionResult, Parser};
 use crate::token::TokenType;
 
-pub(crate) fn expression_statement(parser: &mut Parser) -> StatementResult {
+pub(crate) fn expression_statement(parser: &mut Parser) -> ExpressionResult {
     let value = expression(parser)?;
 
-    Ok(Box::new(ExpressionStatement::new(value)))
+    Ok(Node::ExpressionStatement {
+        expression: Box::new(value),
+    })
 }
 
 /// Parses an expression. This can be anything that evaluates to a value. A function call, a comparison or even an assignment

@@ -1,8 +1,7 @@
 use crate::expression::Node;
 use crate::parser::types;
 use crate::parser::variables;
-use crate::parser::{expressions, ArgumentListResult, ExpressionResult, Parser, StatementResult};
-use crate::statement::*;
+use crate::parser::{expressions, ArgumentListResult, ExpressionResult, Parser};
 use crate::token::{Token, TokenType};
 
 /// Parses the argument list of a function, excluding the parenthesis
@@ -106,12 +105,13 @@ pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Node>, String> {
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn named_function(parser: &mut Parser) -> StatementResult {
-    Ok(Box::new(NamedFunctionDefinitionStatement::new(
-        parser.consume_or_ignore(TokenType::BinaryAnd),
-        parser.consume_identifier()?,
-        anonymous_function_statement(parser)?,
-    )))
+pub(crate) fn named_function(parser: &mut Parser) -> ExpressionResult {
+    Ok(Node::NamedFunctionDefinitionStatement {
+        token: parser.consume(TokenType::Function)?,
+        by_ref: parser.consume_or_ignore(TokenType::BinaryAnd),
+        name: parser.consume_identifier()?,
+        function: Box::new(anonymous_function_statement(parser)?),
+    })
 }
 
 /// Parses a function definition by calling methods to parse the argument list, return type and body.
@@ -125,28 +125,32 @@ pub(crate) fn named_function(parser: &mut Parser) -> StatementResult {
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn anonymous_function_statement(parser: &mut Parser) -> StatementResult {
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
+pub(crate) fn anonymous_function_statement(parser: &mut Parser) -> ExpressionResult {
+    let op = parser.consume(TokenType::OpenParenthesis)?;
     let arguments = argument_list(parser)?;
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    let return_type = return_type(parser)?;
+    let return_type = Box::new(return_type(parser)?);
 
     if parser.consume_or_ignore(TokenType::Semicolon).is_some() {
-        return Ok(Box::new(FunctionDefinitionStatement::new(
+        return Ok(Node::FunctionDefinitionStatement {
+            op,
             arguments,
+            cp,
             return_type,
-            None,
-        )));
+            body: None,
+        });
     }
 
-    let body = parser.block()?;
+    let body = Some(Box::new(parser.block()?));
 
-    Ok(Box::new(FunctionDefinitionStatement::new(
+    Ok(Node::FunctionDefinitionStatement {
+        op,
         arguments,
+        cp,
         return_type,
-        Some(body),
-    )))
+        body,
+    })
 }
 
 pub(crate) fn anonymous_function(
@@ -155,9 +159,9 @@ pub(crate) fn anonymous_function(
 ) -> ExpressionResult {
     let token = parser.consume(TokenType::Function)?;
 
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
     let arguments = argument_list(parser)?;
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
 
     let uses = if parser.next_token_one_of(&[TokenType::Use]) {
         parser.next();
@@ -166,15 +170,17 @@ pub(crate) fn anonymous_function(
         None
     };
 
-    let return_type = return_type(parser)?;
+    let return_type = Box::new(return_type(parser)?);
 
-    let body = parser.block()?;
+    let body = Box::new(parser.block()?);
 
     Ok(Node::Function {
         is_static,
         token,
+        op,
         arguments,
-        return_type: Box::new(return_type),
+        cp,
+        return_type,
         uses,
         body,
     })
@@ -216,15 +222,23 @@ pub(crate) fn parameter_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
     Ok(arguments)
 }
 
-pub(crate) fn return_statement(parser: &mut Parser) -> StatementResult {
+pub(crate) fn return_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Return)?;
+
     if parser.next_token_one_of(&[TokenType::Semicolon]) {
         parser.consume_end_of_statement()?;
-        Ok(Box::new(ReturnStatement::new(None)))
+        Ok(Node::ReturnStatement {
+            token,
+            expression: None,
+        })
     } else {
-        let value = expressions::expression(parser)?;
+        let value = Box::new(expressions::expression(parser)?);
 
         parser.consume_end_of_statement()?;
 
-        Ok(Box::new(ReturnStatement::new(Some(value))))
+        Ok(Node::ReturnStatement {
+            token,
+            expression: Some(value),
+        })
     }
 }

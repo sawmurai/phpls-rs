@@ -1,7 +1,6 @@
 use crate::expression::Node;
 use crate::parser::types;
-use crate::parser::{Parser, StatementResult};
-use crate::statement::*;
+use crate::parser::{ExpressionResult, Parser};
 use crate::token::TokenType;
 
 /// Parses a single namespace statement or namespace block
@@ -10,20 +9,28 @@ use crate::token::TokenType;
 /// ```php
 /// namespace /** from here **/My\Super\Duper\Namespace;/** to here **/
 /// ```
-pub(crate) fn namespace_statement(parser: &mut Parser) -> StatementResult {
+pub(crate) fn namespace_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Namespace)?;
     let type_ref = types::type_ref(parser)?;
 
     if parser.next_token_one_of(&[TokenType::OpenCurly]) {
-        Ok(Box::new(NamespaceBlock::new(type_ref, parser.block()?)))
+        Ok(Node::NamespaceBlock {
+            token,
+            type_ref: Box::new(type_ref),
+            block: Box::new(parser.block()?),
+        })
     } else if let Some(type_ref) = type_ref {
         parser.consume_end_of_statement()?;
-        Ok(Box::new(NamespaceStatement::new(type_ref)))
+        Ok(Node::NamespaceStatement {
+            token,
+            type_ref: Box::new(type_ref),
+        })
     } else {
         Err("Empty path after namespace".to_owned())
     }
 }
 
-pub(crate) fn symbol_import(parser: &mut Parser) -> Result<Node, String> {
+pub(crate) fn symbol_import(parser: &mut Parser) -> ExpressionResult {
     if parser.consume_or_ignore(TokenType::Function).is_some() {
         let name = types::non_empty_type_ref(parser)?;
 
@@ -78,9 +85,9 @@ pub(crate) fn symbol_import(parser: &mut Parser) -> Result<Node, String> {
 }
 
 pub(crate) fn symbol_imports(parser: &mut Parser) -> Result<Vec<Node>, String> {
-    let mut symbols = Vec::new();
+    let mut imports = Vec::new();
 
-    symbols.push(symbol_import(parser)?);
+    imports.push(symbol_import(parser)?);
 
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
         if !parser.next_token_one_of(&[
@@ -91,26 +98,27 @@ pub(crate) fn symbol_imports(parser: &mut Parser) -> Result<Vec<Node>, String> {
             break;
         }
 
-        symbols.push(symbol_import(parser)?);
+        imports.push(symbol_import(parser)?);
     }
 
-    Ok(symbols)
+    Ok(imports)
 }
 
-pub(crate) fn use_function_statement(parser: &mut Parser) -> StatementResult {
-    let mut symbols = Vec::new();
+pub(crate) fn use_function_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Use)?;
+    let mut imports = Vec::new();
 
     loop {
         let name = types::non_empty_type_ref(parser)?;
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
-            symbols.push(Node::UseFunction {
+            imports.push(Node::UseFunction {
                 function: Box::new(name),
                 aliased: Some(alias),
                 alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
-            symbols.push(Node::UseFunction {
+            imports.push(Node::UseFunction {
                 function: Box::new(name),
                 aliased: None,
                 alias: None,
@@ -126,23 +134,24 @@ pub(crate) fn use_function_statement(parser: &mut Parser) -> StatementResult {
 
     parser.consume_end_of_statement()?;
 
-    Ok(Box::new(UseFunctionStatement::new(symbols)))
+    Ok(Node::UseFunctionStatement { token, imports })
 }
 
-pub(crate) fn use_const_statement(parser: &mut Parser) -> StatementResult {
-    let mut symbols = Vec::new();
+pub(crate) fn use_const_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Use)?;
+    let mut imports = Vec::new();
 
     loop {
         let name = types::non_empty_type_ref(parser)?;
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
-            symbols.push(Node::UseConst {
+            imports.push(Node::UseConst {
                 constant: Box::new(name),
                 aliased: Some(alias),
                 alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
-            symbols.push(Node::UseConst {
+            imports.push(Node::UseConst {
                 constant: Box::new(name),
                 aliased: None,
                 alias: None,
@@ -158,11 +167,11 @@ pub(crate) fn use_const_statement(parser: &mut Parser) -> StatementResult {
 
     parser.consume_end_of_statement()?;
 
-    Ok(Box::new(UseConstStatement::new(symbols)))
+    Ok(Node::UseConstStatement { token, imports })
 }
 
 // use -> "use" ("function" | "const")? path (("{" use_group "}") | ("as" identifier))?
-pub(crate) fn use_statement(parser: &mut Parser) -> StatementResult {
+pub(crate) fn use_statement(parser: &mut Parser) -> ExpressionResult {
     let mut imports = Vec::new();
 
     loop {
@@ -201,5 +210,5 @@ pub(crate) fn use_statement(parser: &mut Parser) -> StatementResult {
         break;
     }
 
-    Ok(Box::new(UseStatement::new(imports)))
+    Ok(Node::UseStatement { imports })
 }

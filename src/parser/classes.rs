@@ -1,29 +1,29 @@
 use crate::expression::Node;
 use crate::parser::{expressions, functions, types};
-use crate::parser::{ExpressionResult, Parser, StatementListResult, StatementResult};
-use crate::statement::*;
+use crate::parser::{ExpressionResult, Parser};
 use crate::token::{Token, TokenType};
 
 // abstract_class -> "abstract" class
-pub(crate) fn abstract_class_statement(parser: &mut Parser) -> StatementResult {
-    parser.next();
+pub(crate) fn abstract_class_statement(parser: &mut Parser) -> ExpressionResult {
+    let is_abstract = parser.consume(TokenType::Abstract)?;
 
-    class_statement(parser, true, false)
+    class_statement(parser, Some(is_abstract), None)
 }
 
 // final_class -> "final" class
-pub(crate) fn final_class_statement(parser: &mut Parser) -> StatementResult {
-    parser.next();
+pub(crate) fn final_class_statement(parser: &mut Parser) -> ExpressionResult {
+    let is_final = parser.consume(TokenType::Final)?;
 
-    class_statement(parser, false, true)
+    class_statement(parser, None, Some(is_final))
 }
 
 // class -> "class" identifier (extends identifier_list)? (implements identifier_list)?
 pub(crate) fn class_statement(
     parser: &mut Parser,
-    is_abstract: bool,
-    is_final: bool,
-) -> StatementResult {
+    is_abstract: Option<Token>,
+    is_final: Option<Token>,
+) -> ExpressionResult {
+    let token = parser.consume(TokenType::Class)?;
     let name = parser.consume_identifier()?;
 
     let extends = match parser.consume_or_ignore(TokenType::Extends) {
@@ -36,18 +36,15 @@ pub(crate) fn class_statement(
         None => None,
     };
 
-    parser.consume_or_err(TokenType::OpenCurly)?;
-    let block = class_block(parser)?;
-    parser.consume_or_err(TokenType::CloseCurly)?;
-
-    Ok(Box::new(ClassStatement::new(
+    Ok(Node::ClassStatement {
+        token,
         name,
         is_abstract,
         is_final,
         extends,
         implements,
-        block,
-    )))
+        body: Box::new(class_block(parser)?),
+    })
 }
 
 pub(crate) fn anonymous_class(parser: &mut Parser) -> ExpressionResult {
@@ -73,16 +70,12 @@ pub(crate) fn anonymous_class(parser: &mut Parser) -> ExpressionResult {
         None => None,
     };
 
-    parser.consume_or_err(TokenType::OpenCurly)?;
-    let body = class_block(parser)?;
-    parser.consume_or_err(TokenType::CloseCurly)?;
-
     Ok(Node::Class {
         token,
         arguments,
         extends,
         implements,
-        body,
+        body: Box::new(class_block(parser)?),
     })
 }
 
@@ -95,8 +88,9 @@ pub(crate) fn anonymous_class(parser: &mut Parser) -> ExpressionResult {
 /// // Parse here
 /// }
 /// ```
-pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
-    let mut statements: Vec<Box<dyn Stmt>> = Vec::new();
+pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
+    let oc = parser.consume(TokenType::OpenCurly)?;
+    let mut statements = Vec::new();
 
     while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
         if parser.next_token_one_of(&[TokenType::Use]) {
@@ -136,11 +130,11 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
             let name = parser.consume_identifier()?;
 
             parser.consume_or_err(TokenType::Assignment)?;
-            statements.push(Box::new(ClassConstantDefinitionStatement::new(
+            statements.push(Node::ClassConstantDefinitionStatement {
                 name,
                 visibility,
-                expressions::expression(parser)?,
-            )));
+                value: Box::new(expressions::expression(parser)?),
+            });
 
             parser.consume_end_of_statement()?;
 
@@ -155,15 +149,15 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
                     let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
                     let name = parser.consume_identifier()?;
 
-                    statements.push(Box::new(MethodDefinitionStatement::new(
+                    statements.push(Node::MethodDefinitionStatement {
                         is_final,
                         by_ref,
                         name,
                         visibility,
                         is_abstract,
-                        functions::anonymous_function_statement(parser)?,
+                        function: Box::new(functions::anonymous_function_statement(parser)?),
                         is_static,
-                    )));
+                    });
                 }
                 // One or more of those ...
                 TokenType::Variable => {
@@ -172,18 +166,18 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
                         let name = parser.consume(TokenType::Variable)?;
                         let assignment = if parser.next_token_one_of(&[TokenType::Assignment]) {
                             parser.next();
-                            Some(expressions::expression(parser)?)
+                            Some(Box::new(expressions::expression(parser)?))
                         } else {
                             None
                         };
 
-                        statements.push(Box::new(PropertyDefinitionStatement::new(
+                        statements.push(Node::PropertyDefinitionStatement {
                             name,
-                            visibility.clone(),
-                            is_abstract.clone(),
-                            assignment,
-                            is_static.clone(),
-                        )));
+                            visibility: visibility.clone(),
+                            is_abstract: is_abstract.clone(),
+                            value: assignment,
+                            is_static: is_static.clone(),
+                        });
 
                         if !parser.next_token_one_of(&[TokenType::Comma]) {
                             break;
@@ -205,21 +199,16 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
         } else {
             return Err(String::from("End of file"));
         }
-
-        if let Some(Token {
-            t: TokenType::CloseCurly,
-            ..
-        }) = parser.peek()
-        {
-            break;
-        }
     }
 
-    Ok(statements)
+    let cc = parser.consume(TokenType::CloseCurly)?;
+
+    Ok(Node::Block { oc, statements, cc })
 }
 
 /// Parses an interface definition
-pub(crate) fn interface(parser: &mut Parser) -> StatementResult {
+pub(crate) fn interface(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Interface)?;
     let name = parser.consume(TokenType::Identifier)?;
 
     let extends = match parser.consume_or_ignore(TokenType::Extends) {
@@ -227,11 +216,14 @@ pub(crate) fn interface(parser: &mut Parser) -> StatementResult {
         None => None,
     };
 
-    parser.consume_or_err(TokenType::OpenCurly)?;
-    let block = class_block(parser)?;
-    parser.consume_or_err(TokenType::CloseCurly)?;
+    let body = class_block(parser)?;
 
-    Ok(Box::new(Interface::new(name, extends, block)))
+    Ok(Node::Interface {
+        token,
+        name,
+        extends,
+        body: Box::new(body),
+    })
 }
 
 // (("extends" identifier) (, "extends" identifier)*)?
@@ -252,22 +244,20 @@ fn identifier_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
 }
 
 /// Parses a trait
-pub(crate) fn trait_statement(parser: &mut Parser) -> StatementResult {
-    let name = parser.consume(TokenType::Identifier)?;
-
-    parser.consume_or_err(TokenType::OpenCurly)?;
-    let block = class_block(parser)?;
-    parser.consume_or_err(TokenType::CloseCurly)?;
-
-    Ok(Box::new(TraitStatement::new(name, block)))
+pub(crate) fn trait_statement(parser: &mut Parser) -> ExpressionResult {
+    Ok(Node::TraitStatement {
+        token: parser.consume(TokenType::Trait)?,
+        name: parser.consume(TokenType::Identifier)?,
+        body: Box::new(class_block(parser)?),
+    })
 }
 
 // use -> "use" identifier (, identifier)*
-pub(crate) fn use_trait_statement(parser: &mut Parser) -> StatementResult {
-    let statement = Box::new(UseTraitStatement::new(
-        parser.consume(TokenType::Use)?,
-        types::type_ref_list(parser)?,
-    ));
+pub(crate) fn use_trait_statement(parser: &mut Parser) -> ExpressionResult {
+    let statement = Node::UseTraitStatement {
+        token: parser.consume(TokenType::Use)?,
+        type_refs: types::type_ref_list(parser)?,
+    };
 
     parser.consume_end_of_statement()?;
 

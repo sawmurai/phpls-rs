@@ -1,13 +1,13 @@
 use crate::expression::Node;
-use crate::parser::{expressions, Parser, StatementResult};
-use crate::statement::*;
+use crate::parser::{expressions, ExpressionResult, Parser};
 use crate::token::{Token, TokenType};
 
 /// Parses an if statement
 ///
 /// # Details
 /// ```php
-/// if /** from here **/ (true) {
+/// /** from here **/
+/// if (true) {
 ///     do_stuff();
 /// } elseif (false) {
 ///     other_stuff();
@@ -16,37 +16,50 @@ use crate::token::{Token, TokenType};
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn if_statement(parser: &mut Parser) -> StatementResult {
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let condition = expressions::expression(parser)?;
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
-    let if_branch = IfBranch::new(condition, parser.statement()?);
+pub(crate) fn if_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::If)?;
 
-    let mut elseif_branches = Vec::new();
-    while parser.next_token_one_of(&[TokenType::ElseIf]) {
-        parser.next();
-        parser.consume_or_err(TokenType::OpenParenthesis)?;
-        let condition = expressions::expression(parser)?;
-        parser.consume_or_err(TokenType::CloseParenthesis)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
+    let condition = Box::new(expressions::expression(parser)?);
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-        elseif_branches.push(IfBranch::new(condition, parser.statement()?));
-    }
-
-    let else_branch = match parser.peek() {
-        Some(Token {
-            t: TokenType::Else, ..
-        }) => {
-            parser.next();
-            Some(parser.statement()?)
-        }
-        _ => None,
+    let if_branch = Node::IfBranch {
+        token,
+        op,
+        condition,
+        cp,
+        body: Box::new(parser.statement()?),
     };
 
-    Ok(Box::new(IfStatement::new(
-        Box::new(if_branch),
+    let mut elseif_branches = Vec::new();
+    while let Some(token) = parser.consume_or_ignore(TokenType::ElseIf) {
+        let op = parser.consume(TokenType::OpenParenthesis)?;
+        let condition = Box::new(expressions::expression(parser)?);
+        let cp = parser.consume(TokenType::CloseParenthesis)?;
+
+        elseif_branches.push(Node::IfBranch {
+            token,
+            op,
+            condition,
+            cp,
+            body: Box::new(parser.statement()?),
+        });
+    }
+
+    let else_branch = if let Some(else_branch) = parser.consume_or_ignore(TokenType::Else) {
+        Some(Box::new(Node::ElseBranch {
+            token: else_branch,
+            body: Box::new(parser.statement()?),
+        }))
+    } else {
+        None
+    };
+
+    Ok(Node::IfStatement {
+        if_branch: Box::new(if_branch),
         elseif_branches,
         else_branch,
-    )))
+    })
 }
 
 /// Parses a switch case
@@ -59,11 +72,12 @@ pub(crate) fn if_statement(parser: &mut Parser) -> StatementResult {
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn switch_statement(parser: &mut Parser) -> StatementResult {
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let expr = expressions::expression(parser)?;
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
-    parser.consume_or_err(TokenType::OpenCurly)?;
+pub(crate) fn switch_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Switch)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
+    let expr = Box::new(expressions::expression(parser)?);
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
+    let oc = parser.consume(TokenType::OpenCurly)?;
 
     let mut branches = Vec::new();
     while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
@@ -78,12 +92,23 @@ pub(crate) fn switch_statement(parser: &mut Parser) -> StatementResult {
             statements.push(parser.statement()?);
         }
 
-        branches.push(SwitchBranch::new(cases_current_branch, statements));
+        branches.push(Node::SwitchBranch {
+            cases: cases_current_branch,
+            body: statements,
+        });
     }
 
-    parser.next();
+    let cc = parser.consume(TokenType::CloseCurly)?;
 
-    Ok(Box::new(SwitchCase::new(expr, branches)))
+    Ok(Node::SwitchCase {
+        token,
+        op,
+        expr,
+        cp,
+        oc,
+        branches,
+        cc,
+    })
 }
 
 pub(crate) fn case_list(parser: &mut Parser) -> Result<Vec<Option<Node>>, String> {

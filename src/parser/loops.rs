@@ -1,18 +1,20 @@
+use crate::expression::Node;
 use crate::parser::arrays;
-use crate::parser::{expressions, Parser, StatementResult};
-use crate::statement::*;
-use crate::token::{Token, TokenType};
+use crate::parser::{expressions, ExpressionResult, Parser};
+use crate::token::TokenType;
 
 /// Parses a for loop
 ///
 /// # Details
 /// ```php
-/// for /** from here **/ ($i = 0; $i < 100; $i++) {
+/// /** from here **/
+/// for ($i = 0; $i < 100; $i++) {
 ///     do_stuff();
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn for_statement(parser: &mut Parser) -> StatementResult {
+pub(crate) fn for_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::For)?;
     parser.consume_or_err(TokenType::OpenParenthesis)?;
 
     let mut init = Vec::new();
@@ -53,34 +55,41 @@ pub(crate) fn for_statement(parser: &mut Parser) -> StatementResult {
     }
     parser.consume_or_err(TokenType::CloseParenthesis)?;
 
-    let body = parser.statement()?;
+    let body = Box::new(parser.statement()?);
 
-    Ok(Box::new(ForStatement::new(init, condition, step, body)))
+    Ok(Node::ForStatement {
+        token,
+        init,
+        condition,
+        step,
+        body,
+    })
 }
 
 /// Parses a while loop
 ///
 /// # Details
 /// ```php
-/// while /** from here **/(true) {
+/// /** from here **/
+/// while (true) {
 ///     do_stuff();
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn while_statement(parser: &mut Parser) -> StatementResult {
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let condition = expressions::expression(parser)?;
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
-    let body = match parser.peek() {
-        Some(Token {
-            t: TokenType::OpenCurly,
-            ..
-        }) => parser.block()?,
-        Some(_) => Box::new(Block::new(vec![parser.statement()?])),
-        None => return Err(String::from("Unexpected EOF!")),
-    };
+pub(crate) fn while_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::While)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
+    let condition = Box::new(expressions::expression(parser)?);
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
+    let body = Box::new(parser.statement()?);
 
-    Ok(Box::new(WhileStatement::new(condition, body)))
+    Ok(Node::WhileStatement {
+        token,
+        op,
+        condition,
+        cp,
+        body,
+    })
 }
 
 /// Parses a foreach loop
@@ -92,44 +101,53 @@ pub(crate) fn while_statement(parser: &mut Parser) -> StatementResult {
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn foreach_statement(parser: &mut Parser) -> StatementResult {
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let collection = expressions::expression(parser)?;
+pub(crate) fn foreach_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Foreach)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
+    let collection = Box::new(expressions::expression(parser)?);
 
-    parser.consume_or_err(TokenType::As)?;
-    let key_value = arrays::array_pair(parser)?;
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
+    let as_token = parser.consume(TokenType::As)?;
+    let kv = Box::new(arrays::array_pair(parser)?);
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    let body = match parser.peek() {
-        Some(Token {
-            t: TokenType::OpenCurly,
-            ..
-        }) => parser.block()?,
-        Some(_) => Box::new(Block::new(vec![parser.statement()?])),
-        None => return Err(String::from("Unexpected EOF!")),
-    };
+    let body = Box::new(parser.statement()?);
 
-    Ok(Box::new(ForEachStatement::new(collection, key_value, body)))
+    Ok(Node::ForEachStatement {
+        token,
+        op,
+        collection,
+        as_token,
+        kv,
+        cp,
+        body,
+    })
 }
 
 /// Parses a do-while loop
 ///
 /// # Details
 /// ```php
-/// do
-/// /** from here **/ {
+/// /** from here **/
+/// do {
 ///     do_stuff();
 /// } while (true);
 /// /** to here **/
 /// ```
-pub(crate) fn do_while_statement(parser: &mut Parser) -> StatementResult {
-    let body = parser.block()?;
-
-    parser.consume_or_err(TokenType::While)?;
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let condition = expressions::expression(parser)?;
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
+pub(crate) fn do_while_statement(parser: &mut Parser) -> ExpressionResult {
+    let do_token = parser.consume(TokenType::Do)?;
+    let body = Box::new(parser.statement()?);
+    let while_token = parser.consume(TokenType::While)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
+    let condition = Box::new(expressions::expression(parser)?);
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
     parser.consume_end_of_statement()?;
 
-    Ok(Box::new(DoWhileStatement::new(condition, body)))
+    Ok(Node::DoWhileStatement {
+        do_token,
+        while_token,
+        op,
+        cp,
+        condition,
+        body,
+    })
 }

@@ -1,19 +1,21 @@
-use crate::parser::{expressions, types, Parser, StatementResult};
-use crate::statement::*;
-use crate::token::{Token, TokenType};
+use crate::expression::Node;
+use crate::parser::{expressions, types, ExpressionResult, Parser};
+use crate::token::TokenType;
 
 /// Parses a try catch statement
 ///
 /// # Details
 /// ```php
-/// try /** from here **/(true) {
+/// /** from here **/
+/// try (true) {
 /// } catch (Exception $e) {}
 ///     echo "stuff";
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn try_catch_statement(parser: &mut Parser) -> StatementResult {
-    let try_block = parser.block()?;
+pub(crate) fn try_catch_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Try)?;
+    let try_block = Box::new(parser.block()?);
 
     let mut catch_blocks = Vec::new();
 
@@ -21,22 +23,21 @@ pub(crate) fn try_catch_statement(parser: &mut Parser) -> StatementResult {
         catch_blocks.push(catch_block(parser)?);
     }
 
-    let finally_block = match parser.peek() {
-        Some(Token {
-            t: TokenType::Finally,
-            ..
-        }) => {
-            parser.next();
-            Some(parser.block()?)
-        }
-        _ => None,
+    let finally_block = if let Some(finally_token) = parser.consume_or_ignore(TokenType::Finally) {
+        Some(Box::new(Node::FinallyBlock {
+            token: finally_token,
+            body: Box::new(parser.block()?),
+        }))
+    } else {
+        None
     };
 
-    Ok(Box::new(TryCatch::new(
+    Ok(Node::TryCatch {
+        token,
         try_block,
         catch_blocks,
         finally_block,
-    )))
+    })
 }
 
 /// Parses a catch block (including the catch-keyword, yes, I need to make my mind up about including / excluding the keyword)
@@ -48,22 +49,30 @@ pub(crate) fn try_catch_statement(parser: &mut Parser) -> StatementResult {
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn catch_block(parser: &mut Parser) -> StatementResult {
-    parser.consume_or_err(TokenType::Catch)?;
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
+pub(crate) fn catch_block(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Catch)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
     let types = types::type_ref_union(parser)?;
     let var = parser.consume(TokenType::Variable)?;
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    let catch_block = parser.block()?;
+    let body = Box::new(parser.block()?);
 
-    Ok(Box::new(CatchBlock::new(types, var, catch_block)))
+    Ok(Node::CatchBlock {
+        token,
+        op,
+        types,
+        var,
+        cp,
+        body,
+    })
 }
 
-pub(crate) fn throw_statement(parser: &mut Parser) -> StatementResult {
-    let value = expressions::expression(parser)?;
+pub(crate) fn throw_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Throw)?;
+    let expression = Box::new(expressions::expression(parser)?);
 
     parser.consume_end_of_statement()?;
 
-    Ok(Box::new(ThrowStatement::new(value)))
+    Ok(Node::ThrowStatement { token, expression })
 }

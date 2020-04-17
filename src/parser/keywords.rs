@@ -1,16 +1,15 @@
 use crate::expression::Node;
 use crate::parser::{arrays, functions};
-use crate::parser::{expressions, ExpressionResult, Parser, StatementResult};
-use crate::statement::*;
+use crate::parser::{expressions, ExpressionResult, Parser};
 use crate::token::TokenType;
 
 /// Parses declare statements
-pub(crate) fn declare_statement(parser: &mut Parser) -> StatementResult {
-    parser.consume_or_err(TokenType::Declare)?;
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
+pub(crate) fn declare_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Declare)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
     let directive = parser.consume(TokenType::Identifier)?;
-    parser.consume_or_err(TokenType::Assignment)?;
-    let val = parser.consume_one_of(&[
+    let assignment = parser.consume(TokenType::Assignment)?;
+    let value = parser.consume_one_of(&[
         TokenType::False,
         TokenType::True,
         TokenType::Null,
@@ -22,43 +21,52 @@ pub(crate) fn declare_statement(parser: &mut Parser) -> StatementResult {
         TokenType::ConstantEncapsedString,
         TokenType::EncapsedAndWhitespaceString,
     ])?;
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    Ok(Box::new(DeclareStatement::new(directive, val)))
+    Ok(Node::DeclareStatement {
+        token,
+        op,
+        directive,
+        assignment,
+        value,
+        cp,
+    })
 }
 
 /// Parses unset statements
-pub(crate) fn unset_statement(parser: &mut Parser) -> StatementResult {
+pub(crate) fn unset_statement(parser: &mut Parser) -> ExpressionResult {
     parser.consume_or_err(TokenType::Unset)?;
     parser.consume_or_err(TokenType::OpenParenthesis)?;
     let vars = functions::non_empty_parameter_list(parser)?;
     parser.consume_or_err(TokenType::CloseParenthesis)?;
 
-    Ok(Box::new(UnsetStatement::new(vars)))
+    Ok(Node::UnsetStatement { vars })
 }
 
-pub(crate) fn echo_statement(parser: &mut Parser) -> StatementResult {
-    let mut values = Vec::new();
+pub(crate) fn echo_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Echo)?;
+    let mut expressions = Vec::new();
 
-    values.push(expressions::expression(parser)?);
+    expressions.push(expressions::expression(parser)?);
 
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
-        values.push(expressions::expression(parser)?);
+        expressions.push(expressions::expression(parser)?);
     }
 
     parser.consume_end_of_statement()?;
 
-    Ok(Box::new(EchoStatement::new(values)))
+    Ok(Node::EchoStatement { token, expressions })
 }
 
-pub(crate) fn print_statement(parser: &mut Parser) -> StatementResult {
-    let mut values = Vec::new();
+pub(crate) fn print_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Print)?;
+    let mut expressions = Vec::new();
 
-    values.push(expressions::expression(parser)?);
+    expressions.push(expressions::expression(parser)?);
 
     parser.consume_end_of_statement()?;
 
-    Ok(Box::new(PrintStatement::new(values)))
+    Ok(Node::PrintStatement { token, expressions })
 }
 
 /// Parses the list destructuring operation
@@ -85,10 +93,12 @@ pub(crate) fn list(parser: &mut Parser) -> ExpressionResult {
     })
 }
 
-pub(crate) fn goto_statement(parser: &mut Parser) -> StatementResult {
+pub(crate) fn goto_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Goto)?;
+
     let label = parser.consume_identifier()?;
 
     parser.consume_end_of_statement()?;
 
-    Ok(Box::new(GotoStatement::new(label)))
+    Ok(Node::GotoStatement { token, label })
 }
