@@ -9,7 +9,7 @@ use crate::token::TokenType;
 pub(crate) fn array(parser: &mut Parser) -> ExpressionResult {
     let start = parser.consume(TokenType::OpenBrackets)?;
     let mut elements = Vec::new();
-    println!("asd");
+
     while !parser.next_token_one_of(&[TokenType::CloseBrackets]) {
         // TODO: This is only allowed in a destructuring context. Probably need to split
         // this

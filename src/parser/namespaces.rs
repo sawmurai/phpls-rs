@@ -1,7 +1,7 @@
 use crate::expression::Node;
 use crate::parser::types;
 use crate::parser::{ExpressionResult, Parser};
-use crate::token::TokenType;
+use crate::token::{Token, TokenType};
 
 /// Parses a single namespace statement or namespace block
 ///
@@ -30,18 +30,20 @@ pub(crate) fn namespace_statement(parser: &mut Parser) -> ExpressionResult {
     }
 }
 
-pub(crate) fn symbol_import(parser: &mut Parser) -> ExpressionResult {
+fn symbol_import(parser: &mut Parser) -> ExpressionResult {
     if parser.consume_or_ignore(TokenType::Function).is_some() {
         let name = types::non_empty_type_ref(parser)?;
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
             return Ok(Node::UseFunction {
+                token: None,
                 function: Box::new(name),
                 aliased: Some(alias),
                 alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
             return Ok(Node::UseFunction {
+                token: None,
                 function: Box::new(name),
                 aliased: None,
                 alias: None,
@@ -54,12 +56,14 @@ pub(crate) fn symbol_import(parser: &mut Parser) -> ExpressionResult {
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
             return Ok(Node::UseConst {
+                token: None,
                 constant: Box::new(name),
                 aliased: Some(alias),
                 alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
             return Ok(Node::UseConst {
+                token: None,
                 constant: Box::new(name),
                 aliased: None,
                 alias: None,
@@ -71,12 +75,14 @@ pub(crate) fn symbol_import(parser: &mut Parser) -> ExpressionResult {
 
     if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
         Ok(Node::UseDeclaration {
+            token: None,
             declaration: Box::new(name),
             aliased: Some(alias),
             alias: Some(parser.consume(TokenType::Identifier)?),
         })
     } else {
         Ok(Node::UseDeclaration {
+            token: None,
             declaration: Box::new(name),
             aliased: None,
             alias: None,
@@ -84,7 +90,7 @@ pub(crate) fn symbol_import(parser: &mut Parser) -> ExpressionResult {
     }
 }
 
-pub(crate) fn symbol_imports(parser: &mut Parser) -> Result<Vec<Node>, String> {
+fn symbol_imports(parser: &mut Parser) -> Result<Vec<Node>, String> {
     let mut imports = Vec::new();
 
     imports.push(symbol_import(parser)?);
@@ -104,8 +110,10 @@ pub(crate) fn symbol_imports(parser: &mut Parser) -> Result<Vec<Node>, String> {
     Ok(imports)
 }
 
-pub(crate) fn use_function_statement(parser: &mut Parser) -> ExpressionResult {
-    let token = parser.consume(TokenType::Use)?;
+/// Parses a `use function ...` statement. The `use` is passed as it was already consumed
+/// before consuming the `function` token in order to know what type of import
+/// is done
+pub(crate) fn use_function_statement(parser: &mut Parser, token: Token) -> ExpressionResult {
     let mut imports = Vec::new();
 
     loop {
@@ -113,12 +121,14 @@ pub(crate) fn use_function_statement(parser: &mut Parser) -> ExpressionResult {
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
             imports.push(Node::UseFunction {
+                token: Some(token.clone()),
                 function: Box::new(name),
                 aliased: Some(alias),
                 alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
             imports.push(Node::UseFunction {
+                token: Some(token.clone()),
                 function: Box::new(name),
                 aliased: None,
                 alias: None,
@@ -137,8 +147,10 @@ pub(crate) fn use_function_statement(parser: &mut Parser) -> ExpressionResult {
     Ok(Node::UseFunctionStatement { token, imports })
 }
 
-pub(crate) fn use_const_statement(parser: &mut Parser) -> ExpressionResult {
-    let token = parser.consume(TokenType::Use)?;
+/// Parses a `use const ...` statement. The `use` is passed as it was already consumed
+/// before consuming the `function` token in order to know what type of import
+/// is done
+pub(crate) fn use_const_statement(parser: &mut Parser, token: Token) -> ExpressionResult {
     let mut imports = Vec::new();
 
     loop {
@@ -146,12 +158,14 @@ pub(crate) fn use_const_statement(parser: &mut Parser) -> ExpressionResult {
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
             imports.push(Node::UseConst {
+                token: Some(token.clone()),
                 constant: Box::new(name),
                 aliased: Some(alias),
                 alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
             imports.push(Node::UseConst {
+                token: Some(token.clone()),
                 constant: Box::new(name),
                 aliased: None,
                 alias: None,
@@ -170,8 +184,10 @@ pub(crate) fn use_const_statement(parser: &mut Parser) -> ExpressionResult {
     Ok(Node::UseConstStatement { token, imports })
 }
 
-// use -> "use" ("function" | "const")? path (("{" use_group "}") | ("as" identifier))?
-pub(crate) fn use_statement(parser: &mut Parser) -> ExpressionResult {
+/// Parses a `use ...` statement. The `use` is passed as it was already consumed
+/// before in order to know what type of import
+/// is done
+pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResult {
     let mut imports = Vec::new();
 
     loop {
@@ -180,6 +196,7 @@ pub(crate) fn use_statement(parser: &mut Parser) -> ExpressionResult {
         // Ends with \, so it should be followed by a group wrapped in curly braces
         if declaration.last().unwrap().t == TokenType::NamespaceSeparator {
             imports.push(Node::GroupedUse {
+                token: token.clone(),
                 parent: Box::new(Node::TypeRef(declaration)),
                 oc: parser.consume(TokenType::OpenCurly)?,
                 uses: symbol_imports(parser)?,
@@ -188,6 +205,7 @@ pub(crate) fn use_statement(parser: &mut Parser) -> ExpressionResult {
         // Is aliased
         } else if let Some(aliased) = parser.consume_or_ignore(TokenType::As) {
             imports.push(Node::UseDeclaration {
+                token: Some(token.clone()),
                 declaration: Box::new(Node::TypeRef(declaration)),
                 aliased: Some(aliased),
                 alias: Some(parser.consume(TokenType::Identifier)?),
@@ -195,6 +213,7 @@ pub(crate) fn use_statement(parser: &mut Parser) -> ExpressionResult {
         // Is a regular use
         } else {
             imports.push(Node::UseDeclaration {
+                token: Some(token.clone()),
                 declaration: Box::new(Node::TypeRef(declaration)),
                 aliased: None,
                 alias: None,

@@ -144,15 +144,17 @@ impl Parser {
                 TokenType::Function => return functions::named_function(self),
                 TokenType::Namespace => return namespaces::namespace_statement(self),
                 TokenType::Use => {
+                    let token = self.consume(TokenType::Use)?;
+
                     if self.consume_or_ignore(TokenType::Function).is_some() {
-                        return namespaces::use_function_statement(self);
+                        return namespaces::use_function_statement(self, token);
                     }
 
                     if self.consume_or_ignore(TokenType::Const).is_some() {
-                        return namespaces::use_const_statement(self);
+                        return namespaces::use_const_statement(self, token);
                     }
 
-                    return namespaces::use_statement(self);
+                    return namespaces::use_statement(self, token);
                 }
                 TokenType::Const => return variables::const_statement(self),
                 TokenType::Global => return variables::global_variables(self),
@@ -163,14 +165,8 @@ impl Parser {
                 TokenType::Throw => return exception_handling::throw_statement(self),
                 TokenType::Class => return classes::class_statement(self, None, None),
                 TokenType::Trait => return classes::trait_statement(self),
-                TokenType::Abstract => {
-                    self.next();
-                    return classes::abstract_class_statement(self);
-                }
-                TokenType::Final => {
-                    self.next();
-                    return classes::final_class_statement(self);
-                }
+                TokenType::Abstract => return classes::abstract_class_statement(self),
+                TokenType::Final => return classes::final_class_statement(self),
                 TokenType::Interface => return classes::interface(self),
                 TokenType::While => return loops::while_statement(self),
                 TokenType::Do => return loops::do_while_statement(self),

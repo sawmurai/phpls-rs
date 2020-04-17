@@ -185,21 +185,25 @@ pub enum Node {
         resource: Box<Node>,
     },
     UseDeclaration {
+        token: Option<Token>,
         declaration: Box<Node>,
         aliased: Option<Token>,
         alias: Option<Token>,
     },
     UseConst {
+        token: Option<Token>,
         constant: Box<Node>,
         aliased: Option<Token>,
         alias: Option<Token>,
     },
     UseFunction {
+        token: Option<Token>,
         function: Box<Node>,
         aliased: Option<Token>,
         alias: Option<Token>,
     },
     GroupedUse {
+        token: Token,
         parent: Box<Node>,
         oc: Token,
         uses: Vec<Node>,
