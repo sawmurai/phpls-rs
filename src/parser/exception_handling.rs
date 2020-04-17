@@ -1,4 +1,5 @@
-use crate::parser::{Parser, StatementResult};
+use crate::parser::declarations;
+use crate::parser::{expressions, Parser, StatementResult};
 use crate::statement::*;
 use crate::token::{Token, TokenType};
 
@@ -51,11 +52,19 @@ pub(crate) fn try_catch_statement(parser: &mut Parser) -> StatementResult {
 pub(crate) fn catch_block(parser: &mut Parser) -> StatementResult {
     parser.consume_or_err(TokenType::Catch)?;
     parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let types = parser.type_ref_union()?;
+    let types = declarations::type_ref_union(parser)?;
     let var = parser.consume_cloned(TokenType::Variable)?;
     parser.consume_or_err(TokenType::CloseParenthesis)?;
 
     let catch_block = parser.block()?;
 
     Ok(Box::new(CatchBlock::new(types, var, catch_block)))
+}
+
+pub(crate) fn throw_statement(parser: &mut Parser) -> StatementResult {
+    let value = expressions::expression(parser)?;
+
+    parser.consume_end_of_statement()?;
+
+    Ok(Box::new(ThrowStatement::new(value)))
 }

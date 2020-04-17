@@ -1,5 +1,5 @@
 use crate::expression::Node;
-use crate::parser::{Parser, StatementResult};
+use crate::parser::{expressions, Parser, StatementResult};
 use crate::statement::*;
 use crate::token::{Token, TokenType};
 
@@ -18,7 +18,7 @@ use crate::token::{Token, TokenType};
 /// ```
 pub(crate) fn if_statement(parser: &mut Parser) -> StatementResult {
     parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let condition = parser.expression()?;
+    let condition = expressions::expression(parser)?;
     parser.consume_or_err(TokenType::CloseParenthesis)?;
     let if_branch = IfBranch::new(condition, parser.statement()?);
 
@@ -26,7 +26,7 @@ pub(crate) fn if_statement(parser: &mut Parser) -> StatementResult {
     while parser.next_token_one_of(&[TokenType::ElseIf]) {
         parser.next();
         parser.consume_or_err(TokenType::OpenParenthesis)?;
-        let condition = parser.expression()?;
+        let condition = expressions::expression(parser)?;
         parser.consume_or_err(TokenType::CloseParenthesis)?;
 
         elseif_branches.push(IfBranch::new(condition, parser.statement()?));
@@ -61,7 +61,7 @@ pub(crate) fn if_statement(parser: &mut Parser) -> StatementResult {
 /// ```
 pub(crate) fn switch_statement(parser: &mut Parser) -> StatementResult {
     parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let expr = parser.expression()?;
+    let expr = expressions::expression(parser)?;
     parser.consume_or_err(TokenType::CloseParenthesis)?;
     parser.consume_or_err(TokenType::OpenCurly)?;
 
@@ -105,7 +105,7 @@ pub(crate) fn case_list(parser: &mut Parser) -> Result<Vec<Option<Node>>, String
                 t: TokenType::Case, ..
             }) => {
                 parser.next();
-                cases_current_branch.push(Some(parser.expression()?));
+                cases_current_branch.push(Some(expressions::expression(parser)?));
                 parser
                     .consume_or_err(TokenType::Colon)
                     .or_else(|_| parser.consume_end_of_statement())?;

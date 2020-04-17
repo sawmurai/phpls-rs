@@ -1,4 +1,5 @@
-use crate::parser::{Parser, StatementResult};
+use crate::parser::arrays;
+use crate::parser::{expressions, Parser, StatementResult};
 use crate::statement::*;
 use crate::token::{Token, TokenType};
 
@@ -16,7 +17,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> StatementResult {
 
     let mut init = Vec::new();
     while !parser.next_token_one_of(&[TokenType::Semicolon]) {
-        init.push(parser.expression_statement()?);
+        init.push(expressions::expression_statement(parser)?);
 
         if parser.next_token_one_of(&[TokenType::Comma]) {
             parser.next();
@@ -29,7 +30,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> StatementResult {
 
     let mut condition = Vec::new();
     while !parser.next_token_one_of(&[TokenType::Semicolon]) {
-        condition.push(parser.expression_statement()?);
+        condition.push(expressions::expression_statement(parser)?);
 
         if parser.next_token_one_of(&[TokenType::Comma]) {
             parser.next();
@@ -42,7 +43,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> StatementResult {
 
     let mut step = Vec::new();
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
-        step.push(parser.expression_statement()?);
+        step.push(expressions::expression_statement(parser)?);
 
         if parser.next_token_one_of(&[TokenType::Comma]) {
             parser.next();
@@ -68,7 +69,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> StatementResult {
 /// ```
 pub(crate) fn while_statement(parser: &mut Parser) -> StatementResult {
     parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let condition = parser.expression()?;
+    let condition = expressions::expression(parser)?;
     parser.consume_or_err(TokenType::CloseParenthesis)?;
     let body = match parser.peek() {
         Some(Token {
@@ -93,10 +94,10 @@ pub(crate) fn while_statement(parser: &mut Parser) -> StatementResult {
 /// ```
 pub(crate) fn foreach_statement(parser: &mut Parser) -> StatementResult {
     parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let collection = parser.expression()?;
+    let collection = expressions::expression(parser)?;
 
     parser.consume_or_err(TokenType::As)?;
-    let key_value = parser.array_pair()?;
+    let key_value = arrays::array_pair(parser)?;
     parser.consume_or_err(TokenType::CloseParenthesis)?;
 
     let body = match parser.peek() {
@@ -126,7 +127,7 @@ pub(crate) fn do_while_statement(parser: &mut Parser) -> StatementResult {
 
     parser.consume_or_err(TokenType::While)?;
     parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let condition = parser.expression()?;
+    let condition = expressions::expression(parser)?;
     parser.consume_or_err(TokenType::CloseParenthesis)?;
     parser.consume_end_of_statement()?;
 
