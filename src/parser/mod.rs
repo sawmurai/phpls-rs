@@ -18,6 +18,7 @@ pub mod expressions;
 pub mod functions;
 pub mod keywords;
 pub mod loops;
+pub mod types;
 pub mod variables;
 
 /// Inspired by https://craftinginterpreters.com/statements-and-state.html

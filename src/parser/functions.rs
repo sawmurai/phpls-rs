@@ -1,5 +1,5 @@
 use crate::expression::Node;
-use crate::parser::declarations;
+use crate::parser::types;
 use crate::parser::variables;
 use crate::parser::{expressions, ArgumentListResult, ExpressionResult, Parser, StatementResult};
 use crate::statement::*;
@@ -64,9 +64,9 @@ pub(crate) fn argument_type(parser: &mut Parser) -> Result<Option<Node>, String>
     if let Some(qm) = parser.consume_or_ignore(TokenType::QuestionMark) {
         Ok(Some(Node::ArgumentType {
             nullable: Some(qm),
-            type_ref: Box::new(declarations::non_empty_type_ref(parser)?),
+            type_ref: Box::new(types::non_empty_type_ref(parser)?),
         }))
-    } else if let Some(type_ref) = declarations::type_ref(parser)? {
+    } else if let Some(type_ref) = types::type_ref(parser)? {
         Ok(Some(Node::ArgumentType {
             nullable: None,
             type_ref: Box::new(type_ref),
@@ -89,7 +89,7 @@ pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Node>, String> {
         Ok(Some(Node::ReturnType {
             token: colon,
             nullable: parser.consume_or_ignore(TokenType::QuestionMark),
-            type_ref: Box::new(declarations::non_empty_type_ref(parser)?),
+            type_ref: Box::new(types::non_empty_type_ref(parser)?),
         }))
     } else {
         Ok(None)

@@ -1,6 +1,6 @@
 use crate::expression::Node;
 use crate::parser::declarations;
-use crate::parser::{expressions, functions};
+use crate::parser::{expressions, functions, types};
 use crate::parser::{ExpressionResult, Parser, StatementListResult, StatementResult};
 use crate::statement::*;
 use crate::token::{Token, TokenType};
@@ -252,7 +252,7 @@ fn identifier_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
     let mut extends = Vec::new();
 
     loop {
-        extends.push(declarations::non_empty_type_ref(parser)?);
+        extends.push(types::non_empty_type_ref(parser)?);
 
         if !parser.next_token_one_of(&[TokenType::Comma]) {
             break;

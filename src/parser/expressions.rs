@@ -1,5 +1,5 @@
 use crate::expression::{Expr, Node};
-use crate::parser::{arrays, calls, classes, declarations, functions, keywords, variables};
+use crate::parser::{arrays, calls, classes, functions, keywords, types, variables};
 use crate::parser::{ExpressionResult, Parser, StatementResult};
 use crate::statement::*;
 use crate::token::TokenType;
@@ -287,7 +287,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
 
     if parser.next_token_one_of(&[TokenType::NamespaceSeparator, TokenType::Identifier]) {
         // Load path as identifier
-        return declarations::non_empty_type_ref(parser);
+        return types::non_empty_type_ref(parser);
     }
 
     if parser.next_token_one_of(&[TokenType::HereDocStart]) {

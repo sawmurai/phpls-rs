@@ -1,32 +1,8 @@
 use crate::expression::Node;
+use crate::parser::types;
 use crate::parser::{Parser, StatementResult};
 use crate::statement::*;
-use crate::token::{Token, TokenType};
-
-/// Parses a path list, pipe separated. This needs to become a type-list!
-///
-/// # Details
-/// ```php
-/// catch (/** from here **/Exception1 | Exception2/** to here **/ $e) {}
-///     echo "stuff";
-/// }
-///
-/// ```
-pub(crate) fn type_ref_union(parser: &mut Parser) -> Result<Vec<Node>, String> {
-    let mut paths = Vec::new();
-
-    paths.push(non_empty_type_ref(parser)?);
-
-    while parser.consume_or_ignore(TokenType::BinaryOr).is_some() {
-        if let Some(type_ref) = type_ref(parser)? {
-            paths.push(type_ref);
-        } else {
-            return Err(String::from("Expected type after | operator"));
-        }
-    }
-
-    Ok(paths)
-}
+use crate::token::TokenType;
 
 /// Parses a single namespace statement
 ///
@@ -35,7 +11,7 @@ pub(crate) fn type_ref_union(parser: &mut Parser) -> Result<Vec<Node>, String> {
 /// namespace /** from here **/My\Super\Duper\Namespace;/** to here **/
 /// ```
 pub(crate) fn namespace_statement(parser: &mut Parser) -> StatementResult {
-    let type_ref = type_ref(parser)?;
+    let type_ref = types::type_ref(parser)?;
 
     if parser.next_token_one_of(&[TokenType::OpenCurly]) {
         Ok(Box::new(NamespaceBlock::new(type_ref, parser.block()?)))
@@ -49,7 +25,7 @@ pub(crate) fn namespace_statement(parser: &mut Parser) -> StatementResult {
 
 pub(crate) fn symbol_import(parser: &mut Parser) -> Result<Node, String> {
     if parser.consume_or_ignore(TokenType::Function).is_some() {
-        let name = non_empty_type_ref(parser)?;
+        let name = types::non_empty_type_ref(parser)?;
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
             return Ok(Node::UseFunction {
@@ -67,7 +43,7 @@ pub(crate) fn symbol_import(parser: &mut Parser) -> Result<Node, String> {
     }
 
     if parser.consume_or_ignore(TokenType::Const).is_some() {
-        let name = non_empty_type_ref(parser)?;
+        let name = types::non_empty_type_ref(parser)?;
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
             return Ok(Node::UseConst {
@@ -84,7 +60,7 @@ pub(crate) fn symbol_import(parser: &mut Parser) -> Result<Node, String> {
         }
     }
 
-    let name = non_empty_type_ref(parser)?;
+    let name = types::non_empty_type_ref(parser)?;
 
     if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
         Ok(Node::UseDeclaration {
@@ -125,7 +101,7 @@ pub(crate) fn use_function_statement(parser: &mut Parser) -> StatementResult {
     let mut symbols = Vec::new();
 
     loop {
-        let name = non_empty_type_ref(parser)?;
+        let name = types::non_empty_type_ref(parser)?;
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
             symbols.push(Node::UseFunction {
@@ -157,7 +133,7 @@ pub(crate) fn use_const_statement(parser: &mut Parser) -> StatementResult {
     let mut symbols = Vec::new();
 
     loop {
-        let name = non_empty_type_ref(parser)?;
+        let name = types::non_empty_type_ref(parser)?;
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
             symbols.push(Node::UseConst {
@@ -190,7 +166,7 @@ pub(crate) fn use_statement(parser: &mut Parser) -> StatementResult {
     let mut imports = Vec::new();
 
     loop {
-        let declaration = non_empty_namespace_ref(parser)?;
+        let declaration = types::non_empty_namespace_ref(parser)?;
 
         // Ends with \, so it should be followed by a group wrapped in curly braces
         if declaration.last().unwrap().t == TokenType::NamespaceSeparator {
@@ -232,95 +208,10 @@ pub(crate) fn use_statement(parser: &mut Parser) -> StatementResult {
 pub(crate) fn use_trait_statement(parser: &mut Parser) -> StatementResult {
     let statement = Box::new(UseTraitStatement::new(
         parser.consume(TokenType::Use)?,
-        type_ref_list(parser)?,
+        types::type_ref_list(parser)?,
     ));
 
     parser.consume_end_of_statement()?;
 
     Ok(statement)
-}
-
-pub(crate) fn type_ref_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
-    let mut type_refs = Vec::new();
-
-    type_refs.push(non_empty_type_ref(parser)?);
-
-    while parser.consume_or_ignore(TokenType::Comma).is_some() {
-        type_refs.push(non_empty_type_ref(parser)?);
-    }
-
-    Ok(type_refs)
-}
-
-// path -> identifier ("\" identifier)*
-pub(crate) fn type_ref(parser: &mut Parser) -> Result<Option<Node>, String> {
-    let mut path = Vec::new();
-
-    if let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
-        path.push(ns);
-    }
-
-    while let Some(identifier) = parser.peek() {
-        if identifier.is_identifier() {
-            path.push(parser.next().unwrap());
-
-            if let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
-                path.push(ns);
-            } else {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-
-    if path.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(Node::TypeRef(path)))
-    }
-}
-
-// non_empty_type_ref -> identifier ("\" identifier)*
-pub(crate) fn non_empty_type_ref(parser: &mut Parser) -> Result<Node, String> {
-    let mut path = Vec::new();
-
-    if let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
-        path.push(ns);
-    }
-
-    path.push(parser.consume_identifier()?);
-
-    while let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
-        path.push(ns);
-        path.push(parser.consume_identifier()?);
-    }
-
-    Ok(Node::TypeRef(path))
-}
-
-// non_empty_namespace_ref -> "\"? identifier ("\" identifier)* "\"?
-pub(crate) fn non_empty_namespace_ref(parser: &mut Parser) -> Result<Vec<Token>, String> {
-    let mut path = Vec::new();
-
-    if let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
-        path.push(ns);
-    }
-
-    path.push(parser.consume_identifier()?);
-
-    while let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
-        path.push(ns);
-
-        if let Some(ident) = parser.peek() {
-            if ident.is_identifier() {
-                path.push(parser.next().unwrap());
-
-                continue;
-            }
-        }
-
-        break;
-    }
-    Ok(path)
 }
