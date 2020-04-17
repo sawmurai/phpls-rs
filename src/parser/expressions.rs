@@ -28,7 +28,7 @@ pub(crate) fn expression(parser: &mut Parser) -> ExpressionResult {
                 check: Box::new(expr?),
                 qm,
                 true_arm: Some(Box::new(expression(parser)?)),
-                colon: parser.consume_cloned(TokenType::Colon)?,
+                colon: parser.consume(TokenType::Colon)?,
                 false_arm: Box::new(expression(parser)?),
             });
         }
@@ -301,9 +301,9 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     if let Some(isset) = parser.consume_or_ignore(TokenType::Isset) {
         return Ok(Node::Isset {
             isset,
-            op: parser.consume_cloned(TokenType::OpenParenthesis)?,
+            op: parser.consume(TokenType::OpenParenthesis)?,
             parameters: functions::non_empty_parameter_list(parser)?,
-            cp: parser.consume_cloned(TokenType::CloseParenthesis)?,
+            cp: parser.consume(TokenType::CloseParenthesis)?,
         });
     }
 
@@ -313,7 +313,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
                 exit,
                 op: Some(op),
                 parameters: Some(functions::parameter_list(parser)?),
-                cp: Some(parser.consume_cloned(TokenType::CloseParenthesis)?),
+                cp: Some(parser.consume(TokenType::CloseParenthesis)?),
             });
         }
 
@@ -328,9 +328,9 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     if let Some(empty) = parser.consume_or_ignore(TokenType::Empty) {
         return Ok(Node::Empty {
             empty,
-            op: parser.consume_cloned(TokenType::OpenParenthesis)?,
+            op: parser.consume(TokenType::OpenParenthesis)?,
             parameters: functions::non_empty_parameter_list(parser)?,
-            cp: parser.consume_cloned(TokenType::CloseParenthesis)?,
+            cp: parser.consume(TokenType::CloseParenthesis)?,
         });
     }
 
@@ -342,7 +342,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         return keywords::list(parser);
     }
 
-    if let Some(include) = parser.consume_one_of_cloned_or_ignore(&[
+    if let Some(include) = parser.consume_one_of_or_ignore(&[
         TokenType::Require,
         TokenType::RequireOnce,
         TokenType::Include,

@@ -55,7 +55,7 @@ pub(crate) fn symbol_import(parser: &mut Parser) -> Result<Node, String> {
             return Ok(Node::UseFunction {
                 function: Box::new(name),
                 aliased: Some(alias),
-                alias: Some(parser.consume_cloned(TokenType::Identifier)?),
+                alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
             return Ok(Node::UseFunction {
@@ -73,7 +73,7 @@ pub(crate) fn symbol_import(parser: &mut Parser) -> Result<Node, String> {
             return Ok(Node::UseConst {
                 constant: Box::new(name),
                 aliased: Some(alias),
-                alias: Some(parser.consume_cloned(TokenType::Identifier)?),
+                alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
             return Ok(Node::UseConst {
@@ -90,7 +90,7 @@ pub(crate) fn symbol_import(parser: &mut Parser) -> Result<Node, String> {
         Ok(Node::UseDeclaration {
             declaration: Box::new(name),
             aliased: Some(alias),
-            alias: Some(parser.consume_cloned(TokenType::Identifier)?),
+            alias: Some(parser.consume(TokenType::Identifier)?),
         })
     } else {
         Ok(Node::UseDeclaration {
@@ -131,7 +131,7 @@ pub(crate) fn use_function_statement(parser: &mut Parser) -> StatementResult {
             symbols.push(Node::UseFunction {
                 function: Box::new(name),
                 aliased: Some(alias),
-                alias: Some(parser.consume_cloned(TokenType::Identifier)?),
+                alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
             symbols.push(Node::UseFunction {
@@ -163,7 +163,7 @@ pub(crate) fn use_const_statement(parser: &mut Parser) -> StatementResult {
             symbols.push(Node::UseConst {
                 constant: Box::new(name),
                 aliased: Some(alias),
-                alias: Some(parser.consume_cloned(TokenType::Identifier)?),
+                alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
             symbols.push(Node::UseConst {
@@ -196,16 +196,16 @@ pub(crate) fn use_statement(parser: &mut Parser) -> StatementResult {
         if declaration.last().unwrap().t == TokenType::NamespaceSeparator {
             imports.push(Node::GroupedUse {
                 parent: Box::new(Node::TypeRef(declaration)),
-                oc: parser.consume_cloned(TokenType::OpenCurly)?,
+                oc: parser.consume(TokenType::OpenCurly)?,
                 uses: symbol_imports(parser)?,
-                cc: parser.consume_cloned(TokenType::CloseCurly)?,
+                cc: parser.consume(TokenType::CloseCurly)?,
             });
         // Is aliased
         } else if let Some(aliased) = parser.consume_or_ignore(TokenType::As) {
             imports.push(Node::UseDeclaration {
                 declaration: Box::new(Node::TypeRef(declaration)),
                 aliased: Some(aliased),
-                alias: Some(parser.consume_cloned(TokenType::Identifier)?),
+                alias: Some(parser.consume(TokenType::Identifier)?),
             });
         // Is a regular use
         } else {
@@ -231,7 +231,7 @@ pub(crate) fn use_statement(parser: &mut Parser) -> StatementResult {
 // use -> "use" identifier (, identifier)*
 pub(crate) fn use_trait_statement(parser: &mut Parser) -> StatementResult {
     let statement = Box::new(UseTraitStatement::new(
-        parser.consume_cloned(TokenType::Use)?,
+        parser.consume(TokenType::Use)?,
         type_ref_list(parser)?,
     ));
 
@@ -289,11 +289,11 @@ pub(crate) fn non_empty_type_ref(parser: &mut Parser) -> Result<Node, String> {
         path.push(ns);
     }
 
-    path.push(parser.consume_identifier_cloned()?);
+    path.push(parser.consume_identifier()?);
 
     while let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
         path.push(ns);
-        path.push(parser.consume_identifier_cloned()?);
+        path.push(parser.consume_identifier()?);
     }
 
     Ok(Node::TypeRef(path))
@@ -307,7 +307,7 @@ pub(crate) fn non_empty_namespace_ref(parser: &mut Parser) -> Result<Vec<Token>,
         path.push(ns);
     }
 
-    path.push(parser.consume_identifier_cloned()?);
+    path.push(parser.consume_identifier()?);
 
     while let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
         path.push(ns);

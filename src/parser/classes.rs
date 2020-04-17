@@ -25,7 +25,7 @@ pub(crate) fn class_statement(
     is_abstract: bool,
     is_final: bool,
 ) -> StatementResult {
-    let name = parser.consume_identifier_cloned()?;
+    let name = parser.consume_identifier()?;
 
     let extends = match parser.consume_or_ignore(TokenType::Extends) {
         Some(_) => Some(identifier_list(parser)?),
@@ -52,7 +52,7 @@ pub(crate) fn class_statement(
 }
 
 pub(crate) fn anonymous_class(parser: &mut Parser) -> ExpressionResult {
-    let token = parser.consume_cloned(TokenType::Class)?;
+    let token = parser.consume(TokenType::Class)?;
 
     let arguments = if parser.next_token_one_of(&[TokenType::OpenParenthesis]) {
         parser.consume_or_err(TokenType::OpenParenthesis)?;
@@ -123,7 +123,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
         ]) {
             is_abstract = parser.consume_or_ignore(TokenType::Abstract);
             is_final = parser.consume_or_ignore(TokenType::Final);
-            visibility = parser.consume_one_of_cloned_or_ignore(&[
+            visibility = parser.consume_one_of_or_ignore(&[
                 TokenType::Public,
                 TokenType::Var,
                 TokenType::Private,
@@ -134,7 +134,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
 
         if parser.next_token_one_of(&[TokenType::Const]) {
             parser.next();
-            let name = parser.consume_identifier_cloned()?;
+            let name = parser.consume_identifier()?;
 
             parser.consume_or_err(TokenType::Assignment)?;
             statements.push(Box::new(ClassConstantDefinitionStatement::new(
@@ -154,7 +154,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
                     parser.next();
 
                     let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
-                    let name = parser.consume_identifier_cloned()?;
+                    let name = parser.consume_identifier()?;
 
                     statements.push(Box::new(MethodDefinitionStatement::new(
                         is_final,
@@ -170,7 +170,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
                 TokenType::Variable => {
                     loop {
                         // The next variable
-                        let name = parser.consume_cloned(TokenType::Variable)?;
+                        let name = parser.consume(TokenType::Variable)?;
                         let assignment = if parser.next_token_one_of(&[TokenType::Assignment]) {
                             parser.next();
                             Some(expressions::expression(parser)?)
@@ -221,7 +221,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> StatementListResult {
 
 /// Parses a trait
 pub(crate) fn trait_statement(parser: &mut Parser) -> StatementResult {
-    let name = parser.consume_cloned(TokenType::Identifier)?;
+    let name = parser.consume(TokenType::Identifier)?;
 
     parser.consume_or_err(TokenType::OpenCurly)?;
     let block = class_block(parser)?;
@@ -232,7 +232,7 @@ pub(crate) fn trait_statement(parser: &mut Parser) -> StatementResult {
 
 /// Parses an interface definition
 pub(crate) fn interface(parser: &mut Parser) -> StatementResult {
-    let name = parser.consume_cloned(TokenType::Identifier)?;
+    let name = parser.consume(TokenType::Identifier)?;
 
     let extends = match parser.consume_or_ignore(TokenType::Extends) {
         Some(_) => Some(identifier_list(parser)?),

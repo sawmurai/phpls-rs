@@ -8,9 +8,9 @@ use crate::token::TokenType;
 pub(crate) fn declare_statement(parser: &mut Parser) -> StatementResult {
     parser.consume_or_err(TokenType::Declare)?;
     parser.consume_or_err(TokenType::OpenParenthesis)?;
-    let directive = parser.consume_cloned(TokenType::Identifier)?;
+    let directive = parser.consume(TokenType::Identifier)?;
     parser.consume_or_err(TokenType::Assignment)?;
-    let val = parser.consume_one_of_cloned(&[
+    let val = parser.consume_one_of(&[
         TokenType::False,
         TokenType::True,
         TokenType::Null,
@@ -63,8 +63,8 @@ pub(crate) fn print_statement(parser: &mut Parser) -> StatementResult {
 
 /// Parses the list destructuring operation
 pub(crate) fn list(parser: &mut Parser) -> ExpressionResult {
-    let start = parser.consume_cloned(TokenType::List)?;
-    let op = parser.consume_cloned(TokenType::OpenParenthesis)?;
+    let start = parser.consume(TokenType::List)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
     let mut elements = Vec::new();
 
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
@@ -81,12 +81,12 @@ pub(crate) fn list(parser: &mut Parser) -> ExpressionResult {
         token: start,
         op,
         elements,
-        cp: parser.consume_cloned(TokenType::CloseParenthesis)?,
+        cp: parser.consume(TokenType::CloseParenthesis)?,
     })
 }
 
 pub(crate) fn goto_statement(parser: &mut Parser) -> StatementResult {
-    let label = parser.consume_identifier_cloned()?;
+    let label = parser.consume_identifier()?;
 
     parser.consume_end_of_statement()?;
 

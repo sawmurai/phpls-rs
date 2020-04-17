@@ -4,8 +4,10 @@ use crate::parser::variables;
 use crate::parser::{ExpressionResult, Parser};
 use crate::token::TokenType;
 
+/// Parses an array surounded by regular brackets. To parse an array according to the old syntax
+/// like `array(1, 2, 3)` use `arrays::old_array`.
 pub(crate) fn array(parser: &mut Parser) -> ExpressionResult {
-    let start = parser.consume_cloned(TokenType::OpenBrackets)?;
+    let start = parser.consume(TokenType::OpenBrackets)?;
     let mut elements = Vec::new();
 
     while !parser.next_token_one_of(&[TokenType::CloseBrackets]) {
@@ -23,13 +25,13 @@ pub(crate) fn array(parser: &mut Parser) -> ExpressionResult {
     Ok(Node::Array {
         ob: start,
         elements,
-        cb: parser.consume_cloned(TokenType::CloseBrackets)?,
+        cb: parser.consume(TokenType::CloseBrackets)?,
     })
 }
 
 pub(crate) fn old_array(parser: &mut Parser) -> ExpressionResult {
-    let start = parser.consume_cloned(TokenType::TypeArray)?;
-    let op = parser.consume_cloned(TokenType::OpenParenthesis)?;
+    let start = parser.consume(TokenType::TypeArray)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
     let mut elements = Vec::new();
 
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
@@ -42,7 +44,7 @@ pub(crate) fn old_array(parser: &mut Parser) -> ExpressionResult {
         token: start,
         op,
         elements,
-        cp: parser.consume_cloned(TokenType::CloseParenthesis)?,
+        cp: parser.consume(TokenType::CloseParenthesis)?,
     })
 }
 

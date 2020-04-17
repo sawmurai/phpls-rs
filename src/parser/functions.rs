@@ -24,7 +24,7 @@ pub(crate) fn argument_list(parser: &mut Parser) -> ArgumentListResult {
         let t = argument_type(parser)?;
         let spread = parser.consume_or_ignore(TokenType::Elipsis);
         let reference = parser.consume_or_ignore(TokenType::BinaryAnd);
-        let name = parser.consume_cloned(TokenType::Variable)?;
+        let name = parser.consume(TokenType::Variable)?;
         let has_default = parser.consume_or_ignore(TokenType::Assignment);
 
         let default_value = if has_default.is_some() {
@@ -109,7 +109,7 @@ pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Node>, String> {
 pub(crate) fn named_function(parser: &mut Parser) -> StatementResult {
     Ok(Box::new(NamedFunctionDefinitionStatement::new(
         parser.consume_or_ignore(TokenType::BinaryAnd),
-        parser.consume_identifier_cloned()?,
+        parser.consume_identifier()?,
         anonymous_function_statement(parser)?,
     )))
 }
@@ -153,7 +153,7 @@ pub(crate) fn anonymous_function(
     parser: &mut Parser,
     is_static: Option<Token>,
 ) -> ExpressionResult {
-    let token = parser.consume_cloned(TokenType::Function)?;
+    let token = parser.consume(TokenType::Function)?;
 
     parser.consume_or_err(TokenType::OpenParenthesis)?;
     let arguments = argument_list(parser)?;

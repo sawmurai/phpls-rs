@@ -30,28 +30,6 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn errors(&self) -> &Vec<String> {
-        self.errors.as_ref()
-    }
-
-    /// Fast forwards to the end of the current statement or block
-    fn error_fast_forward(&mut self) {
-        while self.peek().is_some() {
-            self.next();
-
-            if self.next_token_one_of(&[TokenType::Semicolon]) {
-                self.next();
-
-                break;
-            }
-
-            if self.next_token_one_of(&[TokenType::CloseCurly]) {
-                self.next();
-                break;
-            }
-        }
-    }
-
     /// Parses the entire token stream and returns an abstract syntax tree representation and a vector of
     /// accumulated parse errors.
     ///
@@ -87,6 +65,25 @@ impl Parser {
         Ok((statements, parser.errors))
     }
 
+    /// Fast forwards to the end of the current statement or block instead of simply aborting parsing.
+    /// This way at least a partial ast can be returned in the end
+    fn error_fast_forward(&mut self) {
+        while self.peek().is_some() {
+            self.next();
+
+            if self.next_token_one_of(&[TokenType::Semicolon]) {
+                self.next();
+
+                break;
+            }
+
+            if self.next_token_one_of(&[TokenType::CloseCurly]) {
+                self.next();
+                break;
+            }
+        }
+    }
+
     /// Parses a code block, which basically is a vector of `dyn Stmt` / statements.
     /// It expects to already be past the `{` and it will read until it encounters a `}`
     ///
@@ -117,8 +114,16 @@ impl Parser {
         Ok(Box::new(Block::new(statements)))
     }
 
+    /// Parses sudden appearances of inline HTML.
+    ///
+    /// # Example
+    /// ```php
+    /// echo "This is PHP";
+    /// ?><h1>HTML</h1><?php
+    /// echo "This is PHP ... again!";
+    /// ```
     fn inline_html(&mut self) -> StatementResult {
-        let start = self.consume_cloned(TokenType::ScriptEnd)?;
+        let start = self.consume(TokenType::ScriptEnd)?;
 
         Ok(Box::new(InlineHtml::new(
             start,
@@ -251,7 +256,7 @@ impl Parser {
                 }
                 TokenType::Semicolon => {
                     return Ok(Box::new(TokenStatement::new(
-                        self.consume_cloned(TokenType::Semicolon)?,
+                        self.consume(TokenType::Semicolon)?,
                         None,
                     )));
                 }
@@ -310,14 +315,17 @@ impl Parser {
         Err(String::from("Unexpected EOF!"))
     }
 
+    /// Pop and return the next token
     fn next(&mut self) -> Option<Token> {
         self.tokens.pop()
     }
 
+    /// Return the next token without popping it off the stream
     fn peek(&self) -> Option<&Token> {
         self.tokens.last()
     }
 
+    /// Consumes the end of a statement. This can either be a semicolon or a script end.
     fn consume_end_of_statement(&mut self) -> Result<(), String> {
         if let Some(token) = self.peek() {
             if token.t == TokenType::Semicolon || token.t == TokenType::ScriptEnd {
@@ -334,6 +342,7 @@ impl Parser {
         Ok(())
     }
 
+    /// Consume a token of type `t` or return an Err
     fn consume_or_err(&mut self, t: TokenType) -> Result<(), String> {
         if let Some(token) = self.peek() {
             if token.t == t {
@@ -349,6 +358,8 @@ impl Parser {
 
         Err(format!("Expected {:?}, found end of file.", t))
     }
+
+    /// Consume a Some of token of type `t` or do nothing.
     fn consume_or_ignore(&mut self, t: TokenType) -> Option<Token> {
         if let Some(token) = self.peek() {
             if token.t != t {
@@ -361,7 +372,8 @@ impl Parser {
         Some(self.next().unwrap())
     }
 
-    fn consume_cloned(&mut self, t: TokenType) -> Result<Token, String> {
+    /// Consume a token of type `t` or return an error
+    fn consume(&mut self, t: TokenType) -> Result<Token, String> {
         if let Some(token) = self.next() {
             if token.t == t {
                 return Ok(token);
@@ -376,7 +388,8 @@ impl Parser {
         Err(format!("Expected {:?}, found end of file.", t))
     }
 
-    fn consume_identifier_cloned(&mut self) -> Result<Token, String> {
+    /// Consume an identifier or return an error
+    fn consume_identifier(&mut self) -> Result<Token, String> {
         if let Some(token) = self.next() {
             if token.is_identifier() {
                 return Ok(token);
@@ -391,7 +404,8 @@ impl Parser {
         Err("Expected Identifier, found end of file.".to_string())
     }
 
-    fn consume_member_cloned(&mut self) -> Result<Token, String> {
+    /// Consume a potential member of a class / an object or return an error
+    fn consume_member(&mut self) -> Result<Token, String> {
         if let Some(token) = self.next() {
             if token.is_identifier() || token.t == TokenType::Variable {
                 return Ok(token);
@@ -406,7 +420,8 @@ impl Parser {
         Err("Expected Identifier, found end of file.".to_string())
     }
 
-    fn consume_one_of_cloned(&mut self, types: &[TokenType]) -> Result<Token, String> {
+    // Consume a token of one of the types of `types` or return an error
+    fn consume_one_of(&mut self, types: &[TokenType]) -> Result<Token, String> {
         if let Some(token) = self.next() {
             for tt in types.iter().as_ref() {
                 if token.t == *tt {
@@ -423,7 +438,8 @@ impl Parser {
         Err(format!("Expected one of {:?}, found end of file.", types))
     }
 
-    fn consume_one_of_cloned_or_ignore(&mut self, types: &[TokenType]) -> Option<Token> {
+    /// Consume a token of one of the types of `types` or do nothing
+    fn consume_one_of_or_ignore(&mut self, types: &[TokenType]) -> Option<Token> {
         if let Some(token) = self.peek() {
             for tt in types.iter().as_ref() {
                 if token.t == *tt {
@@ -435,6 +451,7 @@ impl Parser {
         None
     }
 
+    /// Returns true if the following token is of one of the types of `types`
     fn next_token_one_of(&mut self, types: &[TokenType]) -> bool {
         if let Some(token) = self.peek() {
             for tt in types {

@@ -4,7 +4,7 @@ use crate::statement::*;
 use crate::token::TokenType;
 
 pub(crate) fn variable(parser: &mut Parser) -> Result<Node, String> {
-    let variable = parser.consume_cloned(TokenType::Variable)?;
+    let variable = parser.consume(TokenType::Variable)?;
 
     // Named, regular variable. No problem here.
     if variable.label.is_some() {
@@ -17,7 +17,7 @@ pub(crate) fn variable(parser: &mut Parser) -> Result<Node, String> {
             variable,
             oc,
             expr: Box::new(expressions::expression(parser)?),
-            cc: parser.consume_cloned(TokenType::CloseCurly)?,
+            cc: parser.consume(TokenType::CloseCurly)?,
         });
     }
 
@@ -53,7 +53,7 @@ pub(crate) fn static_variables(parser: &mut Parser) -> StatementResult {
     let mut variables = Vec::new();
 
     loop {
-        let variable = parser.consume_cloned(TokenType::Variable)?;
+        let variable = parser.consume(TokenType::Variable)?;
 
         if let Some(assignment) = parser.consume_or_ignore(TokenType::Assignment) {
             variables.push(Node::StaticVariable {
@@ -74,16 +74,16 @@ pub(crate) fn const_statement(parser: &mut Parser) -> StatementResult {
     let mut constants = Vec::new();
 
     constants.push(Node::Const {
-        name: parser.consume_identifier_cloned()?,
-        token: parser.consume_cloned(TokenType::Assignment)?,
+        name: parser.consume_identifier()?,
+        token: parser.consume(TokenType::Assignment)?,
         value: Box::new(expressions::expression(parser)?),
     });
 
     while let None = parser.consume_or_ignore(TokenType::Semicolon) {
         parser.consume_or_err(TokenType::Comma)?;
         constants.push(Node::Const {
-            name: parser.consume_identifier_cloned()?,
-            token: parser.consume_cloned(TokenType::Assignment)?,
+            name: parser.consume_identifier()?,
+            token: parser.consume(TokenType::Assignment)?,
             value: Box::new(expressions::expression(parser)?),
         });
     }
@@ -119,6 +119,6 @@ pub(crate) fn non_empty_lexical_variables_list(parser: &mut Parser) -> Result<Ve
 pub(crate) fn lexical_variable(parser: &mut Parser) -> Result<Node, String> {
     Ok(Node::LexicalVariable {
         reference: parser.consume_or_ignore(TokenType::BinaryAnd),
-        variable: parser.consume_cloned(TokenType::Variable)?,
+        variable: parser.consume(TokenType::Variable)?,
     })
 }

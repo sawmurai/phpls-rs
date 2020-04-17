@@ -53,7 +53,7 @@ pub(crate) fn catch_block(parser: &mut Parser) -> StatementResult {
     parser.consume_or_err(TokenType::Catch)?;
     parser.consume_or_err(TokenType::OpenParenthesis)?;
     let types = declarations::type_ref_union(parser)?;
-    let var = parser.consume_cloned(TokenType::Variable)?;
+    let var = parser.consume(TokenType::Variable)?;
     parser.consume_or_err(TokenType::CloseParenthesis)?;
 
     let catch_block = parser.block()?;

@@ -37,7 +37,7 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                 expr = Node::Member {
                     object: Box::new(expr),
                     arrow: os,
-                    member: Box::new(Node::Literal(parser.consume_identifier_cloned()?)),
+                    member: Box::new(Node::Literal(parser.consume_identifier()?)),
                 };
             }
         // Accessing a static class member
@@ -55,16 +55,16 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                 expr = Node::StaticMethod {
                     class: Box::new(expr),
                     pn,
-                    oc: parser.consume_cloned(TokenType::OpenCurly)?,
+                    oc: parser.consume(TokenType::OpenCurly)?,
                     method: Box::new(variables::variable(parser)?),
-                    cc: parser.consume_cloned(TokenType::CloseCurly)?,
+                    cc: parser.consume(TokenType::CloseCurly)?,
                 };
             // Class constant
             } else {
                 expr = Node::StaticMember {
                     class: Box::new(expr),
                     pn,
-                    member: Box::new(Node::Literal(parser.consume_member_cloned()?)),
+                    member: Box::new(Node::Literal(parser.consume_member()?)),
                 };
             }
         } else if let Some(ob) = parser.consume_or_ignore(TokenType::OpenBrackets) {
@@ -80,7 +80,7 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                     array: Box::new(expr),
                     ob,
                     index: Some(Box::new(expressions::expression(parser)?)),
-                    cb: parser.consume_cloned(TokenType::CloseBrackets)?,
+                    cb: parser.consume(TokenType::CloseBrackets)?,
                 },
             };
         } else if let Some(oc) = parser.consume_or_ignore(TokenType::OpenCurly) {
@@ -88,7 +88,7 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                 array: Box::new(expr),
                 ob: oc,
                 index: Some(Box::new(expressions::expression(parser)?)),
-                cb: parser.consume_cloned(TokenType::CloseCurly)?,
+                cb: parser.consume(TokenType::CloseCurly)?,
             };
         } else if let Some(assignment) = parser.consume_or_ignore(TokenType::Assignment) {
             // Something like static::$member = 1;
@@ -107,7 +107,7 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
 
 /// Parses all the parameters of a call
 fn finish_call(parser: &mut Parser, expr: Node) -> ExpressionResult {
-    let op = parser.consume_cloned(TokenType::OpenParenthesis)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
 
     let mut parameters = Vec::new();
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
@@ -123,6 +123,6 @@ fn finish_call(parser: &mut Parser, expr: Node) -> ExpressionResult {
         callee: Box::new(expr),
         op,
         parameters,
-        cp: parser.consume_cloned(TokenType::CloseParenthesis)?,
+        cp: parser.consume(TokenType::CloseParenthesis)?,
     })
 }
