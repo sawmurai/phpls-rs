@@ -1,8 +1,5 @@
 use crate::token::{Token, TokenType};
 
-use std::iter::Peekable;
-use std::str::Chars;
-
 /// Enum to represent the current scanner context. Can either be within a code block (`InScript`),
 /// within a comment within a code block (`InComment`), or between code blocks (`OutScript`). An
 /// example for the latter would be `...?> HERE <?php ...`
@@ -15,7 +12,7 @@ enum Context {
 
 /// The `Scanner` type is used to generate a token stream from an input string. The
 /// input string is the content of a PHP source file.
-pub struct Scanner<'a> {
+pub struct Scanner {
     col: u32,
     start_of_token: u32,
     line: u32,
@@ -23,11 +20,11 @@ pub struct Scanner<'a> {
 
     context: Context,
     pub tokens: Vec<Token>,
-    chars: Peekable<Chars<'a>>,
+    chars: Vec<char>,
 }
 
 /// Inspired by https://craftinginterpreters.com/statements-and-state.html
-impl<'a> Scanner<'a> {
+impl Scanner {
     /// Constructs a new `Scanner` without actually scanning anything.
     ///
     /// # Example
@@ -37,7 +34,9 @@ impl<'a> Scanner<'a> {
     ///
     /// let scanner = Scanner::new("<?php echo 'Hello World'; ?>");
     /// ```
-    pub fn new(source: &'a str) -> Self {
+    pub fn new(source: &str) -> Self {
+        let chars = source.chars().rev().collect::<Vec<char>>();
+
         Scanner {
             col: 1,
             start_of_token: 1,
@@ -46,7 +45,7 @@ impl<'a> Scanner<'a> {
             context: Context::OutScript,
 
             tokens: Vec::new(),
-            chars: source.chars().peekable(),
+            chars,
         }
     }
 
@@ -67,7 +66,7 @@ impl<'a> Scanner<'a> {
     /// ```
     pub fn scan(&mut self) -> Result<&Vec<Token>, String> {
         loop {
-            if self.chars.peek().is_none() {
+            if self.peek().is_none() {
                 break;
             }
 
@@ -83,7 +82,7 @@ impl<'a> Scanner<'a> {
             // Ignore everything until the multiline comment is done
             if self.context == Context::InComment {
                 // TODO: Make the unwrap_or less hacky
-                if c == '*' && self.chars.peek().unwrap_or(&' ') == &'/' {
+                if c == '*' && self.peek().unwrap_or(&' ') == &'/' {
                     self.context = Context::InScript;
                 }
 
@@ -96,7 +95,7 @@ impl<'a> Scanner<'a> {
 
             match c {
                 ' ' | '\t' | '\r' | '\n' => {}
-                ':' => match self.chars.peek() {
+                ':' => match self.peek() {
                     Some(':') => {
                         self.advance();
                         self.push_token(TokenType::PaamayimNekudayim);
@@ -117,7 +116,7 @@ impl<'a> Scanner<'a> {
                 '\\' => {
                     self.push_token(TokenType::NamespaceSeparator);
                 }
-                '&' => match self.chars.peek() {
+                '&' => match self.peek() {
                     Some('=') => {
                         self.advance();
 
@@ -132,7 +131,7 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::BinaryAnd);
                     }
                 },
-                '%' => match self.chars.peek() {
+                '%' => match self.peek() {
                     Some('=') => {
                         self.advance();
 
@@ -142,7 +141,7 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::Modulo);
                     }
                 },
-                '|' => match self.chars.peek() {
+                '|' => match self.peek() {
                     Some('=') => {
                         self.advance();
 
@@ -157,11 +156,11 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::BinaryOr);
                     }
                 },
-                '>' => match self.chars.peek() {
+                '>' => match self.peek() {
                     Some('>') => {
                         self.advance();
 
-                        match self.chars.peek() {
+                        match self.peek() {
                             Some('=') => {
                                 self.advance();
 
@@ -181,11 +180,11 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::Greater);
                     }
                 },
-                '<' => match self.chars.peek() {
+                '<' => match self.peek() {
                     Some('<') => {
                         self.advance();
 
-                        match self.chars.peek() {
+                        match self.peek() {
                             Some('<') => {
                                 self.advance();
 
@@ -203,7 +202,7 @@ impl<'a> Scanner<'a> {
                     }
                     Some('?') => {
                         self.advance();
-                        match self.chars.peek() {
+                        match self.peek() {
                             Some(' ') | Some('\n') | Some('\t') | Some('\r') => {
                                 self.context = Context::InScript;
                                 self.push_token(TokenType::ScriptStart);
@@ -211,10 +210,10 @@ impl<'a> Scanner<'a> {
                             Some('p') => {
                                 self.advance();
 
-                                if let Some('h') = self.chars.peek() {
+                                if let Some('h') = self.peek() {
                                     self.advance();
 
-                                    if let Some('p') = self.chars.peek() {
+                                    if let Some('p') = self.peek() {
                                         self.advance();
 
                                         self.context = Context::InScript;
@@ -229,7 +228,7 @@ impl<'a> Scanner<'a> {
                     Some('=') => {
                         self.advance();
 
-                        match self.chars.peek() {
+                        match self.peek() {
                             Some('>') => {
                                 self.advance();
 
@@ -244,7 +243,7 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::Smaller);
                     }
                 },
-                '?' => match self.chars.peek() {
+                '?' => match self.peek() {
                     Some('>') => {
                         self.advance();
                         self.push_token(TokenType::ScriptEnd);
@@ -253,7 +252,7 @@ impl<'a> Scanner<'a> {
                     Some('?') => {
                         self.advance();
 
-                        match self.chars.peek() {
+                        match self.peek() {
                             Some('=') => {
                                 self.advance();
 
@@ -268,11 +267,11 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::QuestionMark);
                     }
                 },
-                '!' => match self.chars.peek() {
+                '!' => match self.peek() {
                     Some('=') => {
                         self.advance();
 
-                        match self.chars.peek() {
+                        match self.peek() {
                             Some('=') => {
                                 self.advance();
                                 self.push_token(TokenType::IsNotIdentical);
@@ -286,11 +285,11 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::Negation);
                     }
                 },
-                '.' => match self.chars.peek() {
+                '.' => match self.peek() {
                     Some('.') => {
                         self.advance();
 
-                        match self.chars.peek() {
+                        match self.peek() {
                             Some('.') => {
                                 self.advance();
 
@@ -317,7 +316,7 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::Concat);
                     }
                 },
-                '^' => match self.chars.peek() {
+                '^' => match self.peek() {
                     Some('=') => {
                         self.advance();
                         self.push_token(TokenType::XorAssignment);
@@ -326,7 +325,7 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::BinaryXor);
                     }
                 },
-                '+' => match self.chars.peek() {
+                '+' => match self.peek() {
                     Some('+') => {
                         self.advance();
                         self.push_token(TokenType::Increment);
@@ -339,7 +338,7 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::Plus);
                     }
                 },
-                '-' => match self.chars.peek() {
+                '-' => match self.peek() {
                     Some('-') => {
                         self.advance();
 
@@ -357,11 +356,11 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::Minus);
                     }
                 },
-                '*' => match self.chars.peek() {
+                '*' => match self.peek() {
                     Some('*') => {
                         self.advance();
 
-                        match self.chars.peek() {
+                        match self.peek() {
                             Some('=') => {
                                 self.advance();
 
@@ -385,7 +384,7 @@ impl<'a> Scanner<'a> {
 
                     //self.push_token(TokenType::LineComment);
                 }
-                '/' => match self.chars.peek() {
+                '/' => match self.peek() {
                     Some('/') => {
                         self.advance_until_after_line_comment();
 
@@ -403,11 +402,11 @@ impl<'a> Scanner<'a> {
                         self.push_token(TokenType::Division);
                     }
                 },
-                '=' => match self.chars.peek() {
+                '=' => match self.peek() {
                     Some('=') => {
                         self.advance();
 
-                        match self.chars.peek() {
+                        match self.peek() {
                             Some('=') => {
                                 self.advance();
                                 self.push_token(TokenType::IsIdentical);
@@ -439,7 +438,7 @@ impl<'a> Scanner<'a> {
                     let mut number = String::new();
                     number.push(c);
 
-                    if let Some('x') = self.chars.peek() {
+                    if let Some('x') = self.peek() {
                         if c == '0' {
                             self.advance();
                             number.push_str(&self.collect_hex_number());
@@ -449,7 +448,7 @@ impl<'a> Scanner<'a> {
                         }
                     }
 
-                    if let Some('b') = self.chars.peek() {
+                    if let Some('b') = self.peek() {
                         if c == '0' {
                             self.advance();
                             number.push_str(&self.collect_binary_number());
@@ -462,7 +461,7 @@ impl<'a> Scanner<'a> {
                     number.push_str(&self.collect_number());
                     let mut number_type = TokenType::LongNumber;
 
-                    if let Some(&'.') = self.chars.peek() {
+                    if let Some(&'.') = self.peek() {
                         self.advance();
 
                         let decimal = self.collect_number();
@@ -473,11 +472,11 @@ impl<'a> Scanner<'a> {
                         number_type = TokenType::DecimalNumber;
                     }
 
-                    if let Some(&'e') | Some(&'E') = self.chars.peek() {
+                    if let Some(&'e') | Some(&'E') = self.peek() {
                         self.advance();
                         number.push('e');
 
-                        match self.chars.peek() {
+                        match self.peek() {
                             Some('-') => {
                                 self.advance();
                                 number.push('-')
@@ -599,11 +598,11 @@ impl<'a> Scanner<'a> {
     }
 
     fn tokenize_here_doc(&mut self) -> Result<(), String> {
-        while let Some(' ') = self.chars.peek() {
+        while let Some(' ') = self.peek() {
             self.advance();
         }
 
-        let marker = match self.chars.peek() {
+        let marker = match self.peek() {
             // TODO: Do not collect escaped!
             Some('"') => {
                 self.advance();
@@ -622,7 +621,7 @@ impl<'a> Scanner<'a> {
         let mut line = String::new();
         let mut potential_end = false;
 
-        while let Some(&c) = self.chars.peek() {
+        while let Some(&c) = self.peek() {
             line.push(c);
 
             // New line, new luck. This could be the end! But first, push the previous line onto the result
@@ -669,7 +668,7 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        if self.chars.peek().is_none() {
+        if self.peek().is_none() {
             return Err(String::from("Unterminated heredoc!"));
         }
 
@@ -721,7 +720,7 @@ impl<'a> Scanner<'a> {
     fn collect_identifer(&mut self) -> String {
         let mut name = String::new();
 
-        while let Some(&c) = self.chars.peek() {
+        while let Some(&c) = self.peek() {
             if c >= 'a' && c <= 'z'
                 || c >= 'A' && c <= 'Z'
                 || c >= '0' && c <= '9'
@@ -742,7 +741,7 @@ impl<'a> Scanner<'a> {
     fn collect_number(&mut self) -> String {
         let mut number = String::new();
 
-        while let Some(&c) = self.chars.peek() {
+        while let Some(&c) = self.peek() {
             if c >= '0' && c <= '9' {
                 number.push(c);
             } else {
@@ -758,7 +757,7 @@ impl<'a> Scanner<'a> {
     fn collect_hex_number(&mut self) -> String {
         let mut number = String::new();
 
-        while let Some(&c) = self.chars.peek() {
+        while let Some(&c) = self.peek() {
             if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' {
                 number.push(c);
             } else {
@@ -773,7 +772,7 @@ impl<'a> Scanner<'a> {
     fn collect_binary_number(&mut self) -> String {
         let mut number = String::new();
 
-        while let Some(&c) = self.chars.peek() {
+        while let Some(&c) = self.peek() {
             if c == '0' || c == '1' {
                 number.push(c);
             } else {
@@ -785,10 +784,20 @@ impl<'a> Scanner<'a> {
         number
     }
 
+    /// Pop and return the next token
+    fn next(&mut self) -> Option<char> {
+        self.chars.pop()
+    }
+
+    /// Return the next token without popping it off the stream
+    fn peek(&self) -> Option<&char> {
+        self.chars.last()
+    }
+
     fn advance(&mut self) -> Option<char> {
         self.pos += 1;
 
-        if let Some(c) = self.chars.next() {
+        if let Some(c) = self.next() {
             if c == '\n' || c == '\r' {
                 self.line += 1;
                 self.col = 1;
@@ -815,7 +824,7 @@ impl<'a> Scanner<'a> {
         loop {
             self.advance_until_after('*');
 
-            if let Some('/') = self.chars.peek() {
+            if let Some('/') = self.peek() {
                 break;
             }
         }
@@ -829,7 +838,7 @@ impl<'a> Scanner<'a> {
             match c {
                 '\n' | '\r' => break,
                 '?' => {
-                    if let Some(&'>') = self.chars.peek() {
+                    if let Some(&'>') = self.peek() {
                         self.advance();
                         self.push_token(TokenType::ScriptEnd);
                         break;
