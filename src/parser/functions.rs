@@ -1,7 +1,9 @@
 use crate::expression::Node;
 use crate::parser::types;
 use crate::parser::variables;
-use crate::parser::{expressions, ArgumentListResult, ExpressionResult, Parser};
+use crate::parser::{
+    expressions, ArgumentListResult, ExpressionListResult, ExpressionResult, Parser, Result,
+};
 use crate::token::{Token, TokenType};
 
 /// Parses the argument list of a function, excluding the parenthesis
@@ -59,7 +61,7 @@ pub(crate) fn argument_list(parser: &mut Parser) -> ArgumentListResult {
 ///     echo "Hello!";
 /// }
 /// ```
-pub(crate) fn argument_type(parser: &mut Parser) -> Result<Option<Node>, String> {
+pub(crate) fn argument_type(parser: &mut Parser) -> Result<Option<Node>> {
     if let Some(qm) = parser.consume_or_ignore(TokenType::QuestionMark) {
         Ok(Some(Node::ArgumentType {
             nullable: Some(qm),
@@ -83,7 +85,7 @@ pub(crate) fn argument_type(parser: &mut Parser) -> Result<Option<Node>, String>
 ///     echo "Hello!";
 /// }
 /// ```
-pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Node>, String> {
+pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Node>> {
     if let Some(colon) = parser.consume_or_ignore(TokenType::Colon) {
         Ok(Some(Node::ReturnType {
             token: colon,
@@ -189,7 +191,7 @@ pub(crate) fn anonymous_function(
 }
 
 /// Parses all the parameters of a call
-pub(crate) fn non_empty_parameter_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
+pub(crate) fn non_empty_parameter_list(parser: &mut Parser) -> ExpressionListResult {
     let mut arguments = Vec::new();
     arguments.push(expressions::expression(parser)?);
 
@@ -210,7 +212,7 @@ pub(crate) fn non_empty_parameter_list(parser: &mut Parser) -> Result<Vec<Node>,
 
 /// Parses all the arguments of a call
 /// Does not parse the surounding parenthesis so the caller can fetch and store them
-pub(crate) fn parameter_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
+pub(crate) fn parameter_list(parser: &mut Parser) -> ExpressionListResult {
     let mut arguments = Vec::new();
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
         arguments.push(expressions::expression(parser)?);

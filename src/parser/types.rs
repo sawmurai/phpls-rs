@@ -1,8 +1,8 @@
 use crate::expression::Node;
-use crate::parser::Parser;
+use crate::parser::{ExpressionListResult, ExpressionResult, Parser, Result};
 use crate::token::{Token, TokenType};
 
-pub(crate) fn type_ref_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
+pub(crate) fn type_ref_list(parser: &mut Parser) -> ExpressionListResult {
     let mut type_refs = Vec::new();
 
     type_refs.push(non_empty_type_ref(parser)?);
@@ -15,7 +15,7 @@ pub(crate) fn type_ref_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
 }
 
 // path -> identifier ("\" identifier)*
-pub(crate) fn type_ref(parser: &mut Parser) -> Result<Option<Node>, String> {
+pub(crate) fn type_ref(parser: &mut Parser) -> Result<Option<Node>> {
     let mut path = Vec::new();
 
     if let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
@@ -44,7 +44,7 @@ pub(crate) fn type_ref(parser: &mut Parser) -> Result<Option<Node>, String> {
 }
 
 // non_empty_type_ref -> identifier ("\" identifier)*
-pub(crate) fn non_empty_type_ref(parser: &mut Parser) -> Result<Node, String> {
+pub(crate) fn non_empty_type_ref(parser: &mut Parser) -> ExpressionResult {
     let mut path = Vec::new();
 
     if let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
@@ -62,7 +62,7 @@ pub(crate) fn non_empty_type_ref(parser: &mut Parser) -> Result<Node, String> {
 }
 
 // non_empty_namespace_ref -> "\"? identifier ("\" identifier)* "\"?
-pub(crate) fn non_empty_namespace_ref(parser: &mut Parser) -> Result<Vec<Token>, String> {
+pub(crate) fn non_empty_namespace_ref(parser: &mut Parser) -> Result<Vec<Token>> {
     let mut path = Vec::new();
 
     if let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
@@ -96,17 +96,13 @@ pub(crate) fn non_empty_namespace_ref(parser: &mut Parser) -> Result<Vec<Token>,
 /// }
 ///
 /// ```
-pub(crate) fn type_ref_union(parser: &mut Parser) -> Result<Vec<Node>, String> {
+pub(crate) fn type_ref_union(parser: &mut Parser) -> Result<Vec<Node>> {
     let mut paths = Vec::new();
 
     paths.push(non_empty_type_ref(parser)?);
 
     while parser.consume_or_ignore(TokenType::BinaryOr).is_some() {
-        if let Some(type_ref) = type_ref(parser)? {
-            paths.push(type_ref);
-        } else {
-            return Err(String::from("Expected type after | operator"));
-        }
+        paths.push(non_empty_type_ref(parser)?);
     }
 
     Ok(paths)

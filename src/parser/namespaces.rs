@@ -1,6 +1,6 @@
 use crate::expression::Node;
 use crate::parser::types;
-use crate::parser::{ExpressionResult, Parser};
+use crate::parser::{Error, ExpressionListResult, ExpressionResult, Parser};
 use crate::token::{Token, TokenType};
 
 /// Parses a single namespace statement or namespace block
@@ -25,8 +25,15 @@ pub(crate) fn namespace_statement(parser: &mut Parser) -> ExpressionResult {
             token,
             type_ref: Box::new(type_ref),
         })
+    } else if let Some(token) = parser.next() {
+        Err(Error::WrongTokenError {
+            expected: vec![TokenType::OpenBrackets, TokenType::Identifier],
+            found: token,
+        })
     } else {
-        Err("Empty path after namespace".to_owned())
+        Err(Error::UnexpectedEndOfFileError {
+            expected: vec![TokenType::OpenBrackets, TokenType::Identifier],
+        })
     }
 }
 
@@ -90,7 +97,7 @@ fn symbol_import(parser: &mut Parser) -> ExpressionResult {
     }
 }
 
-fn symbol_imports(parser: &mut Parser) -> Result<Vec<Node>, String> {
+fn symbol_imports(parser: &mut Parser) -> ExpressionListResult {
     let mut imports = Vec::new();
 
     imports.push(symbol_import(parser)?);

@@ -222,7 +222,7 @@ pub(crate) fn interface(parser: &mut Parser) -> ExpressionResult {
 
 // (("extends" identifier) (, "extends" identifier)*)?
 // (("implements" identifier) (, "implements" identifier)*)?
-fn identifier_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
+fn identifier_list(parser: &mut Parser) -> ExpressionListResult {
     let mut extends = Vec::new();
 
     loop {

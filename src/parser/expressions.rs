@@ -1,6 +1,6 @@
 use crate::expression::{Expr, Node};
 use crate::parser::{arrays, calls, classes, functions, keywords, types, variables};
-use crate::parser::{ExpressionResult, Parser};
+use crate::parser::{Error, ExpressionResult, Parser};
 use crate::token::TokenType;
 
 pub(crate) fn expression_statement(parser: &mut Parser) -> ExpressionResult {
@@ -149,10 +149,7 @@ pub(crate) fn assignment(parser: &mut Parser) -> ExpressionResult {
                 right: Box::new(value),
             });
         } else {
-            return Err(format!(
-                "Unable to assign value to expression on line {}, col {}",
-                operator.line, operator.col
-            ));
+            return Err(Error::RValueInWriteContext { token: operator });
         }
     }
 
@@ -438,5 +435,5 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         return Ok(Node::Literal(next));
     }
 
-    Err(format!("Unsupported primary {:?}", next))
+    Err(Error::UnexpectedTokenError { token: next })
 }

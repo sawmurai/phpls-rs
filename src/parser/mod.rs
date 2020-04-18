@@ -1,10 +1,37 @@
 use crate::expression::*;
 use crate::token::{Token, TokenType};
+use snafu::Snafu;
 
-type ArgumentListResult = Result<Option<Vec<Node>>, String>;
-type ExpressionResult = Result<Node, String>;
-type ExpressionListResult = Result<Vec<Node>, String>;
-type AstResult = Result<(Vec<Node>, Vec<String>), String>;
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Script terminated."))]
+    ScriptTerminated,
+
+    #[snafu(display("Unexpected token {:?}, expected on of [{:?}] on line {}, col {}", found.t, expected, found.line, found.col))]
+    WrongTokenError {
+        expected: Vec<TokenType>,
+        found: Token,
+    },
+
+    #[snafu(display("Unexpected token {:?} on line {}, col {}", token.t, token.line, token.col))]
+    UnexpectedTokenError { token: Token },
+
+    #[snafu(display("Unexpected end of file, expected on of [{:?}]", expected))]
+    UnexpectedEndOfFileError { expected: Vec<TokenType> },
+
+    #[snafu(display("Illegal offset type on line {}, col {}", token.line, token.col))]
+    IllegalOffsetType { token: Token },
+
+    #[snafu(display("Can not use expression in write context on line {}, col {}", token.line, token.col))]
+    RValueInWriteContext { token: Token },
+}
+
+// Overwrite result
+type Result<T, E = Error> = std::result::Result<T, E>;
+type ArgumentListResult = Result<Option<Vec<Node>>>;
+type ExpressionResult = Result<Node>;
+type ExpressionListResult = Result<Vec<Node>>;
+type AstResult = Result<(Vec<Node>, Vec<Error>)>;
 
 pub mod arrays;
 pub mod calls;
@@ -25,7 +52,7 @@ pub mod variables;
 #[derive(Debug)]
 pub struct Parser {
     tokens: Vec<Token>,
-    errors: Vec<String>,
+    errors: Vec<Error>,
 }
 
 impl Parser {
@@ -193,10 +220,9 @@ impl Parser {
             match token.t {
                 TokenType::ScriptEnd => return self.inline_html(),
                 TokenType::ScriptStart => {
-                    return Err(format!(
-                        "Unexpected script start at line {}, col {}",
-                        token.line, token.col
-                    ));
+                    return Err(Error::UnexpectedTokenError {
+                        token: token.clone(),
+                    })
                 }
                 TokenType::Function => return functions::named_function(self),
                 TokenType::Namespace => return namespaces::namespace_statement(self),
@@ -286,7 +312,9 @@ impl Parser {
             }
         }
 
-        Err(String::from("Unexpected EOF!"))
+        Err(Error::UnexpectedEndOfFileError {
+            expected: Vec::new(),
+        })
     }
 
     /// Pop and return the next token
@@ -300,7 +328,7 @@ impl Parser {
     }
 
     /// Consumes the end of a statement. This can either be a semicolon or a script end.
-    fn consume_end_of_statement(&mut self) -> Result<(), String> {
+    fn consume_end_of_statement(&mut self) -> Result<()> {
         if let Some(token) = self.peek() {
             if token.t == TokenType::Semicolon {
                 self.next();
@@ -313,30 +341,30 @@ impl Parser {
                 return Ok(());
             }
 
-            return Err(format!(
-                "Expected end of statement, found {:?} on line {}, col {}",
-                token.t, token.line, token.col
-            ));
+            return Err(Error::WrongTokenError {
+                expected: vec![TokenType::Semicolon, TokenType::ScriptEnd],
+                found: token.clone(),
+            });
         }
 
         Ok(())
     }
 
     /// Consume a token of type `t` or return an Err
-    fn consume_or_err(&mut self, t: TokenType) -> Result<(), String> {
+    fn consume_or_err(&mut self, t: TokenType) -> Result<()> {
         if let Some(token) = self.peek() {
             if token.t == t {
                 self.next();
                 return Ok(());
             }
 
-            return Err(format!(
-                "Expected {:?}, found {:?} on line {}, col {}",
-                t, token.t, token.line, token.col
-            ));
+            return Err(Error::WrongTokenError {
+                expected: vec![t],
+                found: token.clone(),
+            });
         }
 
-        Err(format!("Expected {:?}, found end of file.", t))
+        Err(Error::UnexpectedEndOfFileError { expected: vec![t] })
     }
 
     /// Consume a Some of token of type `t` or do nothing.
@@ -353,55 +381,59 @@ impl Parser {
     }
 
     /// Consume a token of type `t` or return an error
-    fn consume(&mut self, t: TokenType) -> Result<Token, String> {
+    fn consume(&mut self, t: TokenType) -> Result<Token> {
         if let Some(token) = self.next() {
             if token.t == t {
                 return Ok(token);
             }
 
-            return Err(format!(
-                "Expected {:?}, found {:?} on line {}, col {}",
-                t, token.t, token.line, token.col
-            ));
+            return Err(Error::WrongTokenError {
+                expected: vec![t],
+                found: token.clone(),
+            });
         }
 
-        Err(format!("Expected {:?}, found end of file.", t))
+        Err(Error::UnexpectedEndOfFileError { expected: vec![t] })
     }
 
     /// Consume an identifier or return an error
-    fn consume_identifier(&mut self) -> Result<Token, String> {
+    fn consume_identifier(&mut self) -> Result<Token> {
         if let Some(token) = self.next() {
             if token.is_identifier() {
                 return Ok(token);
             }
 
-            return Err(format!(
-                "Expected Identifier, found {:?} on line {}, col {}",
-                token.t, token.line, token.col
-            ));
+            return Err(Error::WrongTokenError {
+                expected: vec![TokenType::Identifier],
+                found: token.clone(),
+            });
         }
 
-        Err("Expected Identifier, found end of file.".to_string())
+        Err(Error::UnexpectedEndOfFileError {
+            expected: vec![TokenType::Identifier],
+        })
     }
 
     /// Consume a potential member of a class / an object or return an error
-    fn consume_member(&mut self) -> Result<Token, String> {
+    fn consume_member(&mut self) -> Result<Token> {
         if let Some(token) = self.next() {
             if token.is_identifier() || token.t == TokenType::Variable {
                 return Ok(token);
             }
 
-            return Err(format!(
-                "Expected Identifier or Variable, found {:?} on line {}, col {}",
-                token.t, token.line, token.col
-            ));
+            return Err(Error::WrongTokenError {
+                expected: vec![TokenType::Identifier, TokenType::Variable],
+                found: token.clone(),
+            });
         }
 
-        Err("Expected Identifier, found end of file.".to_string())
+        Err(Error::UnexpectedEndOfFileError {
+            expected: vec![TokenType::Variable, TokenType::Identifier],
+        })
     }
 
     // Consume a token of one of the types of `types` or return an error
-    fn consume_one_of(&mut self, types: &[TokenType]) -> Result<Token, String> {
+    fn consume_one_of(&mut self, types: &[TokenType]) -> Result<Token> {
         if let Some(token) = self.next() {
             for tt in types.iter().as_ref() {
                 if token.t == *tt {
@@ -409,13 +441,15 @@ impl Parser {
                 }
             }
 
-            return Err(format!(
-                "Expected one of {:?}, found {:?} on line {}, col {}",
-                types, token.t, token.line, token.col
-            ));
+            return Err(Error::WrongTokenError {
+                expected: Vec::from(types),
+                found: token.clone(),
+            });
         }
 
-        Err(format!("Expected one of {:?}, found end of file.", types))
+        Err(Error::UnexpectedEndOfFileError {
+            expected: Vec::from(types),
+        })
     }
 
     /// Consume a token of one of the types of `types` or do nothing

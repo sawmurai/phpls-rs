@@ -1,5 +1,5 @@
 use crate::expression::Node;
-use crate::parser::{expressions, ExpressionResult, Parser};
+use crate::parser::{expressions, ExpressionResult, Parser, Result};
 use crate::token::{Token, TokenType};
 
 /// Parses an if statement
@@ -196,7 +196,7 @@ fn switch_body(parser: &mut Parser) -> ExpressionResult {
     })
 }
 
-pub(crate) fn case_list(parser: &mut Parser) -> Result<Vec<Option<Node>>, String> {
+pub(crate) fn case_list(parser: &mut Parser) -> Result<Vec<Option<Node>>> {
     let mut cases_current_branch = Vec::new();
 
     loop {

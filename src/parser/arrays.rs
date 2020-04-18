@@ -1,7 +1,7 @@
 use crate::expression::{Expr, Node};
 use crate::parser::expressions;
 use crate::parser::variables;
-use crate::parser::{ExpressionResult, Parser};
+use crate::parser::{Error, ExpressionResult, Parser};
 use crate::token::TokenType;
 
 /// Parses an array surounded by regular brackets. To parse an array according to the old syntax
@@ -57,10 +57,7 @@ pub(crate) fn array_pair(parser: &mut Parser) -> ExpressionResult {
 
         // Todo: Rather check for scalarity
         if !key.is_offset() {
-            return Err(format!(
-                "Illegal offset type at line {} col {}",
-                arrow.line, arrow.col,
-            ));
+            return Err(Error::IllegalOffsetType { token: arrow });
         }
 
         if parser.next_token_one_of(&[TokenType::BinaryAnd]) {

@@ -1,8 +1,8 @@
 use crate::expression::Node;
-use crate::parser::{expressions, ExpressionResult, Parser};
+use crate::parser::{expressions, ExpressionListResult, ExpressionResult, Parser};
 use crate::token::{Token, TokenType};
 
-pub(crate) fn variable(parser: &mut Parser) -> Result<Node, String> {
+pub(crate) fn variable(parser: &mut Parser) -> ExpressionResult {
     let variable = parser.consume(TokenType::Variable)?;
 
     // Named, regular variable. No problem here.
@@ -97,7 +97,7 @@ pub(crate) fn const_statement(parser: &mut Parser) -> ExpressionResult {
 }
 
 /// Parses all the arguments of a call
-pub(crate) fn non_empty_lexical_variables_list(parser: &mut Parser) -> Result<Vec<Node>, String> {
+pub(crate) fn non_empty_lexical_variables_list(parser: &mut Parser) -> ExpressionListResult {
     parser.consume_or_err(TokenType::OpenParenthesis)?;
 
     let mut arguments = Vec::new();
