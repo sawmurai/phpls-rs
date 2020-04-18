@@ -102,6 +102,18 @@ pub enum Node {
         parameters: Option<Vec<Node>>,
         cp: Option<Token>,
     },
+    HaltCompiler {
+        hc: Token,
+        op: Option<Token>,
+        parameters: Option<Vec<Node>>,
+        cp: Option<Token>,
+    },
+    Die {
+        die: Token,
+        op: Option<Token>,
+        parameters: Option<Vec<Node>>,
+        cp: Option<Token>,
+    },
     New {
         token: Token,
         class: Box<Node>,
@@ -139,6 +151,7 @@ pub enum Node {
     },
     Function {
         is_static: Option<Token>,
+        by_ref: Option<Token>,
         token: Token,
         op: Token,
         arguments: Option<Vec<Node>>,
@@ -275,7 +288,29 @@ pub enum Node {
     },
     UseTraitStatement {
         token: Token,
-        type_refs: Vec<Node>,
+        traits_usages: Vec<Node>,
+    },
+    UseTrait {
+        type_ref: Box<Node>,
+    },
+    UseTraitAlterationBlock {
+        oc: Token,
+        alterations: Vec<Node>,
+        cc: Token,
+    },
+    UseTraitInsteadOf {
+        left: Option<Box<Node>>,
+        paa: Option<Token>,
+        member: Box<Node>,
+        insteadof: Token,
+        insteadof_list: Vec<Node>,
+    },
+    UseTraitAs {
+        left: Option<Box<Node>>,
+        paa: Option<Token>,
+        member: Box<Node>,
+        as_token: Token,
+        as_name: Token,
     },
     // Merge with Class?
     ClassStatement {
@@ -305,18 +340,21 @@ pub enum Node {
     },
     PropertyDefinitionStatement {
         name: Token,
+        data_type: Option<std::rc::Rc<Node>>,
         visibility: Option<Token>,
         is_abstract: Option<Token>,
         value: Option<Box<Node>>,
         is_static: Option<Token>,
     },
     MethodDeclarationStatement {
+        token: Token,
         name: Token,
         visibility: Option<Token>,
         function: Box<Node>,
         is_static: bool,
     },
     MethodDefinitionStatement {
+        token: Token,
         is_final: Option<Token>,
         by_ref: Option<Token>,
         name: Token,
@@ -374,6 +412,11 @@ pub enum Node {
         statements: Vec<Node>,
         cc: Token,
     },
+    AlternativeBlock {
+        colon: Token,
+        statements: Vec<Node>,
+        terminator: Token,
+    },
     SingleStatementBlock(Box<Node>),
     IfBranch {
         token: Token,
@@ -401,9 +444,12 @@ pub enum Node {
         op: Token,
         expr: Box<Node>,
         cp: Token,
-        oc: Token,
+        body: Box<Node>,
+    },
+    SwitchBody {
+        start: Token,
         branches: Vec<Node>,
-        cc: Token,
+        end: Token,
     },
     TokenStatement {
         token: Token,

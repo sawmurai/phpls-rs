@@ -23,6 +23,77 @@ pub(crate) fn if_statement(parser: &mut Parser) -> ExpressionResult {
     let condition = Box::new(expressions::expression(parser)?);
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
+    // Alternative syntax
+    if let Some(colon) = parser.consume_or_ignore(TokenType::Colon) {
+        let mut statements = Vec::new();
+
+        while !parser.next_token_one_of(&[TokenType::EndIf, TokenType::Else, TokenType::ElseIf]) {
+            statements.push(parser.statement()?);
+        }
+
+        let mut terminator =
+            parser.consume_one_of(&[TokenType::EndIf, TokenType::Else, TokenType::ElseIf])?;
+
+        let if_branch = Node::IfBranch {
+            token,
+            op,
+            condition,
+            cp,
+            body: Box::new(Node::AlternativeBlock {
+                colon,
+                statements,
+                terminator: terminator.clone(),
+            }),
+        };
+
+        // Collect all elseif branches
+        let mut elseif_branches = Vec::new();
+        while terminator.t == TokenType::ElseIf {
+            let token = terminator.clone();
+
+            let mut statements = Vec::new();
+            let op = parser.consume(TokenType::OpenParenthesis)?;
+            let condition = Box::new(expressions::expression(parser)?);
+            let cp = parser.consume(TokenType::CloseParenthesis)?;
+            let colon = parser.consume(TokenType::Colon)?;
+
+            while !parser.next_token_one_of(&[TokenType::EndIf, TokenType::Else, TokenType::ElseIf])
+            {
+                statements.push(parser.statement()?);
+            }
+            terminator =
+                parser.consume_one_of(&[TokenType::EndIf, TokenType::Else, TokenType::ElseIf])?;
+
+            elseif_branches.push(Node::IfBranch {
+                token,
+                op,
+                condition,
+                cp,
+                body: Box::new(Node::AlternativeBlock {
+                    colon,
+                    statements,
+                    terminator: terminator.clone(),
+                }),
+            });
+        }
+
+        let else_branch = if terminator.t == TokenType::Else {
+            Some(Box::new(Node::ElseBranch {
+                token: terminator.clone(),
+                body: Box::new(parser.alternative_block(TokenType::EndIf)?),
+            }))
+        } else {
+            None
+        };
+
+        return Ok(Node::IfStatement {
+            if_branch: Box::new(if_branch),
+            elseif_branches,
+            else_branch,
+        });
+    }
+
+    // Regular syntax
     let if_branch = Node::IfBranch {
         token,
         op,
@@ -77,15 +148,33 @@ pub(crate) fn switch_statement(parser: &mut Parser) -> ExpressionResult {
     let op = parser.consume(TokenType::OpenParenthesis)?;
     let expr = Box::new(expressions::expression(parser)?);
     let cp = parser.consume(TokenType::CloseParenthesis)?;
-    let oc = parser.consume(TokenType::OpenCurly)?;
+    let body = Box::new(switch_body(parser)?);
 
+    Ok(Node::SwitchCase {
+        token,
+        op,
+        expr,
+        cp,
+        body,
+    })
+}
+
+/// Parses the body part of the switch case and can handle { -> } as well as : -> endswitch
+fn switch_body(parser: &mut Parser) -> ExpressionResult {
     let mut branches = Vec::new();
-    while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
+
+    let (start, terminator_type) = if parser.next_token_one_of(&[TokenType::Colon]) {
+        (parser.consume(TokenType::Colon)?, TokenType::EndSwitch)
+    } else {
+        (parser.consume(TokenType::OpenCurly)?, TokenType::CloseCurly)
+    };
+
+    while !parser.next_token_one_of(&[terminator_type.clone()]) {
         let cases_current_branch = case_list(parser)?;
 
         let mut statements = Vec::new();
         while !parser.next_token_one_of(&[
-            TokenType::CloseCurly,
+            terminator_type.clone(),
             TokenType::Case,
             TokenType::Default,
         ]) {
@@ -98,16 +187,12 @@ pub(crate) fn switch_statement(parser: &mut Parser) -> ExpressionResult {
         });
     }
 
-    let cc = parser.consume(TokenType::CloseCurly)?;
+    let end = parser.consume(terminator_type)?;
 
-    Ok(Node::SwitchCase {
-        token,
-        op,
-        expr,
-        cp,
-        oc,
+    Ok(Node::SwitchBody {
+        start,
         branches,
-        cc,
+        end,
     })
 }
 

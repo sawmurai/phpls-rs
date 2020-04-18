@@ -55,7 +55,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> ExpressionResult {
     }
     parser.consume_or_err(TokenType::CloseParenthesis)?;
 
-    let body = Box::new(parser.statement()?);
+    let body = Box::new(parser.alternative_block_or_statement(TokenType::EndFor)?);
 
     Ok(Node::ForStatement {
         token,
@@ -81,7 +81,7 @@ pub(crate) fn while_statement(parser: &mut Parser) -> ExpressionResult {
     let op = parser.consume(TokenType::OpenParenthesis)?;
     let condition = Box::new(expressions::expression(parser)?);
     let cp = parser.consume(TokenType::CloseParenthesis)?;
-    let body = Box::new(parser.statement()?);
+    let body = Box::new(parser.alternative_block_or_statement(TokenType::EndWhile)?);
 
     Ok(Node::WhileStatement {
         token,
@@ -110,7 +110,7 @@ pub(crate) fn foreach_statement(parser: &mut Parser) -> ExpressionResult {
     let kv = Box::new(arrays::array_pair(parser)?);
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    let body = Box::new(parser.statement()?);
+    let body = Box::new(parser.alternative_block_or_statement(TokenType::EndForeach)?);
 
     Ok(Node::ForEachStatement {
         token,

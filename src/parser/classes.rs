@@ -1,7 +1,8 @@
 use crate::expression::Node;
 use crate::parser::{expressions, functions, types};
-use crate::parser::{ExpressionResult, Parser};
+use crate::parser::{ExpressionListResult, ExpressionResult, Parser};
 use crate::token::{Token, TokenType};
+use std::rc::Rc;
 
 // abstract_class -> "abstract" class
 pub(crate) fn abstract_class_statement(parser: &mut Parser) -> ExpressionResult {
@@ -141,63 +142,56 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
             continue;
         };
 
-        if let Some(next) = parser.peek() {
-            match next.t {
-                TokenType::Function => {
-                    parser.next();
+        if let Some(token) = parser.consume_or_ignore(TokenType::Function) {
+            let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
+            let name = parser.consume_identifier()?;
 
-                    let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
-                    let name = parser.consume_identifier()?;
-
-                    statements.push(Node::MethodDefinitionStatement {
-                        is_final,
-                        by_ref,
-                        name,
-                        visibility,
-                        is_abstract,
-                        function: Box::new(functions::anonymous_function_statement(parser)?),
-                        is_static,
-                    });
-                }
-                // One or more of those ...
-                TokenType::Variable => {
-                    loop {
-                        // The next variable
-                        let name = parser.consume(TokenType::Variable)?;
-                        let assignment = if parser.next_token_one_of(&[TokenType::Assignment]) {
-                            parser.next();
-                            Some(Box::new(expressions::expression(parser)?))
-                        } else {
-                            None
-                        };
-
-                        statements.push(Node::PropertyDefinitionStatement {
-                            name,
-                            visibility: visibility.clone(),
-                            is_abstract: is_abstract.clone(),
-                            value: assignment,
-                            is_static: is_static.clone(),
-                        });
-
-                        if !parser.next_token_one_of(&[TokenType::Comma]) {
-                            break;
-                        }
-
-                        // The comma
-                        parser.next();
-                    }
-
-                    parser.consume_end_of_statement()?;
-                }
-                _ => {
-                    return Err(format!(
-                        "Unexpected {:?} on line {}, col {}",
-                        next.t, next.line, next.col
-                    ));
-                }
-            }
+            statements.push(Node::MethodDefinitionStatement {
+                token,
+                is_final,
+                by_ref,
+                name,
+                visibility,
+                is_abstract,
+                function: Box::new(functions::anonymous_function_statement(parser)?),
+                is_static,
+            });
         } else {
-            return Err(String::from("End of file"));
+            let data_type = if !parser.next_token_one_of(&[TokenType::Variable]) {
+                Some(Rc::new(types::non_empty_type_ref(parser)?))
+            } else {
+                None
+            };
+
+            loop {
+                let name = parser.consume(TokenType::Variable)?;
+
+                // The next variable
+                let assignment = if parser.next_token_one_of(&[TokenType::Assignment]) {
+                    parser.next();
+                    Some(Box::new(expressions::expression(parser)?))
+                } else {
+                    None
+                };
+
+                statements.push(Node::PropertyDefinitionStatement {
+                    name,
+                    data_type: data_type.clone(),
+                    visibility: visibility.clone(),
+                    is_abstract: is_abstract.clone(),
+                    value: assignment,
+                    is_static: is_static.clone(),
+                });
+
+                if !parser.next_token_one_of(&[TokenType::Comma]) {
+                    break;
+                }
+
+                // The comma
+                parser.next();
+            }
+
+            parser.consume_end_of_statement()?;
         }
     }
 
@@ -256,10 +250,122 @@ pub(crate) fn trait_statement(parser: &mut Parser) -> ExpressionResult {
 pub(crate) fn use_trait_statement(parser: &mut Parser) -> ExpressionResult {
     let statement = Node::UseTraitStatement {
         token: parser.consume(TokenType::Use)?,
-        type_refs: types::type_ref_list(parser)?,
+        traits_usages: trait_usages(parser)?,
     };
+
+    Ok(statement)
+}
+
+/// Parses a list of trait usages, which can either be a simple identifier or a more complicated block
+fn trait_usages(parser: &mut Parser) -> ExpressionListResult {
+    let mut usages = Vec::new();
+
+    while !parser.next_token_one_of(&[TokenType::Semicolon]) {
+        let type_ref = types::non_empty_type_ref(parser)?;
+
+        if parser.next_token_one_of(&[TokenType::OpenCurly]) {
+            usages.push(trait_usage_alteration_group(parser)?);
+
+            // Early return as there will be no semicolon after the use statment to be consumed.
+            return Ok(usages);
+        } else {
+            usages.push(Node::UseTrait {
+                type_ref: Box::new(type_ref),
+            });
+        }
+
+        if parser.consume_or_ignore(TokenType::Comma).is_some() {
+            continue;
+        }
+    }
 
     parser.consume_end_of_statement()?;
 
-    Ok(statement)
+    Ok(usages)
+}
+
+/// Parses a trait usage alteration group
+fn trait_usage_alteration_group(parser: &mut Parser) -> ExpressionResult {
+    let oc = parser.consume(TokenType::OpenCurly)?;
+    let mut alterations = Vec::new();
+
+    while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
+        let class_or_member = Box::new(types::non_empty_type_ref(parser)?);
+
+        let (class_name, paa, member) =
+            if let Some(paa) = parser.consume_or_ignore(TokenType::PaamayimNekudayim) {
+                (
+                    Some(class_or_member),
+                    Some(paa),
+                    Box::new(types::non_empty_type_ref(parser)?),
+                )
+            } else {
+                (None, None, class_or_member)
+            };
+
+        if let Some(as_token) = parser.consume_or_ignore(TokenType::As) {
+            alterations.push(Node::UseTraitAs {
+                left: class_name,
+                paa,
+                member,
+                as_token,
+                as_name: parser.consume_identifier()?,
+            });
+        } else if let Some(insteadof) = parser.consume_or_ignore(TokenType::Insteadof) {
+            alterations.push(Node::UseTraitInsteadOf {
+                left: class_name,
+                paa,
+                member,
+                insteadof,
+                insteadof_list: types::type_ref_list(parser)?,
+            });
+        }
+
+        parser.consume_or_err(TokenType::Semicolon)?;
+    }
+
+    Ok(Node::UseTraitAlterationBlock {
+        oc,
+        alterations,
+        cc: parser.consume(TokenType::CloseCurly)?,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::Parser;
+    use crate::token::{Token, TokenType};
+
+    #[test]
+    fn test_parses_trait_that_uses_trait() {
+        let mut tokens = vec![
+            Token::new(TokenType::Trait, 1, 1),
+            Token::named(TokenType::Identifier, 2, 1, "TestControllerTrait"),
+            Token::new(TokenType::OpenCurly, 3, 1),
+            Token::new(TokenType::Use, 4, 1),
+            Token::named(TokenType::Identifier, 5, 1, "ControllerTrait"),
+            Token::new(TokenType::OpenCurly, 6, 1),
+            Token::named(TokenType::Identifier, 7, 1, "generateUrl"),
+            Token::new(TokenType::As, 8, 1),
+            Token::new(TokenType::Public, 9, 1),
+            Token::new(TokenType::Semicolon, 10, 1),
+            Token::named(TokenType::Identifier, 11, 1, "redirect"),
+            Token::new(TokenType::As, 12, 1),
+            Token::named(TokenType::Identifier, 13, 1, "roflcopter"),
+            Token::new(TokenType::Semicolon, 14, 1),
+            Token::new(TokenType::CloseCurly, 15, 1),
+            Token::new(TokenType::CloseCurly, 16, 1),
+        ];
+        tokens.reverse();
+
+        let mut parser = Parser {
+            errors: Vec::new(),
+            tokens,
+        };
+
+        // TODO: Find a way to compare the return value that is not creating the AST from scratch
+        // since nobody can read that
+        trait_statement(&mut parser).unwrap();
+    }
 }

@@ -158,6 +158,7 @@ pub(crate) fn anonymous_function(
     is_static: Option<Token>,
 ) -> ExpressionResult {
     let token = parser.consume(TokenType::Function)?;
+    let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
 
     let op = parser.consume(TokenType::OpenParenthesis)?;
     let arguments = argument_list(parser)?;
@@ -176,6 +177,7 @@ pub(crate) fn anonymous_function(
 
     Ok(Node::Function {
         is_static,
+        by_ref,
         token,
         op,
         arguments,

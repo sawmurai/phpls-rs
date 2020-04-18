@@ -203,19 +203,27 @@ impl<'a> Scanner<'a> {
                     }
                     Some('?') => {
                         self.advance();
-                        self.context = Context::InScript;
-                        self.push_token(TokenType::ScriptStart);
-
-                        if let Some('p') = self.chars.peek() {
-                            self.advance();
-
-                            if let Some('h') = self.chars.peek() {
+                        match self.chars.peek() {
+                            Some(' ') | Some('\n') | Some('\t') | Some('\r') => {
+                                self.context = Context::InScript;
+                                self.push_token(TokenType::ScriptStart);
+                            }
+                            Some('p') => {
                                 self.advance();
 
-                                if let Some('p') = self.chars.peek() {
+                                if let Some('h') = self.chars.peek() {
                                     self.advance();
+
+                                    if let Some('p') = self.chars.peek() {
+                                        self.advance();
+
+                                        self.context = Context::InScript;
+                                        self.push_token(TokenType::ScriptStart);
+                                    }
                                 }
                             }
+                            // Might be something like <?xml
+                            _ => continue,
                         }
                     }
                     Some('=') => {
@@ -373,13 +381,13 @@ impl<'a> Scanner<'a> {
                     }
                 },
                 '#' => {
-                    self.advance_until_after('\n');
+                    self.advance_until_after_line_comment();
 
                     //self.push_token(TokenType::LineComment);
                 }
                 '/' => match self.chars.peek() {
                     Some('/') => {
-                        self.advance_until_after('\n');
+                        self.advance_until_after_line_comment();
 
                         //self.push_token(TokenType::LineComment);
                     }
@@ -497,33 +505,7 @@ impl<'a> Scanner<'a> {
                     name.push_str(&self.collect_identifer());
 
                     if let Some(t) = self.map_keyword(&name) {
-                        match self.chars.peek() {
-                            // TODO: Refactor this detection as it has problems with spaces
-                            // in the type cast ... like (  string  )
-                            Some(')') => {
-                                // Potential type cast, check if identifier could match
-                                if let Some(cast_to) = self.map_cast(&t) {
-                                    // Looks like a match ... was the previously recorded token an open parenthesis?
-                                    if let Some(last_token) = self.tokens.pop() {
-                                        // It was! Replace that one with a type cast
-                                        if last_token.t == TokenType::OpenParenthesis {
-                                            self.chars.next();
-                                            self.push_token(cast_to);
-
-                                        // It was not. Put it back on the stack
-                                        } else {
-                                            self.tokens.push(last_token);
-                                            self.push_token(t);
-                                        }
-                                    }
-                                } else {
-                                    self.push_token(t);
-                                }
-                            }
-                            _ => {
-                                self.push_token(t);
-                            }
-                        };
+                        self.push_token(t);
                     } else if name == "from" {
                         // Combine yield from to one token ...
 
@@ -545,6 +527,33 @@ impl<'a> Scanner<'a> {
                     self.push_token(TokenType::OpenParenthesis);
                 }
                 ')' => {
+                    if let Some(previous_token) = self.tokens.pop() {
+                        // Is the last recorded token a type?
+                        if let Some(cast_to) = self.map_cast(&previous_token.t) {
+                            // It was! Was the one recorded before an open parenthesis?
+                            if let Some(last_token) = self.tokens.pop() {
+                                // It was! Replace that one with a type cast
+                                if last_token.t == TokenType::OpenParenthesis {
+                                    self.push_token(cast_to);
+
+                                    continue;
+
+                                // It was not. Put it back on the stack
+                                } else {
+                                    self.tokens.push(last_token);
+                                    self.tokens.push(previous_token);
+                                }
+                            } else {
+                                // No token before that one ... so it can not be a cast either and we put it back
+                                // on the stack
+                                self.tokens.push(previous_token);
+                            }
+                        } else {
+                            // Is no cast, put it back on the stack
+                            self.tokens.push(previous_token);
+                        }
+                    }
+
                     self.push_token(TokenType::CloseParenthesis);
                 }
                 '{' => {
@@ -811,6 +820,24 @@ impl<'a> Scanner<'a> {
             }
         }
         self.advance();
+    }
+
+    /// Advances until after the end of the line comment, which can either be the script end or
+    /// a newline
+    fn advance_until_after_line_comment(&mut self) {
+        while let Some(c) = self.advance() {
+            match c {
+                '\n' | '\r' => break,
+                '?' => {
+                    if let Some(&'>') = self.chars.peek() {
+                        self.advance();
+                        self.push_token(TokenType::ScriptEnd);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     fn push_token(&mut self, t: TokenType) {

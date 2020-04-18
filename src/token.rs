@@ -101,6 +101,7 @@ pub enum TokenType {
     // Keywords
     Exit,
     If,
+    Die,
     ElseIf,
     Else,
     EndIf,
@@ -282,6 +283,7 @@ impl Token {
             | TokenType::ConstNan
             | TokenType::ConstInf
             | TokenType::New
+            | TokenType::Die
             | TokenType::Clone
             | TokenType::True
             | TokenType::False

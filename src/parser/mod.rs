@@ -3,6 +3,7 @@ use crate::token::{Token, TokenType};
 
 type ArgumentListResult = Result<Option<Vec<Node>>, String>;
 type ExpressionResult = Result<Node, String>;
+type ExpressionListResult = Result<Vec<Node>, String>;
 type AstResult = Result<(Vec<Node>, Vec<String>), String>;
 
 pub mod arrays;
@@ -39,6 +40,10 @@ impl Parser {
     /// let Ok(ast, errors) = Parser::ast(scanner.tokens);
     /// ```
     pub fn ast(mut tokens: Vec<Token>) -> AstResult {
+        if tokens.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
         tokens.reverse();
 
         let mut parser = Parser {
@@ -67,29 +72,27 @@ impl Parser {
     /// This way at least a partial ast can be returned in the end
     fn error_fast_forward(&mut self) {
         while self.peek().is_some() {
+            if self.next_token_one_of(&[
+                TokenType::Semicolon,
+                TokenType::ScriptStart,
+                TokenType::CloseCurly,
+            ]) {
+                self.next();
+
+                break;
+            }
+
             self.next();
-
-            if self.next_token_one_of(&[TokenType::Semicolon]) {
-                self.next();
-
-                break;
-            }
-
-            if self.next_token_one_of(&[TokenType::CloseCurly]) {
-                self.next();
-                break;
-            }
         }
     }
 
     /// Parses a code block, which basically is a vector of `Node` / statements.
-    /// It expects to already be past the `{` and it will read until it encounters a `}`
     ///
     /// # Details
     /// ```php
-    /// while (true) {
-    /// // Parse here
-    /// }
+    /// while (true) /* from here */{
+    ///    echo "lol";
+    /// } /* to here */
     /// ```
     pub fn block(&mut self) -> ExpressionResult {
         let mut statements: Vec<Node> = Vec::new();
@@ -112,6 +115,45 @@ impl Parser {
         Ok(Node::Block { oc, statements, cc })
     }
 
+    /// Parses an alternative code block, which basically is a vector of `Node` / statements.
+    ///
+    /// # Details
+    /// ```php
+    /// while (true) /* from here */:
+    ///    echo "lol";
+    /// endwhile /* to here */
+    /// ```
+    pub fn alternative_block(&mut self, expected_terminator: TokenType) -> ExpressionResult {
+        let mut statements: Vec<Node> = Vec::new();
+
+        let colon = self.consume(TokenType::Colon)?;
+
+        // TODO: Make sure namespace etc can not pop up here
+        while !self.next_token_one_of(&[
+            TokenType::EndFor,
+            TokenType::EndForeach,
+            TokenType::EndWhile,
+            TokenType::EndIf,
+        ]) && self.peek().is_some()
+        {
+            match self.statement() {
+                Ok(statement) => statements.push(statement),
+                Err(error) => {
+                    self.errors.push(error);
+                    self.error_fast_forward();
+                }
+            }
+        }
+
+        let terminator = self.consume(expected_terminator)?;
+
+        Ok(Node::AlternativeBlock {
+            colon,
+            statements,
+            terminator,
+        })
+    }
+
     /// Parses sudden appearances of inline HTML.
     ///
     /// # Example
@@ -125,6 +167,15 @@ impl Parser {
             start: self.consume(TokenType::ScriptEnd)?,
             end: self.consume_or_ignore(TokenType::ScriptStart),
         })
+    }
+
+    /// A helper for wrapping the switch between regular statement or alternative block
+    fn alternative_block_or_statement(&mut self, terminator: TokenType) -> ExpressionResult {
+        if self.next_token_one_of(&[TokenType::Colon]) {
+            return self.alternative_block(terminator);
+        }
+
+        return self.statement();
     }
 
     /// Parses a single statement (offloaded depending on which statement was encountered)
@@ -141,6 +192,12 @@ impl Parser {
         if let Some(token) = self.peek() {
             match token.t {
                 TokenType::ScriptEnd => return self.inline_html(),
+                TokenType::ScriptStart => {
+                    return Err(format!(
+                        "Unexpected script start at line {}, col {}",
+                        token.line, token.col
+                    ));
+                }
                 TokenType::Function => return functions::named_function(self),
                 TokenType::Namespace => return namespaces::namespace_statement(self),
                 TokenType::Use => {
@@ -173,10 +230,11 @@ impl Parser {
                 TokenType::For => return loops::for_statement(self),
                 TokenType::Foreach => return loops::foreach_statement(self),
                 TokenType::If => return conditionals::if_statement(self),
-                TokenType::OpenCurly => {
-                    return self.block();
-                }
+                TokenType::OpenCurly => return self.block(),
                 TokenType::Switch => return conditionals::switch_statement(self),
+                //TokenType::HaltCompiler | TokenType::Die => {
+                // Exit
+                //}
                 TokenType::Semicolon => {
                     return Ok(Node::TokenStatement {
                         token: self.consume(TokenType::Semicolon)?,
@@ -244,8 +302,14 @@ impl Parser {
     /// Consumes the end of a statement. This can either be a semicolon or a script end.
     fn consume_end_of_statement(&mut self) -> Result<(), String> {
         if let Some(token) = self.peek() {
-            if token.t == TokenType::Semicolon || token.t == TokenType::ScriptEnd {
+            if token.t == TokenType::Semicolon {
                 self.next();
+                return Ok(());
+            }
+
+            // Implicit end of statement. Return Ok but do not consume as we need to consume it later to record
+            // a proper inline html statement
+            if token.t == TokenType::ScriptEnd {
                 return Ok(());
             }
 
