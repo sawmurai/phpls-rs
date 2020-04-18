@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 snafu = "0.6.6"
+spmc = "0.3.0"
