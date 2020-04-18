@@ -20,7 +20,7 @@
                 }
             },
             "args": [
-                "/home/sawmurai/develop/php/job-recommender-api/app/Repository/Repository.php"
+                "fixtures"
             ],
             "cwd": "${workspaceFolder}"
         },
