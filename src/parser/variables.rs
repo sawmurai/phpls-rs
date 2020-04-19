@@ -7,7 +7,7 @@ pub(crate) fn variable(parser: &mut Parser) -> ExpressionResult {
 
     // Named, regular variable. No problem here.
     if variable.label.is_some() {
-        return Ok(Node::Literal(variable));
+        return Ok(Node::Variable(variable));
     }
 
     // Dynamic member ${expr}

@@ -1,14 +1,16 @@
 #![allow(clippy::must_use_candidate)]
 
+use crate::parser::Parser;
 use crate::scanner::Scanner;
 use spmc::{channel, Sender};
-use std::thread;
-
-use crate::parser::Parser;
+use std::collections::HashMap;
 use std::fs::{self};
 use std::io::{self, Result};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
+pub mod environment;
 pub mod expression;
 pub mod parser;
 pub mod scanner;
@@ -59,13 +61,17 @@ fn visit_dirs(dir: &Path, tx: &mut ParseMessageSender) -> io::Result<()> {
 }
 
 fn main() -> Result<()> {
+    let d: HashMap<String, environment::Environment> = HashMap::new();
+    let registry = Arc::new(Mutex::new(d));
+
     let (mut tx, rx) = channel::<ParseMessage>();
-    let num_threads = 5;
+    let num_threads = 6;
 
     let mut handles = Vec::new();
     for _ in 0..num_threads {
         let rx = rx.clone();
 
+        let registry = Arc::clone(&registry);
         let handle = thread::spawn(move || loop {
             let (p, content) = rx.recv().unwrap();
 
@@ -84,14 +90,25 @@ fn main() -> Result<()> {
             //t.insert(p, scanner.tokens);
 
             //                println!("{:#?}", &scanner.tokens);
+            // Prototype to tell the token from the current position of the cursor
             let result = Parser::ast(scanner.tokens);
 
             //println!("{:#?}", &scanner.tokens);
             if let Err(e) = result {
                 println!("{}: {:#?}", p, e);
-            } else if let Ok((_, errors)) = result {
+            } else if let Ok((ast, errors)) = result {
+                let mut env = environment::Environment::default();
+
+                env.enter_scope(&p);
+                environment::index::walk_tree(&mut env, ast);
+
+                env.finish_scope();
+
+                //println!("{:#?}", &env);
+                registry.lock().unwrap().insert(p, env);
+
                 if !errors.is_empty() {
-                    println!("Parsing {}", p);
+                    //println!("Parsing {}", p);
 
                     println!("Errors {:#?}", errors);
                 }

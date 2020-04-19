@@ -340,7 +340,7 @@ pub enum Node {
     },
     PropertyDefinitionStatement {
         name: Token,
-        data_type: Option<std::rc::Rc<Node>>,
+        data_type: Option<std::sync::Arc<Node>>,
         visibility: Option<Token>,
         is_abstract: Option<Token>,
         value: Option<Box<Node>>,

@@ -305,9 +305,14 @@ impl Token {
         }
     }
 }
-/*
-impl fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.t)
+
+impl Token {
+    pub fn is_on(&self, line: u16, col: u16) -> bool {
+        if self.line != line {
+            return false;
+        }
+
+        return col >= self.col
+            && col <= (self.col + self.label.clone().unwrap_or_default().len() as u16);
     }
-}*/
+}

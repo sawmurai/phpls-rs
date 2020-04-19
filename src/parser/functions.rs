@@ -102,7 +102,7 @@ pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Node>> {
 ///
 /// # Details
 /// ```php
-/// function /** from here **/my_funy (string $a, int $b): void {
+/// /** from here **/function my_funy (string $a, int $b): void {
 ///     echo "Hello!";
 /// }
 /// /** to here **/
@@ -122,7 +122,7 @@ pub(crate) fn named_function(parser: &mut Parser) -> ExpressionResult {
 ///
 /// # Details
 /// ```php
-/// function my_funy /** from here **/ (string $a, int $b): void {
+/// function /** from here **/ (string $a, int $b): void {
 ///     echo "Hello!";
 /// }
 /// /** to here **/

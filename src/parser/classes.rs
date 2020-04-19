@@ -2,7 +2,6 @@ use crate::expression::Node;
 use crate::parser::{expressions, functions, types};
 use crate::parser::{ExpressionListResult, ExpressionResult, Parser};
 use crate::token::{Token, TokenType};
-use std::rc::Rc;
 
 // abstract_class -> "abstract" class
 pub(crate) fn abstract_class_statement(parser: &mut Parser) -> ExpressionResult {
@@ -158,7 +157,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
             });
         } else {
             let data_type = if !parser.next_token_one_of(&[TokenType::Variable]) {
-                Some(Rc::new(types::non_empty_type_ref(parser)?))
+                Some(std::sync::Arc::new(types::non_empty_type_ref(parser)?))
             } else {
                 None
             };
