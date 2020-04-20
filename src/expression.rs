@@ -160,6 +160,17 @@ pub enum Node {
         return_type: Box<Option<Node>>,
         body: Box<Node>,
     },
+    ArrowFunction {
+        is_static: Option<Token>,
+        by_ref: Option<Token>,
+        token: Token,
+        op: Token,
+        arguments: Option<Vec<Node>>,
+        cp: Token,
+        arrow: Token,
+        return_type: Box<Option<Node>>,
+        body: Box<Node>,
+    },
     FunctionArgument {
         argument_type: Box<Option<Node>>,
         name: Token,
@@ -172,10 +183,13 @@ pub enum Node {
         nullable: Option<Token>,
         type_ref: Box<Node>,
     },
-    ReturnType {
-        token: Token,
+    DataType {
         nullable: Option<Token>,
         type_ref: Box<Node>,
+    },
+    ReturnType {
+        token: Token,
+        data_type: Box<Node>,
     },
     TypeRef(Vec<Token>),
     Class {

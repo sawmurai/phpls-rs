@@ -103,14 +103,13 @@ fn main() -> Result<()> {
                 environment::index::walk_tree(&mut env, ast);
 
                 env.finish_scope();
-
                 //println!("{:#?}", &env);
-                registry.lock().unwrap().insert(p, env);
+                //registry.lock().unwrap().insert(p, env);
 
                 if !errors.is_empty() {
                     //println!("Parsing {}", p);
 
-                    println!("Errors {:#?}", errors);
+                    println!("Parsing {}\n{:#?}", p, errors);
                 }
             } else {
                 //println!("{:#?}", result);

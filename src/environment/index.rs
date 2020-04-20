@@ -24,6 +24,15 @@ fn walk_node<'a>(env: &'a mut Environment, node: Node) {
     match node {
         Node::AliasedVariable { expr, .. } => walk_node(env, *expr),
         Node::AlternativeBlock { statements, .. } => walk_tree(env, statements),
+        Node::ArrowFunction {
+            arguments, body, ..
+        } => {
+            if let Some(arguments) = arguments {
+                walk_tree(env, arguments);
+            }
+
+            walk_node(env, *body);
+        }
         Node::Array { elements, .. } => walk_tree(env, elements),
         Node::ArrayElement { key, value, .. } => {
             if let Some(key) = key {

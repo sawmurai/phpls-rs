@@ -1,5 +1,7 @@
 use crate::token::Token;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 #[derive(Debug, Default)]
 pub struct Scope {
@@ -10,9 +12,18 @@ pub struct Scope {
     /// HashMap where the key is the name of the symbol and the value is a
     /// definition of a class, property, constant, method or function
     pub(crate) definitions: HashMap<String, Token>,
+
+    pub(crate) parent: Option<Rc<RefCell<Scope>>>,
 }
 
 impl Scope {
+    pub fn new(parent: Rc<RefCell<Scope>>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Scope::default()
+        }
+    }
+
     pub fn symbols(&self) -> Vec<String> {
         self.usages.keys().cloned().collect::<Vec<String>>()
     }
@@ -26,8 +37,14 @@ impl Scope {
         return Vec::new();
     }
 
-    pub fn has_symbol(&self, symbol: &str) -> bool {
-        self.usages.contains_key(symbol)
+    /// Determine if the current scope has acces to a symbol, either by defining it or by a parent defining it
+    pub fn has_symbol(&mut self, symbol: &str) -> bool {
+        return self.usages.contains_key(symbol)
+            || if let Some(ref mut parent) = self.parent.as_ref() {
+                parent.borrow_mut().has_symbol(symbol)
+            } else {
+                false
+            };
     }
 
     pub fn push_symbol(&mut self, token: Token) {

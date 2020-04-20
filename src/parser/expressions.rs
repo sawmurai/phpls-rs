@@ -366,10 +366,12 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         return Ok(Node::Grouping(Box::new(expr)));
     }
 
+    if parser.next_token_one_of(&[TokenType::Fn]) {
+        return functions::arrow_function(parser, None);
+    }
+
     if parser.next_token_one_of(&[TokenType::Function]) {
         return functions::anonymous_function(parser, None);
-
-        // Can be either "static function ..." or "static::$lol"
     }
 
     // Static is fun ... watch this ...
@@ -382,6 +384,10 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         // Followed by "function"? Static function expression
         if parser.next_token_one_of(&[TokenType::Function]) {
             return functions::anonymous_function(parser, Some(static_token));
+        }
+
+        if parser.next_token_one_of(&[TokenType::Fn]) {
+            return functions::arrow_function(parser, Some(static_token));
         }
 
         // Otherwise probably used in a instantiation context

@@ -157,7 +157,8 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
             });
         } else {
             let data_type = if !parser.next_token_one_of(&[TokenType::Variable]) {
-                Some(std::sync::Arc::new(types::non_empty_type_ref(parser)?))
+                // TODO: Handle nullable
+                Some(std::sync::Arc::new(types::data_type(parser)?))
             } else {
                 None
             };

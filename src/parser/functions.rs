@@ -23,8 +23,8 @@ pub(crate) fn argument_list(parser: &mut Parser) -> ArgumentListResult {
 
     loop {
         let t = argument_type(parser)?;
-        let spread = parser.consume_or_ignore(TokenType::Elipsis);
         let reference = parser.consume_or_ignore(TokenType::BinaryAnd);
+        let spread = parser.consume_or_ignore(TokenType::Elipsis);
         let name = parser.consume(TokenType::Variable)?;
         let has_default = parser.consume_or_ignore(TokenType::Assignment);
 
@@ -89,8 +89,7 @@ pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Node>> {
     if let Some(colon) = parser.consume_or_ignore(TokenType::Colon) {
         Ok(Some(Node::ReturnType {
             token: colon,
-            nullable: parser.consume_or_ignore(TokenType::QuestionMark),
-            type_ref: Box::new(types::non_empty_type_ref(parser)?),
+            data_type: Box::new(types::data_type(parser)?),
         }))
     } else {
         Ok(None)
@@ -151,6 +150,32 @@ pub(crate) fn anonymous_function_statement(parser: &mut Parser) -> ExpressionRes
         arguments,
         cp,
         return_type,
+        body,
+    })
+}
+
+pub(crate) fn arrow_function(parser: &mut Parser, is_static: Option<Token>) -> ExpressionResult {
+    let token = parser.consume(TokenType::Fn)?;
+    let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
+
+    let op = parser.consume(TokenType::OpenParenthesis)?;
+    let arguments = argument_list(parser)?;
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
+
+    let return_type = Box::new(return_type(parser)?);
+
+    let arrow = parser.consume(TokenType::DoubleArrow)?;
+    let body = Box::new(expressions::expression(parser)?);
+
+    Ok(Node::ArrowFunction {
+        is_static,
+        by_ref,
+        token,
+        op,
+        arguments,
+        cp,
+        return_type,
+        arrow,
         body,
     })
 }

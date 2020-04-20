@@ -107,3 +107,16 @@ pub(crate) fn type_ref_union(parser: &mut Parser) -> Result<Vec<Node>> {
 
     Ok(paths)
 }
+
+/// Parse a variable type
+///
+/// # Details
+/// ```php
+/// function something(/** from here */?int | string/** to here */) {}
+/// ```
+pub(crate) fn data_type(parser: &mut Parser) -> Result<Node> {
+    Ok(Node::DataType {
+        nullable: parser.consume_or_ignore(TokenType::QuestionMark),
+        type_ref: Box::new(non_empty_type_ref(parser)?),
+    })
+}
