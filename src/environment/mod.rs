@@ -1,8 +1,7 @@
 use crate::environment::scope::Scope;
 use crate::token::Token;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 pub mod index;
 pub mod scope;
@@ -10,14 +9,14 @@ pub mod scope;
 #[derive(Debug, Default)]
 pub struct Environment {
     /// List of scopes available
-    scopes: HashMap<Vec<String>, Rc<RefCell<Scope>>>,
+    scopes: HashMap<Vec<String>, Arc<Mutex<Scope>>>,
 
     /// Path to the current stack
     /// Example: ["/root/of/my/project/stuff.php", "MyClass" "my_function"]
     /// This will be the same as the document uri used by the language server protocol
     current_key: Vec<String>,
 
-    current_scope: Rc<RefCell<Scope>>,
+    current_scope: Arc<Mutex<Scope>>,
 }
 
 /// Recursivly walk the ast and create the environment. The environment will be used to provide the
@@ -28,7 +27,7 @@ pub fn new(file: String) -> Environment {
     Environment {
         current_key: vec![file],
         scopes: HashMap::new(),
-        current_scope: Rc::new(RefCell::new(Scope::default())),
+        current_scope: Arc::new(Mutex::new(Scope::default())),
     }
 }
 
@@ -39,7 +38,7 @@ impl Environment {
 
         //println!("{}", self.current_stack.join("/"));
 
-        let scope = Rc::new(RefCell::new(Scope::new(self.current_scope.clone())));
+        let scope = Arc::new(Mutex::new(Scope::new(self.current_scope.clone())));
         self.scopes.insert(self.current_key.clone(), scope.clone());
 
         self.current_scope = scope;
@@ -53,13 +52,14 @@ impl Environment {
     /// Register a new symbol usage in the scope that defines it or in the current scope, if no scope previously
     /// defined it
     pub fn usage(&mut self, token: Token) {
-        self.current_scope.borrow_mut().push_symbol(token);
+        self.current_scope.lock().unwrap().push_symbol(token);
     }
 
     // Register a new symbol definition
     pub fn definition(&mut self, token: &Token) {
         self.current_scope
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push_definition(token.clone());
     }
 }

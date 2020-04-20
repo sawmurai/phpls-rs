@@ -1,7 +1,6 @@
 use crate::token::Token;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Default)]
 pub struct Scope {
@@ -13,11 +12,11 @@ pub struct Scope {
     /// definition of a class, property, constant, method or function
     pub(crate) definitions: HashMap<String, Token>,
 
-    pub(crate) parent: Option<Rc<RefCell<Scope>>>,
+    pub(crate) parent: Option<Arc<Mutex<Scope>>>,
 }
 
 impl Scope {
-    pub fn new(parent: Rc<RefCell<Scope>>) -> Self {
+    pub fn new(parent: Arc<Mutex<Scope>>) -> Self {
         Self {
             parent: Some(parent),
             ..Scope::default()
@@ -41,7 +40,8 @@ impl Scope {
     pub fn has_symbol(&mut self, symbol: &str) -> bool {
         return self.usages.contains_key(symbol)
             || if let Some(ref mut parent) = self.parent.as_ref() {
-                parent.borrow_mut().has_symbol(symbol)
+                // TODO: Do not upwrap!!
+                parent.lock().unwrap().has_symbol(symbol)
             } else {
                 false
             };
