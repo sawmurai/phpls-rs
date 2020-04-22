@@ -2,13 +2,14 @@
 
 use crate::parser::Parser;
 use crate::scanner::Scanner;
-use spmc::{channel, Sender};
 use std::collections::HashMap;
-use std::fs::{self};
-use std::io::{self, Result};
-use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::sync::Arc;
+use tokio::io::{self};
+use tokio::sync::mpsc;
+use tokio::sync::Mutex;
+use tower_lsp::jsonrpc::Result;
+use tower_lsp::lsp_types::*;
+use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 pub mod environment;
 pub mod expression;
@@ -16,120 +17,190 @@ pub mod parser;
 pub mod scanner;
 pub mod token;
 
-type ParseMessage = (String, String);
-type ParseMessageSender = Sender<ParseMessage>;
+type EnvReceiver = mpsc::Receiver<(String, environment::Environment)>;
+type Registry = Arc<Mutex<HashMap<String, environment::Environment>>>;
 
-fn visit_file(path: &Path, tx: &mut ParseMessageSender) -> io::Result<()> {
-    if let Some(ext) = path.extension() {
-        if ext == "php" {
-            let p = path.to_str().unwrap().to_string();
+#[derive(Debug, Default)]
+struct Backend {
+    registry: Registry,
+    opened_files: Arc<Mutex<HashMap<String, Vec<token::Token>>>>,
+}
 
-            if let Ok(content) = fs::read_to_string(path) {
-                tx.send((p, content)).unwrap();
-            }
-            //println!("{:#?}", parser.ast());
-            //if let Err(msg) = index_file(&p, file_registry.add(&p), t) {
-            //    eprintln!("Could not read file {}: {}", &p, &msg);
-            //}
+impl Backend {
+    pub async fn reindex(&self, path: &str, content: &str) -> io::Result<()> {
+        let mut scanner = Scanner::new(&content);
+
+        if let Err(msg) = scanner.scan() {
+            eprintln!("Could not read file {}: {}", &path, &msg);
+
+            return Ok(());
+        }
+
+        if let Ok((ast, _)) = Parser::ast(scanner.tokens.clone()) {
+            let mut env = environment::Environment::new(path);
+
+            environment::index::walk_tree(&mut env, ast);
+            //env.finish_namespace();
+
+            self.registry.lock().await.insert(path.to_owned(), env);
+            eprintln!("updated");
+        } else {
+            eprintln!("shiw");
+        }
+
+        self.opened_files
+            .lock()
+            .await
+            .insert(path.to_owned(), scanner.tokens);
+
+        Ok(())
+    }
+}
+
+#[tower_lsp::async_trait]
+impl LanguageServer for Backend {
+    fn initialize(&self, client: &Client, params: InitializeParams) -> Result<InitializeResult> {
+        //if let Some(root_uri) = params.root_uri {
+        client.log_message(MessageType::Info, format!("Indexing {:?}", params.root_uri));
+        //}
+
+        Ok(InitializeResult {
+            server_info: None,
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::Full,
+                )),
+                //hover_provider: Some(true),
+                /*completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec![".".to_string()]),
+                    work_done_progress_options: Default::default(),
+                }),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: None,
+                    retrigger_characters: None,
+                    work_done_progress_options: Default::default(),
+                }),*/
+                //document_highlight_provider: Some(true),
+                document_symbol_provider: Some(true),
+                //workspace_symbol_provider: Some(true),
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec!["dummy.do_something".to_string()],
+                    work_done_progress_options: Default::default(),
+                }),
+                workspace: Some(WorkspaceCapability {
+                    workspace_folders: Some(WorkspaceFolderCapability {
+                        supported: Some(true),
+                        change_notifications: Some(
+                            WorkspaceFolderCapabilityChangeNotifications::Bool(true),
+                        ),
+                    }),
+                }),
+                ..ServerCapabilities::default()
+            },
+        })
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let registry = self.registry.lock().await;
+
+        if let Some(env) = registry.get(params.text_document.uri.path()) {
+            Ok(Some(DocumentSymbolResponse::Nested(env.document_symbols())))
+        } else {
+            Ok(None)
         }
     }
 
-    Ok(())
-}
+    async fn did_change(&self, client: &Client, params: DidChangeTextDocumentParams) {
+        if let Err(e) = self
+            .reindex(
+                params.text_document.uri.path(),
+                &params.content_changes[0].text,
+            )
+            .await
+        {
+            client.log_message(MessageType::Error, e);
+        }
+    }
 
-fn visit_dirs(dir: &Path, tx: &mut ParseMessageSender) -> io::Result<()> {
-    if dir.is_dir() {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
+    async fn did_open(&self, client: &Client, params: DidOpenTextDocumentParams) {
+        let path = params.text_document.uri.path();
+        let content = tokio::fs::read_to_string(path).await.unwrap();
 
-            // if path.ends_with("vendor") {
-            //    continue;
-            // }
+        if let Ok(()) = self.reindex(path, &content).await {
+            client.log_message(
+                MessageType::Info,
+                format!("Indexed {}", params.text_document.uri),
+            )
+        } else {
+            client.log_message(
+                MessageType::Error,
+                format!("Failed to index {}", params.text_document.uri),
+            )
+        }
+    }
 
-            if path.is_dir() {
-                visit_dirs(&path, tx)?;
+    async fn hover(&self, params: TextDocumentPositionParams) -> Result<Option<Hover>> {
+        let file = params.text_document.uri.path();
+        let Position { line, character } = params.position;
+
+        if let Some(_env) = self.registry.lock().await.get(file) {
+            let of = self.opened_files.lock().await;
+            if let Some(token) = of
+                .get(file)
+                .unwrap()
+                .iter()
+                .find(|token| token.is_on(line as u16, character as u16))
+            {
+                return Ok(Some(Hover {
+                    contents: HoverContents::Scalar(MarkedString::String(format!(
+                        "Type: {:?}, Usages: {}",
+                        token.t, 0
+                    ))),
+                    range: None,
+                }));
             } else {
-                visit_file(&path, tx)?;
+                return Ok(None);
             }
         }
-    } else {
-        visit_file(&dir, tx)?;
+
+        Ok(None)
     }
 
-    Ok(())
+    async fn initialized(&self, client: &Client, _: InitializedParams) {
+        client.log_message(MessageType::Info, "Initialized");
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn completion(&self, _params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        Ok(Some(CompletionResponse::Array(vec![
+            CompletionItem::new_simple("Hello".to_string(), "Some detail".to_string()),
+            CompletionItem::new_simple("Bye".to_string(), "More detail".to_string()),
+        ])))
+    }
 }
 
-fn main() -> Result<()> {
-    let d: HashMap<String, environment::Environment> = HashMap::new();
-    let registry = Arc::new(Mutex::new(d));
-
-    let (mut tx, rx) = channel::<ParseMessage>();
-    let num_threads = 6;
-
-    let mut handles = Vec::new();
-    for _ in 0..num_threads {
-        let rx = rx.clone();
-
-        let registry = Arc::clone(&registry);
-        let handle = thread::spawn(move || loop {
-            let (p, content) = rx.recv().unwrap();
-
-            if p == "" {
-                return;
-            }
-
-            let mut scanner = Scanner::new(&content);
-
-            if let Err(msg) = scanner.scan() {
-                eprintln!("Could not read file {}: {}", &p, &msg);
-            }
-
-            // Later on we need to generate an AST, as well as an environment and the
-            // symbol table. This will then replace the token streams
-            //t.insert(p, scanner.tokens);
-
-            //                println!("{:#?}", &scanner.tokens);
-            // Prototype to tell the token from the current position of the cursor
-            let result = Parser::ast(scanner.tokens);
-
-            //println!("{:#?}", &scanner.tokens);
-            if let Err(e) = result {
-                println!("{}: {:#?}", p, e);
-            } else if let Ok((ast, errors)) = result {
-                let mut env = environment::Environment::default();
-
-                env.enter_scope(&p);
-                environment::index::walk_tree(&mut env, ast);
-
-                env.finish_scope();
-                //println!("{:#?}", &env);
-                //registry.lock().unwrap().insert(p, env);
-
-                if !errors.is_empty() {
-                    //println!("Parsing {}", p);
-
-                    println!("Parsing {}\n{:#?}", p, errors);
-                }
-            } else {
-                //println!("{:#?}", result);
-            }
-        });
-
-        handles.push(handle);
+pub async fn launch_registry_writer(registry: Registry, mut rx: EnvReceiver) {
+    while let Some((path, env)) = rx.recv().await {
+        registry.lock().await.insert(path, env);
     }
+}
 
-    visit_dirs(
-        Path::new(&std::env::args().nth(1).unwrap_or_else(|| String::from("."))),
-        &mut tx,
-    )?;
+#[tokio::main]
+async fn main() {
+    let stdin = tokio::io::stdin();
+    let stdout = tokio::io::stdout();
+    let backend = Backend::default();
 
-    for _ in 0..num_threads {
-        tx.send(("".to_string(), "".to_string())).unwrap();
-    }
-
-    for handle in handles {
-        handle.join().unwrap();
-    }
-    Ok(())
+    let (service, messages) = LspService::new(backend);
+    Server::new(stdin, stdout)
+        .interleave(messages)
+        .serve(service)
+        .await;
 }

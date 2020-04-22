@@ -40,7 +40,7 @@ impl Scanner {
         Scanner {
             col: 1,
             start_of_token: 1,
-            line: 1,
+            line: 0,
             pos: 0,
             context: Context::OutScript,
 

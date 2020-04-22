@@ -518,3 +518,31 @@ impl Expr for Node {
         true
     }
 }
+
+pub type NodeRange = ((u16, u16), (u16, u16));
+
+impl Node {
+    pub fn end(&self) -> Token {
+        match self {
+            Node::Block { cc, .. } => cc.clone(),
+            Node::FunctionDefinitionStatement { body, cp, .. } => {
+                if let Some(body) = body {
+                    return body.end();
+                }
+
+                return cp.clone();
+            }
+            _ => unimplemented!("Implement end for token type {:?}", self),
+        }
+    }
+
+    pub fn range(&self) -> NodeRange {
+        match self {
+            Node::MethodDefinitionStatement {
+                token, function, ..
+            } => (token.start(), function.end().end()),
+            Node::NamespaceBlock { token, block, .. } => (token.start(), block.end().end()),
+            _ => ((1, 1), (100, 100)),
+        }
+    }
+}

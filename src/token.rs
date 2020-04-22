@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
     // One char
     Plus,
@@ -186,7 +186,7 @@ pub enum TokenType {
     TypeSelf,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token {
     pub col: u16,
     pub line: u16,
@@ -304,9 +304,19 @@ impl Token {
             _ => false,
         }
     }
-}
 
-impl Token {
+    pub fn start(&self) -> (u16, u16) {
+        (self.line, self.col)
+    }
+
+    pub fn end(&self) -> (u16, u16) {
+        (self.line, self.col + self.len())
+    }
+
+    pub fn len(&self) -> u16 {
+        return 1;
+    }
+
     pub fn is_on(&self, line: u16, col: u16) -> bool {
         if self.line != line {
             return false;

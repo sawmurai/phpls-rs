@@ -1,9 +1,21 @@
 {
-    // Verwendet IntelliSense zum Ermitteln möglicher Attribute.
-    // Zeigen Sie auf vorhandene Attribute, um die zugehörigen Beschreibungen anzuzeigen.
-    // Weitere Informationen finden Sie unter https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+        {
+            "type": "extensionHost",
+            "request": "launch",
+            "name": "Launch Client",
+            "runtimeExecutable": "${execPath}",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceRoot}"
+            ],
+            "outFiles": [
+                "${workspaceRoot}/client/out/**/*.js"
+            ],
+            "preLaunchTask": "build",
+            //"trace": true
+            //"cwd": "${workspaceRoot}/client"
+        },
         {
             "type": "lldb",
             "request": "launch",
@@ -20,7 +32,7 @@
                 }
             },
             "args": [
-                "fixtures"
+                "fixtures/class.php"
             ],
             "cwd": "${workspaceFolder}"
         },

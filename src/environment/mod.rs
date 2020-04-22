@@ -1,65 +1,119 @@
-use crate::environment::scope::Scope;
+use crate::environment::namespace::Namespace;
 use crate::token::Token;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use tower_lsp::lsp_types::{DocumentSymbol, Range};
 
+pub mod class;
 pub mod index;
-pub mod scope;
+pub mod namespace;
 
 #[derive(Debug, Default)]
 pub struct Environment {
-    /// List of scopes available
-    scopes: HashMap<Vec<String>, Arc<Mutex<Scope>>>,
-
     /// Path to the current stack
     /// Example: ["/root/of/my/project/stuff.php", "MyClass" "my_function"]
     /// This will be the same as the document uri used by the language server protocol
     current_key: Vec<String>,
 
-    current_scope: Arc<Mutex<Scope>>,
-}
+    global_namespace: Namespace,
 
-/// Recursivly walk the ast and create the environment. The environment will be used to provide the
-/// language server capabilities
-pub fn new(file: String) -> Environment {
-    //let symbol_index = build_symbol_index(ast);
-
-    Environment {
-        current_key: vec![file],
-        scopes: HashMap::new(),
-        current_scope: Arc::new(Mutex::new(Scope::default())),
-    }
+    current_namespace: Vec<String>,
 }
 
 impl Environment {
-    /// Enter the next scope by referencing it to its parent and pushing it onto the stack
-    pub fn enter_scope(&mut self, name: &str) {
-        self.current_key.push(name.to_owned());
+    /// Recursivly walk the ast and create the environment. The environment will be used to provide the
+    /// language server capabilities
+    pub fn new(file: &str) -> Environment {
+        let current_key = vec![file.to_owned()];
 
-        //println!("{}", self.current_stack.join("/"));
-
-        let scope = Arc::new(Mutex::new(Scope::new(self.current_scope.clone())));
-        self.scopes.insert(self.current_key.clone(), scope.clone());
-
-        self.current_scope = scope;
+        Environment {
+            current_key: current_key,
+            global_namespace: Namespace::default(),
+            current_namespace: Vec::new(),
+        }
     }
 
-    /// Finish and leave the current scope.
-    pub fn finish_scope(&mut self) {
-        self.current_key.pop();
+    /// Recursivly creates the namespace in a nested HashMap
+    pub fn start_namespace(&mut self, path: Vec<Token>, range: Range) {
+        let name = path
+            .iter()
+            .map(|t| {
+                if let Some(label) = t.clone().label {
+                    return label;
+                } else {
+                    return "\\".to_owned();
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("");
+
+        self.current_namespace.push(name);
+
+        let mut path = self.current_namespace.clone();
+        path.reverse();
+
+        self.global_namespace.register_namespace(path, range);
     }
 
-    /// Register a new symbol usage in the scope that defines it or in the current scope, if no scope previously
-    /// defined it
-    pub fn usage(&mut self, token: Token) {
-        self.current_scope.lock().unwrap().push_symbol(token);
+    pub fn finish_namespace(&mut self) {
+        self.current_namespace.pop();
     }
 
-    // Register a new symbol definition
-    pub fn definition(&mut self, token: &Token) {
-        self.current_scope
-            .lock()
-            .unwrap()
-            .push_definition(token.clone());
+    /// Start a new class by adding its name to the current namespace path and
+    /// registering it into the current namespace
+    pub fn start_class(&mut self, name: &str, range: Range) {
+        self.current_namespace.push(name.to_owned());
+
+        let mut path = self.current_namespace.clone();
+        path.reverse();
+
+        self.global_namespace.register_class(path, range);
+    }
+
+    /// Pop the class name right off of the stack
+    pub fn finish_class(&mut self) {
+        self.current_namespace.pop();
+    }
+
+    /// Register a new method in the active class
+    pub fn register_method(&mut self, name: &str, range: Range) {
+        let mut path = self.current_namespace.clone();
+        path.push(name.to_owned());
+        path.reverse();
+
+        self.global_namespace.register_method(path, range);
+    }
+
+    /// Register a new property in the active class
+    pub fn register_property(&mut self, name: &str, range: Range) {
+        let mut path = self.current_namespace.clone();
+        path.push(name.to_owned());
+        path.reverse();
+
+        self.global_namespace.register_method(path, range);
+    }
+
+    /// Register a new property in the active class
+    pub fn register_constant(&mut self, name: &str, range: Range) {
+        let mut path = self.current_namespace.clone();
+        path.push(name.to_owned());
+        path.reverse();
+
+        self.global_namespace.register_constant(path, range);
+    }
+
+    pub fn register_variable(&mut self, name: &str, range: Range) {
+        let mut path = self.current_namespace.clone();
+        path.push(name.to_owned());
+        path.reverse();
+
+        //self.global_namespace.register_variable(path, range);
+    }
+
+    /// Returns a vector of all document symbols in the current document
+    pub fn document_symbols(&self) -> Vec<DocumentSymbol> {
+        self.global_namespace
+            .namespaces
+            .iter()
+            .map(|(_, ns)| DocumentSymbol::from(ns))
+            .collect()
     }
 }

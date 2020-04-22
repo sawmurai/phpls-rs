@@ -1,8 +1,9 @@
 use crate::environment::Environment;
-use crate::expression::Node;
-use crate::scanner::Scanner;
+use crate::expression::{Node, NodeRange};
 use crate::token::Token;
 use std::collections::HashMap;
+
+use tower_lsp::lsp_types::{Position, Range};
 
 #[derive(Debug, Default)]
 pub struct Index {
@@ -21,6 +22,9 @@ pub(crate) fn walk_tree<'a>(env: &'a mut Environment, ast: Vec<Node>) {
 /// Walk the generated syntax tree and resolve symbols and definitions, enriching the passed
 /// environment on the way.
 fn walk_node<'a>(env: &'a mut Environment, node: Node) {
+    // See if this fucks up performance
+    let range = node.range();
+
     match node {
         Node::AliasedVariable { expr, .. } => walk_node(env, *expr),
         Node::AlternativeBlock { statements, .. } => walk_tree(env, statements),
@@ -54,22 +58,21 @@ fn walk_node<'a>(env: &'a mut Environment, node: Node) {
             walk_node(env, *callee);
             walk_tree(env, parameters);
         }
-        Node::Class { token, body, .. } => {
-            env.enter_scope(&format!("anonclass_{}_{}", token.line, token.col));
+        Node::Class { body, .. } => {
             walk_node(env, *body);
-            env.finish_scope();
         }
         Node::ClassStatement { name, body, .. } => {
-            if let Some(name) = name.label {
-                env.enter_scope(&name);
-            } else {
-                env.enter_scope(&format!("anonclass_{}_{}", name.line, name.col));
-            }
-            walk_node(env, *body);
+            let class_name = name.clone().label.unwrap().clone();
 
-            env.finish_scope();
+            if let Node::Block { statements, .. } = *body {
+                env.start_class(&class_name, get_range(range));
+                walk_tree(env, statements);
+                env.finish_class();
+            }
         }
-        Node::ClassConstantDefinitionStatement { name, .. } => env.definition(&name),
+        Node::ClassConstantDefinitionStatement { name, .. } => {
+            env.register_constant(&name.label.unwrap(), get_range(range))
+        }
         Node::DoWhileStatement {
             condition, body, ..
         } => {
@@ -111,20 +114,15 @@ fn walk_node<'a>(env: &'a mut Environment, node: Node) {
             }
         }
         Node::FunctionArgument { name, .. } => {
-            env.usage(name);
+            env.register_variable(&name.label.unwrap(), get_range(range));
         }
         Node::Member { object, member, .. } => {
             walk_node(env, *object);
             walk_node(env, *member);
         }
         Node::MethodDefinitionStatement { name, function, .. } => {
-            env.definition(&name);
-
-            if let Some(name) = name.label {
-                env.enter_scope(&name);
-            } else {
-                env.enter_scope("asd2");
-            }
+            let method_name = name.label.unwrap();
+            env.register_method(&method_name, get_range(range));
 
             match *function {
                 Node::FunctionDefinitionStatement {
@@ -133,23 +131,16 @@ fn walk_node<'a>(env: &'a mut Environment, node: Node) {
                     if let Some(arguments) = arguments {
                         walk_tree(env, arguments);
                     }
+
                     if let Some(body) = body {
                         walk_node(env, *body);
                     }
                 }
                 _ => {}
             };
-
-            env.finish_scope();
         }
         //Node::PropertyDefinitionStatement { name, .. } => println!("${}", name.label.unwrap()),
-        Node::NamedFunctionDefinitionStatement { name, function, .. } => {
-            if let Some(name) = name.label {
-                env.enter_scope(&name);
-            } else {
-                env.enter_scope("asd");
-            }
-
+        Node::NamedFunctionDefinitionStatement { function, .. } => {
             match *function {
                 Node::FunctionDefinitionStatement {
                     arguments, body, ..
@@ -163,16 +154,25 @@ fn walk_node<'a>(env: &'a mut Environment, node: Node) {
                 }
                 _ => {}
             };
+        }
+        Node::NamespaceBlock {
+            block,
+            type_ref,
+            token,
+        } => {
+            if let Some(Node::TypeRef(type_ref)) = *type_ref {
+                env.start_namespace(type_ref, get_range(range));
+            } else {
+                env.start_namespace(vec![token], get_range(range));
+            }
 
-            env.finish_scope();
+            walk_node(env, *block);
+
+            env.finish_namespace();
         }
         Node::FunctionDefinitionStatement {
-            arguments,
-            body,
-            op,
-            ..
+            arguments, body, ..
         } => {
-            env.enter_scope(&format!("anonfunc_{}_{}", op.line, op.col));
             if let Some(arguments) = arguments {
                 walk_tree(env, arguments);
             }
@@ -180,7 +180,6 @@ fn walk_node<'a>(env: &'a mut Environment, node: Node) {
             if let Some(body) = body {
                 walk_node(env, *body);
             }
-            env.finish_scope();
         }
         Node::GlobalVariablesStatement { vars, .. } => walk_tree(env, vars),
         Node::IfBranch {
@@ -203,7 +202,9 @@ fn walk_node<'a>(env: &'a mut Environment, node: Node) {
         }
         Node::New { class, .. } => walk_node(env, *class),
         Node::OldArray { elements, .. } => walk_tree(env, elements),
-        Node::PropertyDefinitionStatement { name, .. } => env.definition(&name),
+        Node::PropertyDefinitionStatement { name, .. } => {
+            env.register_property(&name.label.unwrap(), get_range(range));
+        }
         Node::SingleStatementBlock(node) => walk_node(env, *node),
         Node::SwitchBody { branches, .. } => walk_tree(env, branches),
         Node::SwitchBranch { cases, body } => {
@@ -220,9 +221,7 @@ fn walk_node<'a>(env: &'a mut Environment, node: Node) {
             walk_node(env, *body);
         }
         Node::StaticVariablesStatement { assignments, .. } => walk_tree(env, assignments),
-        Node::StaticVariable {
-            variable, value, ..
-        } => {
+        Node::StaticVariable { value, .. } => {
             if let Some(value) = value {
                 walk_node(env, *value);
             }
@@ -257,7 +256,9 @@ fn walk_node<'a>(env: &'a mut Environment, node: Node) {
         Node::Unary { expr, .. } => {
             walk_node(env, *expr);
         }
-        Node::Variable(variable) => env.usage(variable),
+        Node::Variable(variable) => {
+            env.register_variable(&variable.label.unwrap(), get_range(range))
+        }
         Node::WhileStatement {
             condition, body, ..
         } => {
@@ -270,47 +271,18 @@ fn walk_node<'a>(env: &'a mut Environment, node: Node) {
     };
 }
 
-/// Finds the token under the current cursor
-pub(crate) fn symbol_under_cursor(content: &str, line: u16, col: u16) -> Option<Token> {
-    let mut scanner = Scanner::new(&content);
+fn get_range(coords: NodeRange) -> Range {
+    let start = coords.0;
+    let end = coords.1;
 
-    if let Ok(_) = scanner.scan() {
-        for token in scanner.tokens {
-            if token.is_on(line, col) {
-                return Some(token);
-            }
-            if token.line >= line && token.col >= col {
-                break;
-            }
-        }
+    Range {
+        start: Position {
+            line: start.0 as u64,
+            character: start.1 as u64,
+        },
+        end: Position {
+            line: end.0 as u64,
+            character: end.1 as u64,
+        },
     }
-
-    None
-}
-
-pub(crate) fn auto_complete(ast: Vec<Node>) -> Vec<String> {
-    // 1. Find symbol_under_cursor
-    // 2. Get its scope
-    // 3. Return its symbols
-    vec!["ddd".to_string()]
-}
-
-pub(crate) fn definition(ast: Vec<Node>) -> Vec<String> {
-    // 1. Find symbol_under_cursor
-    // For vars:
-    // 2. Get its scope
-    // 3. Return its first usage
-    // For other things
-    // 3. Return its definition
-    vec!["ddd".to_string()]
-}
-
-pub(crate) fn usages(ast: Vec<Node>) -> Vec<String> {
-    // 1. Find symbol_under_cursor
-    // For vars:
-    // 2. Get its scope
-    // 3. Return its usages
-    // For other things
-    // 3. Do a BFS through its scope (and their child scopes) to return all usages
-    vec!["ddd".to_string()]
 }
