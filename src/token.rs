@@ -1,3 +1,5 @@
+use tower_lsp::lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
     // One char
@@ -313,6 +315,10 @@ impl Token {
         (self.line, self.col + self.len())
     }
 
+    pub fn range(&self) -> ((u16, u16), (u16, u16)) {
+        (self.start(), self.end())
+    }
+
     pub fn len(&self) -> u16 {
         return 1;
     }
@@ -324,5 +330,33 @@ impl Token {
 
         return col >= self.col
             && col <= (self.col + self.label.clone().unwrap_or_default().len() as u16);
+    }
+}
+
+impl From<&Token> for DocumentSymbol {
+    fn from(token: &Token) -> DocumentSymbol {
+        let start = token.start();
+        let end = token.end();
+
+        let range = Range {
+            start: Position {
+                line: start.0 as u64,
+                character: start.1 as u64,
+            },
+            end: Position {
+                line: end.0 as u64,
+                character: end.1 as u64,
+            },
+        };
+
+        DocumentSymbol {
+            name: token.clone().label.unwrap(),
+            kind: SymbolKind::Variable,
+            range: range,
+            selection_range: range,
+            detail: None,
+            children: None,
+            deprecated: None,
+        }
     }
 }

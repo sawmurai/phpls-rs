@@ -37,9 +37,9 @@ impl Backend {
         }
 
         if let Ok((ast, _)) = Parser::ast(scanner.tokens.clone()) {
-            let mut env = environment::Environment::new(path);
+            let mut env = environment::Environment::default();
 
-            environment::index::walk_tree(&mut env, ast);
+            env.cache_symbols(&ast);
             //env.finish_namespace();
 
             self.registry.lock().await.insert(path.to_owned(), env);
@@ -105,13 +105,28 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let registry = self.registry.lock().await;
+        let path = params.text_document.uri.path();
+        {
+            let registry = self.registry.lock().await;
 
-        if let Some(env) = registry.get(params.text_document.uri.path()) {
-            Ok(Some(DocumentSymbolResponse::Nested(env.document_symbols())))
-        } else {
-            Ok(None)
+            if let Some(env) = registry.get(path) {
+                return Ok(Some(DocumentSymbolResponse::Nested(
+                    env.document_symbols.clone(),
+                )));
+            }
         }
+        // Well, nothing cached yet. Index and return result
+        let content = tokio::fs::read_to_string(path).await.unwrap();
+        if let Ok(()) = self.reindex(path, &content).await {
+            let registry = self.registry.lock().await;
+            if let Some(env) = registry.get(path) {
+                return Ok(Some(DocumentSymbolResponse::Nested(
+                    env.document_symbols.clone(),
+                )));
+            }
+        }
+
+        Ok(None)
     }
 
     async fn did_change(&self, client: &Client, params: DidChangeTextDocumentParams) {
@@ -130,16 +145,8 @@ impl LanguageServer for Backend {
         let path = params.text_document.uri.path();
         let content = tokio::fs::read_to_string(path).await.unwrap();
 
-        if let Ok(()) = self.reindex(path, &content).await {
-            client.log_message(
-                MessageType::Info,
-                format!("Indexed {}", params.text_document.uri),
-            )
-        } else {
-            client.log_message(
-                MessageType::Error,
-                format!("Failed to index {}", params.text_document.uri),
-            )
+        if let Err(e) = self.reindex(path, &content).await {
+            client.log_message(MessageType::Error, format!("Failed to index {}", e))
         }
     }
 

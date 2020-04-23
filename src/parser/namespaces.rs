@@ -236,5 +236,5 @@ pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResu
         break;
     }
 
-    Ok(Node::UseStatement { imports })
+    Ok(Node::UseStatement { token, imports })
 }

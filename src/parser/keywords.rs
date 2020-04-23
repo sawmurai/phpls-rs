@@ -35,12 +35,17 @@ pub(crate) fn declare_statement(parser: &mut Parser) -> ExpressionResult {
 
 /// Parses unset statements
 pub(crate) fn unset_statement(parser: &mut Parser) -> ExpressionResult {
-    parser.consume_or_err(TokenType::Unset)?;
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
+    let token = parser.consume(TokenType::Unset)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
     let vars = functions::non_empty_parameter_list(parser)?;
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    Ok(Node::UnsetStatement { vars })
+    Ok(Node::UnsetStatement {
+        token,
+        cp,
+        op,
+        vars,
+    })
 }
 
 pub(crate) fn echo_statement(parser: &mut Parser) -> ExpressionResult {
