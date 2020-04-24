@@ -38,8 +38,8 @@ impl Scanner {
         let chars = source.chars().rev().collect::<Vec<char>>();
 
         Scanner {
-            col: 1,
-            start_of_token: 1,
+            col: 0,
+            start_of_token: 0,
             line: 0,
             pos: 0,
             context: Context::OutScript,
@@ -66,15 +66,13 @@ impl Scanner {
     /// ```
     pub fn scan(&mut self) -> Result<&Vec<Token>, String> {
         loop {
-            if self.peek().is_none() {
-                break;
-            }
-
             self.start_of_token = self.col;
 
             let c = match self.advance() {
                 Some(c) => c,
                 _ => {
+                    self.push_token(TokenType::Eof);
+
                     break;
                 }
             };
@@ -800,7 +798,7 @@ impl Scanner {
         if let Some(c) = self.next() {
             if c == '\n' || c == '\r' {
                 self.line += 1;
-                self.col = 1;
+                self.col = 0;
             } else {
                 self.col += 1;
             }

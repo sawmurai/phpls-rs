@@ -36,9 +36,10 @@ impl Backend {
             return Ok(());
         }
 
-        if let Ok((ast, _)) = Parser::ast(scanner.tokens.clone()) {
+        if let Ok((ast, errors)) = Parser::ast(scanner.tokens.clone()) {
             let mut env = environment::Environment::default();
 
+            env.cache_diagnostics(&errors);
             env.cache_symbols(&ast);
             //env.finish_namespace();
 
@@ -83,7 +84,7 @@ impl LanguageServer for Backend {
                 }),*/
                 //document_highlight_provider: Some(true),
                 document_symbol_provider: Some(true),
-                //workspace_symbol_provider: Some(true),
+                workspace_symbol_provider: Some(true),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["dummy.do_something".to_string()],
                     work_done_progress_options: Default::default(),
@@ -130,14 +131,20 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, client: &Client, params: DidChangeTextDocumentParams) {
-        if let Err(e) = self
-            .reindex(
-                params.text_document.uri.path(),
-                &params.content_changes[0].text,
-            )
-            .await
-        {
+        let path = params.text_document.uri.path();
+
+        if let Err(e) = self.reindex(path, &params.content_changes[0].text).await {
             client.log_message(MessageType::Error, e);
+
+            return;
+        }
+
+        if let Some(env) = self.registry.lock().await.get(path) {
+            client.publish_diagnostics(
+                params.text_document.uri,
+                env.diagnostics.clone(),
+                params.text_document.version,
+            );
         }
     }
 
@@ -146,7 +153,17 @@ impl LanguageServer for Backend {
         let content = tokio::fs::read_to_string(path).await.unwrap();
 
         if let Err(e) = self.reindex(path, &content).await {
-            client.log_message(MessageType::Error, format!("Failed to index {}", e))
+            client.log_message(MessageType::Error, format!("Failed to index {}", e));
+
+            return;
+        }
+
+        if let Some(env) = self.registry.lock().await.get(path) {
+            client.publish_diagnostics(
+                params.text_document.uri,
+                env.diagnostics.clone(),
+                Some(params.text_document.version),
+            );
         }
     }
 

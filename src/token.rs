@@ -2,6 +2,8 @@ use tower_lsp::lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
+    Eof,
+
     // One char
     Plus,
     Minus,

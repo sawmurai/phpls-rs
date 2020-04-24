@@ -2,28 +2,51 @@ use crate::expression::*;
 use crate::token::{Token, TokenType};
 use snafu::Snafu;
 
+use tower_lsp::lsp_types::Diagnostic;
+
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("Script terminated."))]
-    ScriptTerminated,
-
-    #[snafu(display("Unexpected token {:?}, expected on of [{:?}] on line {}, col {}", found.t, expected, found.line, found.col))]
+    #[snafu(display("Unexpected token {:?}, expected on of [{:?}] on line {}, col {}", token.t, expected, token.line, token.col))]
     WrongTokenError {
         expected: Vec<TokenType>,
-        found: Token,
+        token: Token,
     },
 
     #[snafu(display("Unexpected token {:?} on line {}, col {}", token.t, token.line, token.col))]
     UnexpectedTokenError { token: Token },
 
-    #[snafu(display("Unexpected end of file, expected on of [{:?}]", expected))]
-    UnexpectedEndOfFileError { expected: Vec<TokenType> },
-
-    #[snafu(display("Illegal offset type on line {}, col {}", token.line, token.col))]
-    IllegalOffsetType { token: Token },
+    #[snafu(display("Illegal offset type on line {}, col {}", (expr.range().0).0, (expr.range().0).1))]
+    IllegalOffsetType { expr: Node },
 
     #[snafu(display("Can not use expression in write context on line {}, col {}", token.line, token.col))]
     RValueInWriteContext { token: Token },
+}
+
+impl From<&Error> for Diagnostic {
+    fn from(e: &Error) -> Diagnostic {
+        match e {
+            Error::WrongTokenError { token, expected } => Diagnostic {
+                range: get_range(token.range()),
+                message: format!("Wrong token {:?}, expected one of {:?}", token.t, expected),
+                ..Diagnostic::default()
+            },
+            Error::UnexpectedTokenError { token, .. } => Diagnostic {
+                range: get_range(token.range()),
+                message: format!("Unexpected token {:?}", token.t),
+                ..Diagnostic::default()
+            },
+            Error::IllegalOffsetType { expr, .. } => Diagnostic {
+                range: get_range(expr.range()),
+                message: "Illegal offset type".to_owned(),
+                ..Diagnostic::default()
+            },
+            Error::RValueInWriteContext { token, .. } => Diagnostic {
+                range: get_range(token.range()),
+                message: "Can not use expression in write context".to_owned(),
+                ..Diagnostic::default()
+            },
+        }
+    }
 }
 
 // Overwrite result
@@ -82,7 +105,11 @@ impl Parser {
 
         parser.consume_or_err(TokenType::ScriptStart)?;
 
-        while parser.peek().is_some() {
+        while let Some(next) = parser.peek() {
+            if next.t == TokenType::Eof {
+                break;
+            }
+
             match parser.statement() {
                 Ok(statement) => statements.push(statement),
                 Err(error) => {
@@ -312,9 +339,7 @@ impl Parser {
             }
         }
 
-        Err(Error::UnexpectedEndOfFileError {
-            expected: Vec::new(),
-        })
+        panic!("Read too far!");
     }
 
     /// Pop and return the next token
@@ -324,7 +349,15 @@ impl Parser {
 
     /// Return the next token without popping it off the stream
     fn peek(&self) -> Option<&Token> {
-        self.tokens.last()
+        if let Some(last) = self.tokens.last() {
+            if last.t == TokenType::Eof {
+                return None;
+            } else {
+                return Some(last);
+            }
+        }
+
+        None
     }
 
     /// Consumes the end of a statement. This can either be a semicolon or a script end.
@@ -343,7 +376,7 @@ impl Parser {
 
             return Err(Error::WrongTokenError {
                 expected: vec![TokenType::Semicolon, TokenType::ScriptEnd],
-                found: token.clone(),
+                token: token.clone(),
             });
         }
 
@@ -360,11 +393,11 @@ impl Parser {
 
             return Err(Error::WrongTokenError {
                 expected: vec![t],
-                found: token.clone(),
+                token: token.clone(),
             });
         }
 
-        Err(Error::UnexpectedEndOfFileError { expected: vec![t] })
+        panic!("Read too far!");
     }
 
     /// Consume a Some of token of type `t` or do nothing.
@@ -389,11 +422,11 @@ impl Parser {
 
             return Err(Error::WrongTokenError {
                 expected: vec![t],
-                found: token.clone(),
+                token: token.clone(),
             });
         }
 
-        Err(Error::UnexpectedEndOfFileError { expected: vec![t] })
+        panic!("Read too far!");
     }
 
     /// Consume an identifier or return an error
@@ -405,13 +438,11 @@ impl Parser {
 
             return Err(Error::WrongTokenError {
                 expected: vec![TokenType::Identifier],
-                found: token.clone(),
+                token: token.clone(),
             });
         }
 
-        Err(Error::UnexpectedEndOfFileError {
-            expected: vec![TokenType::Identifier],
-        })
+        panic!("Read too far!");
     }
 
     /// Consume a potential member of a class / an object or return an error
@@ -423,13 +454,11 @@ impl Parser {
 
             return Err(Error::WrongTokenError {
                 expected: vec![TokenType::Identifier, TokenType::Variable],
-                found: token.clone(),
+                token: token.clone(),
             });
         }
 
-        Err(Error::UnexpectedEndOfFileError {
-            expected: vec![TokenType::Variable, TokenType::Identifier],
-        })
+        panic!("Read too far!");
     }
 
     // Consume a token of one of the types of `types` or return an error
@@ -443,13 +472,11 @@ impl Parser {
 
             return Err(Error::WrongTokenError {
                 expected: Vec::from(types),
-                found: token.clone(),
+                token: token.clone(),
             });
         }
 
-        Err(Error::UnexpectedEndOfFileError {
-            expected: Vec::from(types),
-        })
+        panic!("Read too far!");
     }
 
     /// Consume a token of one of the types of `types` or do nothing

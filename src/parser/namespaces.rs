@@ -28,12 +28,10 @@ pub(crate) fn namespace_statement(parser: &mut Parser) -> ExpressionResult {
     } else if let Some(token) = parser.next() {
         Err(Error::WrongTokenError {
             expected: vec![TokenType::OpenBrackets, TokenType::Identifier],
-            found: token,
+            token,
         })
     } else {
-        Err(Error::UnexpectedEndOfFileError {
-            expected: vec![TokenType::OpenBrackets, TokenType::Identifier],
-        })
+        panic!("Read too far!");
     }
 }
 

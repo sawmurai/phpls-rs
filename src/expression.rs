@@ -1428,7 +1428,7 @@ impl From<&Node> for DocumentSymbol {
     }
 }
 
-fn get_range(coords: NodeRange) -> Range {
+pub fn get_range(coords: NodeRange) -> Range {
     let start = coords.0;
     let end = coords.1;
 

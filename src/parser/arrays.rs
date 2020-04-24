@@ -57,7 +57,7 @@ pub(crate) fn array_pair(parser: &mut Parser) -> ExpressionResult {
 
         // Todo: Rather check for scalarity
         if !key.is_offset() {
-            return Err(Error::IllegalOffsetType { token: arrow });
+            return Err(Error::IllegalOffsetType { expr: key });
         }
 
         if parser.next_token_one_of(&[TokenType::BinaryAnd]) {
