@@ -322,6 +322,9 @@ impl Token {
     }
 
     pub fn len(&self) -> u16 {
+        if let Some(label) = self.label.as_ref() {
+            return (label.len() + 1) as u16;
+        }
         return 1;
     }
 

@@ -12,7 +12,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 pub mod environment;
-pub mod expression;
+pub mod node;
 pub mod parser;
 pub mod scanner;
 pub mod token;
@@ -44,7 +44,6 @@ impl Backend {
             //env.finish_namespace();
 
             self.registry.lock().await.insert(path.to_owned(), env);
-            eprintln!("updated");
         } else {
             eprintln!("shiw");
         }
@@ -61,17 +60,13 @@ impl Backend {
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     fn initialize(&self, client: &Client, params: InitializeParams) -> Result<InitializeResult> {
-        //if let Some(root_uri) = params.root_uri {
-        client.log_message(MessageType::Info, format!("Indexing {:?}", params.root_uri));
-        //}
-
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::Full,
                 )),
-                //hover_provider: Some(true),
+                hover_provider: Some(true),
                 /*completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![".".to_string()]),
@@ -82,7 +77,7 @@ impl LanguageServer for Backend {
                     retrigger_characters: None,
                     work_done_progress_options: Default::default(),
                 }),*/
-                //document_highlight_provider: Some(true),
+                document_highlight_provider: Some(true),
                 document_symbol_provider: Some(true),
                 workspace_symbol_provider: Some(true),
                 execute_command_provider: Some(ExecuteCommandOptions {
@@ -130,6 +125,19 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
+    async fn document_highlight(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let file = params.text_document.uri.path();
+
+        if let Some(env) = self.registry.lock().await.get(file) {
+            return Ok(env.document_highlights(&params.position));
+        }
+
+        Ok(None)
+    }
+
     async fn did_change(&self, client: &Client, params: DidChangeTextDocumentParams) {
         let path = params.text_document.uri.path();
 
@@ -169,26 +177,15 @@ impl LanguageServer for Backend {
 
     async fn hover(&self, params: TextDocumentPositionParams) -> Result<Option<Hover>> {
         let file = params.text_document.uri.path();
-        let Position { line, character } = params.position;
 
-        if let Some(_env) = self.registry.lock().await.get(file) {
-            let of = self.opened_files.lock().await;
-            if let Some(token) = of
-                .get(file)
-                .unwrap()
-                .iter()
-                .find(|token| token.is_on(line as u16, character as u16))
-            {
-                return Ok(Some(Hover {
-                    contents: HoverContents::Scalar(MarkedString::String(format!(
-                        "Type: {:?}, Usages: {}",
-                        token.t, 0
-                    ))),
-                    range: None,
-                }));
-            } else {
-                return Ok(None);
-            }
+        if let Some(env) = self.registry.lock().await.get(file) {
+            return Ok(Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::String(format!(
+                    "{:?}",
+                    env.hover(&params.position)
+                ))),
+                range: None,
+            }));
         }
 
         Ok(None)

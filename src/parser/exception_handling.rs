@@ -1,4 +1,4 @@
-use crate::expression::Node;
+use crate::node::Node;
 use crate::parser::{expressions, types, ExpressionResult, Parser};
 use crate::token::TokenType;
 

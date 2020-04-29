@@ -1259,7 +1259,11 @@ impl From<&Node> for DocumentSymbol {
                     range,
                     selection_range: range,
                     detail: None,
-                    children: Some(children),
+                    children: if children.len() > 0 {
+                        Some(children)
+                    } else {
+                        None
+                    },
                     deprecated: None,
                 }
             }
@@ -1281,7 +1285,11 @@ impl From<&Node> for DocumentSymbol {
                     range,
                     selection_range: range,
                     detail: None,
-                    children: Some(children),
+                    children: if children.len() > 0 {
+                        Some(children)
+                    } else {
+                        None
+                    },
                     deprecated: None,
                 }
             }
@@ -1322,7 +1330,11 @@ impl From<&Node> for DocumentSymbol {
                     range,
                     selection_range: range,
                     detail: None,
-                    children: Some(children),
+                    children: if children.len() > 0 {
+                        Some(children)
+                    } else {
+                        None
+                    },
                     deprecated: None,
                 }
             }
@@ -1336,7 +1348,11 @@ impl From<&Node> for DocumentSymbol {
                     range,
                     selection_range: range,
                     detail: None,
-                    children: Some(children),
+                    children: if children.len() > 0 {
+                        Some(children)
+                    } else {
+                        None
+                    },
                     deprecated: None,
                 }
             }
@@ -1350,7 +1366,11 @@ impl From<&Node> for DocumentSymbol {
                     range,
                     selection_range: range,
                     detail: None,
-                    children: Some(children),
+                    children: if children.len() > 0 {
+                        Some(children)
+                    } else {
+                        None
+                    },
                     deprecated: None,
                 }
             }
@@ -1406,7 +1426,11 @@ impl From<&Node> for DocumentSymbol {
                     range,
                     selection_range: range,
                     detail: None,
-                    children: Some(children),
+                    children: if children.len() > 0 {
+                        Some(children)
+                    } else {
+                        None
+                    },
                     deprecated: None,
                 }
             }

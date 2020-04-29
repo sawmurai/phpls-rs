@@ -1,6 +1,6 @@
-use crate::expression::{collect_symbols, Node};
+use crate::node::{collect_symbols, Node};
 use crate::parser::Error;
-use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol};
+use tower_lsp::lsp_types::{Diagnostic, DocumentHighlight, DocumentSymbol, Position, Range};
 
 #[derive(Debug, Default)]
 pub struct Environment {
@@ -23,4 +23,65 @@ impl Environment {
             .map(|error| Diagnostic::from(error))
             .collect::<Vec<Diagnostic>>()
     }
+
+    pub fn document_highlights(&self, position: &Position) -> Option<Vec<DocumentHighlight>> {
+        if let Some(symbol) = symbol_under_cursor(&self.document_symbols, position) {
+            let mut container = Vec::new();
+            usages_of_symbol(&symbol, &self.document_symbols, &mut container);
+
+            return Some(
+                container
+                    .iter()
+                    .map(|usage| DocumentHighlight {
+                        range: usage.range,
+                        kind: None,
+                    })
+                    .collect::<Vec<DocumentHighlight>>(),
+            );
+        }
+
+        None
+    }
+
+    pub fn hover(&self, position: &Position) -> Option<&DocumentSymbol> {
+        symbol_under_cursor(&self.document_symbols, position)
+    }
+}
+
+fn symbol_under_cursor<'a>(
+    symbols: &'a Vec<DocumentSymbol>,
+    position: &Position,
+) -> Option<&'a DocumentSymbol> {
+    for symbol in symbols {
+        if in_range(position, &symbol.range) {
+            if let Some(children) = symbol.children.as_ref() {
+                return symbol_under_cursor(&children, position);
+            } else {
+                return Some(symbol);
+            }
+        }
+    }
+
+    return None;
+}
+
+fn usages_of_symbol<'a>(
+    symbol: &DocumentSymbol,
+    symbols: &'a Vec<DocumentSymbol>,
+    container: &mut Vec<&'a DocumentSymbol>,
+) {
+    for child in symbols {
+        if child.name == symbol.name && child.kind == symbol.kind {
+            container.push(&child);
+        } else if let Some(children) = child.children.as_ref() {
+            usages_of_symbol(symbol, &children, container);
+        }
+    }
+}
+
+fn in_range(position: &Position, range: &Range) -> bool {
+    position.line >= range.start.line
+        && position.line <= range.end.line
+        && position.character >= range.start.character
+        && position.character <= range.end.character
 }

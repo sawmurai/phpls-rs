@@ -1,4 +1,4 @@
-use crate::expression::{Expr, Node};
+use crate::node::{Expr, Node};
 use crate::parser::expressions;
 use crate::parser::variables;
 use crate::parser::{Error, ExpressionResult, Parser};
