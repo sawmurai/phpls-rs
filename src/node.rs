@@ -1410,7 +1410,9 @@ impl From<&Node> for DocumentSymbol {
                     ..function
                 }
             }
-            Node::FunctionDefinitionStatement { arguments, .. } => {
+            Node::FunctionDefinitionStatement {
+                arguments, body, ..
+            } => {
                 let range = get_range(node.range());
                 let mut children = Vec::new();
 
@@ -1418,6 +1420,10 @@ impl From<&Node> for DocumentSymbol {
                     arguments
                         .iter()
                         .for_each(|n| children.extend(collect_symbols(n)));
+                }
+
+                if let Some(body) = body {
+                    children.extend(collect_symbols(body));
                 }
 
                 DocumentSymbol {

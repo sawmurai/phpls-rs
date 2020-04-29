@@ -80,8 +80,25 @@ fn usages_of_symbol<'a>(
 }
 
 fn in_range(position: &Position, range: &Range) -> bool {
-    position.line >= range.start.line
-        && position.line <= range.end.line
-        && position.character >= range.start.character
-        && position.character <= range.end.character
+    // Before the start or behind the end
+    if position.line > range.end.line || position.line < range.start.line {
+        return false;
+    }
+
+    // Within the lines
+    if position.line > range.start.line && position.line < range.end.line {
+        return true;
+    }
+
+    // On the start line but before the start
+    if position.line == range.start.line && position.character < range.start.character {
+        return false;
+    }
+
+    // On the end line but behind the end
+    if position.line == range.end.line && position.character > range.end.character {
+        return false;
+    }
+
+    true
 }
