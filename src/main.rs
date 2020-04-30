@@ -2,7 +2,10 @@
 
 use crate::parser::Parser;
 use crate::scanner::Scanner;
+use async_recursion::async_recursion;
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{self};
 use tokio::sync::mpsc;
@@ -27,7 +30,46 @@ struct Backend {
 }
 
 impl Backend {
-    pub async fn reindex(&self, path: &str, content: &str) -> io::Result<()> {
+    async fn init_workspace(&self, url: &Url) -> io::Result<()> {
+        if let Ok(root_path) = url.to_file_path() {
+            //if let Some(root_path) = root_path.to_str() {
+            self.reindex_folder(&root_path).await?;
+            //}
+        }
+
+        Ok(())
+    }
+
+    #[async_recursion]
+    async fn reindex_folder(&self, dir: &PathBuf) -> io::Result<()> {
+        if dir.is_dir() {
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    self.reindex_folder(&path).await?;
+                } else {
+                    if let Some(ext) = path.extension() {
+                        if ext == "php" {
+                            let p = path.to_str().unwrap().to_string();
+                            let content = match fs::read_to_string(path) {
+                                Ok(content) => content,
+                                Err(error) => {
+                                    eprintln!("{}", error);
+                                    continue;
+                                }
+                            };
+
+                            self.reindex(&p, &content).await?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn reindex(&self, path: &str, content: &str) -> io::Result<()> {
         let mut scanner = Scanner::new(&content);
 
         if let Err(msg) = scanner.scan() {
@@ -59,7 +101,17 @@ impl Backend {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    fn initialize(&self, client: &Client, params: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(
+        &self,
+        _client: &Client,
+        params: InitializeParams,
+    ) -> Result<InitializeResult> {
+        if let Some(url) = params.root_uri {
+            if let Ok(()) = self.init_workspace(&url).await {
+                eprintln!("Indexed root");
+            }
+        }
+
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
@@ -127,12 +179,16 @@ impl LanguageServer for Backend {
 
     async fn document_highlight(
         &self,
-        params: TextDocumentPositionParams,
+        params: DocumentHighlightParams,
     ) -> Result<Option<Vec<DocumentHighlight>>> {
-        let file = params.text_document.uri.path();
+        let file = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .path();
 
         if let Some(env) = self.registry.lock().await.get(file) {
-            return Ok(env.document_highlights(&params.position));
+            return Ok(env.document_highlights(&params.text_document_position_params.position));
         }
 
         Ok(None)
@@ -175,24 +231,24 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn hover(&self, params: TextDocumentPositionParams) -> Result<Option<Hover>> {
-        let file = params.text_document.uri.path();
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let file = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .path();
 
         if let Some(env) = self.registry.lock().await.get(file) {
             return Ok(Some(Hover {
                 contents: HoverContents::Scalar(MarkedString::String(format!(
                     "{:?}",
-                    env.hover(&params.position)
+                    env.hover(&params.text_document_position_params.position)
                 ))),
                 range: None,
             }));
         }
 
         Ok(None)
-    }
-
-    async fn initialized(&self, client: &Client, _: InitializedParams) {
-        client.log_message(MessageType::Info, "Initialized");
     }
 
     async fn shutdown(&self) -> Result<()> {
