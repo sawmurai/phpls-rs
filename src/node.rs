@@ -1057,13 +1057,15 @@ impl Scope {
         }
     }
 
-    pub fn usage(&mut self, symbol: &DocumentSymbol) -> Result<(), String> {
+    pub fn usage(&mut self, symbol: DocumentSymbol) -> Result<(), String> {
         for (i, def) in self.definitions.iter().enumerate() {
             if def.kind == symbol.kind && def.name == symbol.name {
                 self.usages.lock().unwrap().push(Usage {
                     range: symbol.range,
                     symbol: i,
                 });
+
+                eprintln!("Found a usage!");
 
                 return Ok(());
             }
@@ -1073,7 +1075,14 @@ impl Scope {
             return parent.lock().unwrap().usage(symbol);
         }
 
-        Err("Use of undefined symbol".to_owned())
+        // TODO: Register a diagnostic
+        self.definition(symbol.clone());
+        self.usages.lock().unwrap().push(Usage {
+            range: symbol.range,
+            symbol: self.definitions.len() - 1,
+        });
+
+        Ok(())
     }
 }
 
@@ -1373,10 +1382,7 @@ pub fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<(), Stri
             .definition(DocumentSymbol::from(token)),
         Node::Literal(token) => {
             if token.is_identifier() {
-                scope
-                    .lock()
-                    .unwrap()
-                    .definition(DocumentSymbol::from(token));
+                scope.lock().unwrap().usage(DocumentSymbol::from(token))?;
             }
         }
         _ => {}
