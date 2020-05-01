@@ -422,7 +422,7 @@ impl Parser {
 
             return Err(Error::WrongTokenError {
                 expected: vec![t],
-                token: token.clone(),
+                token,
             });
         }
 
@@ -431,14 +431,18 @@ impl Parser {
 
     /// Consume an identifier or return an error
     fn consume_identifier(&mut self) -> Result<Token> {
-        if let Some(token) = self.next() {
+        if let Some(mut token) = self.next() {
             if token.is_identifier() {
+                if token.label.is_none() {
+                    // Make sure to put the correct label into the ... label
+                    token.label = Some("Unnamed".to_owned());
+                }
                 return Ok(token);
             }
 
             return Err(Error::WrongTokenError {
                 expected: vec![TokenType::Identifier],
-                token: token.clone(),
+                token,
             });
         }
 
@@ -454,7 +458,7 @@ impl Parser {
 
             return Err(Error::WrongTokenError {
                 expected: vec![TokenType::Identifier, TokenType::Variable],
-                token: token.clone(),
+                token,
             });
         }
 
@@ -472,7 +476,7 @@ impl Parser {
 
             return Err(Error::WrongTokenError {
                 expected: Vec::from(types),
-                token: token.clone(),
+                token,
             });
         }
 

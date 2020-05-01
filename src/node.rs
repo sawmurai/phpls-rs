@@ -527,7 +527,7 @@ impl Node {
                     return body.end();
                 }
 
-                return cp.clone();
+                cp.clone()
             }
             _ => unimplemented!("Implement end for token type {:?}", self),
         }
@@ -936,6 +936,81 @@ impl Node {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct SymbolImport {
+    pub path: Vec<Token>,
+    alias: Option<Token>,
+}
+
+/// Collect symbol imports underneath the current node
+pub fn collect_uses(node: &Node, prefix: &Vec<Token>) -> Vec<SymbolImport> {
+    let mut collected_uses = Vec::new();
+
+    match node {
+        Node::UseStatement { imports, .. } => {
+            imports
+                .iter()
+                .for_each(|n| collected_uses.extend(collect_uses(n, prefix)));
+        }
+        Node::UseFunctionStatement { imports, .. } => {
+            imports
+                .iter()
+                .for_each(|n| collected_uses.extend(collect_uses(n, prefix)));
+        }
+        Node::UseConstStatement { imports, .. } => {
+            imports
+                .iter()
+                .for_each(|n| collected_uses.extend(collect_uses(n, prefix)));
+        }
+        Node::GroupedUse { parent, uses, .. } => {
+            uses.iter().for_each(|n| {
+                collected_uses.extend(collect_uses(n, &collect_uses(parent, prefix)[0].path))
+            });
+        }
+        Node::UseDeclaration {
+            declaration, alias, ..
+        } => {
+            let import = &collect_uses(declaration, prefix)[0];
+
+            collected_uses.push(SymbolImport {
+                alias: alias.clone(),
+                ..import.clone()
+            });
+        }
+        Node::UseFunction {
+            function, alias, ..
+        } => {
+            let import = &collect_uses(function, prefix)[0];
+
+            collected_uses.push(SymbolImport {
+                alias: alias.clone(),
+                ..import.clone()
+            });
+        }
+        Node::UseConst {
+            constant, alias, ..
+        } => {
+            let import = &collect_uses(constant, prefix)[0];
+
+            collected_uses.push(SymbolImport {
+                alias: alias.clone(),
+                ..import.clone()
+            });
+        }
+        Node::TypeRef(tokens) => {
+            let mut ns = prefix.clone();
+            ns.extend(tokens.clone());
+            collected_uses.push(SymbolImport {
+                path: ns,
+                alias: None,
+            });
+        }
+        _ => {}
+    }
+
+    collected_uses
+}
+
 pub fn collect_symbols(node: &Node) -> Vec<DocumentSymbol> {
     let mut children = Vec::new();
 
@@ -968,7 +1043,11 @@ pub fn collect_symbols(node: &Node) -> Vec<DocumentSymbol> {
                 .iter()
                 .for_each(|n| children.extend(collect_symbols(n)));
         }
-        Node::OldArray { .. } => children.push(DocumentSymbol::from(node)),
+        Node::OldArray { elements, .. } => {
+            elements
+                .iter()
+                .for_each(|n| children.extend(collect_symbols(n)));
+        }
         Node::ArrayElement { key, value, .. } => {
             if let Some(key) = key {
                 children.extend(collect_symbols(key));
@@ -1084,6 +1163,7 @@ pub fn collect_symbols(node: &Node) -> Vec<DocumentSymbol> {
                 children.extend(collect_symbols(expression));
             }
         }
+        Node::NamespaceStatement { .. } => children.push(DocumentSymbol::from(node)),
         Node::NamespaceBlock { .. } => children.push(DocumentSymbol::from(node)),
         Node::ClassStatement { .. } => children.push(DocumentSymbol::from(node)),
         Node::TraitStatement { .. } => children.push(DocumentSymbol::from(node)),
@@ -1221,6 +1301,12 @@ pub fn collect_symbols(node: &Node) -> Vec<DocumentSymbol> {
         Node::Variable { .. } => {
             children.push(DocumentSymbol::from(node));
         }
+        Node::Identifier(token) => children.push(DocumentSymbol::from(token)),
+        Node::Literal(token) => {
+            if token.is_identifier() {
+                children.push(DocumentSymbol::from(token))
+            }
+        }
         _ => {}
     };
 
@@ -1242,7 +1328,10 @@ impl From<&Node> for DocumentSymbol {
             Node::LexicalVariable { variable, .. } => DocumentSymbol::from(variable),
             Node::StaticVariable { variable, .. } => DocumentSymbol::from(variable),
             Node::Function {
-                body, arguments, ..
+                token,
+                body,
+                arguments,
+                ..
             } => {
                 let range = get_range(node.range());
                 let mut children = collect_symbols(body);
@@ -1257,7 +1346,7 @@ impl From<&Node> for DocumentSymbol {
                     name: String::from("Anonymous function"),
                     kind: SymbolKind::Function,
                     range,
-                    selection_range: range,
+                    selection_range: get_range(token.range()),
                     detail: None,
                     children: if children.len() > 0 {
                         Some(children)
@@ -1269,7 +1358,10 @@ impl From<&Node> for DocumentSymbol {
             }
             Node::FunctionArgument { name, .. } => DocumentSymbol::from(name),
             Node::Class {
-                body, arguments, ..
+                token,
+                body,
+                arguments,
+                ..
             } => {
                 let range = get_range(node.range());
                 let mut children = collect_symbols(body);
@@ -1283,7 +1375,7 @@ impl From<&Node> for DocumentSymbol {
                     name: String::from("Anonymous class"),
                     kind: SymbolKind::Class,
                     range,
-                    selection_range: range,
+                    selection_range: get_range(token.range()),
                     detail: None,
                     children: if children.len() > 0 {
                         Some(children)
@@ -1294,14 +1386,17 @@ impl From<&Node> for DocumentSymbol {
                 }
             }
             Node::NamespaceBlock {
-                type_ref, block, ..
+                token,
+                type_ref,
+                block,
+                ..
             } => {
                 let range = get_range(node.range());
                 let name = if let Some(name) = &**type_ref {
                     match name {
                         Node::TypeRef(tokens) => tokens
                             .iter()
-                            .map(|n| n.clone().label.unwrap())
+                            .map(|n| n.clone().label.unwrap_or_else(|| "n to string".to_owned()))
                             .collect::<Vec<String>>()
                             .join(""),
                         _ => panic!("This should not happen"),
@@ -1314,7 +1409,7 @@ impl From<&Node> for DocumentSymbol {
                     name,
                     kind: SymbolKind::Class,
                     range,
-                    selection_range: range,
+                    selection_range: get_range(token.range()),
                     detail: None,
                     children: Some(collect_symbols(block)),
                     deprecated: None,
@@ -1328,7 +1423,7 @@ impl From<&Node> for DocumentSymbol {
                     name: name.clone().label.unwrap(),
                     kind: SymbolKind::Class,
                     range,
-                    selection_range: range,
+                    selection_range: get_range(name.range()),
                     detail: None,
                     children: if children.len() > 0 {
                         Some(children)
@@ -1346,7 +1441,7 @@ impl From<&Node> for DocumentSymbol {
                     name: name.clone().label.unwrap(),
                     kind: SymbolKind::Class,
                     range,
-                    selection_range: range,
+                    selection_range: get_range(name.range()),
                     detail: None,
                     children: if children.len() > 0 {
                         Some(children)
@@ -1364,7 +1459,7 @@ impl From<&Node> for DocumentSymbol {
                     name: name.clone().label.unwrap(),
                     kind: SymbolKind::Interface,
                     range,
-                    selection_range: range,
+                    selection_range: get_range(name.range()),
                     detail: None,
                     children: if children.len() > 0 {
                         Some(children)
@@ -1407,6 +1502,8 @@ impl From<&Node> for DocumentSymbol {
                 DocumentSymbol {
                     name: name.clone().label.unwrap(),
                     range,
+                    selection_range: get_range(name.range()),
+                    kind: SymbolKind::Method,
                     ..function
                 }
             }
@@ -1449,10 +1546,32 @@ impl From<&Node> for DocumentSymbol {
                 DocumentSymbol {
                     name: name.clone().label.unwrap(),
                     range,
+                    selection_range: get_range(name.range()),
                     ..function
                 }
             }
             Node::Variable(token) => DocumentSymbol::from(token),
+            Node::NamespaceStatement { type_ref, .. } => {
+                let range = get_range(node.range());
+                let name = match &**type_ref {
+                    Node::TypeRef(tokens) => tokens
+                        .iter()
+                        .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
+                        .collect::<Vec<String>>()
+                        .join(""),
+                    _ => panic!("This should not happen"),
+                };
+
+                DocumentSymbol {
+                    name,
+                    kind: SymbolKind::Namespace,
+                    range,
+                    selection_range: range,
+                    detail: None,
+                    children: None,
+                    deprecated: None,
+                }
+            }
             _ => unimplemented!("Unexpected {:?}", node),
         }
     }

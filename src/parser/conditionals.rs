@@ -79,7 +79,7 @@ pub(crate) fn if_statement(parser: &mut Parser) -> ExpressionResult {
 
         let else_branch = if terminator.t == TokenType::Else {
             Some(Box::new(Node::ElseBranch {
-                token: terminator.clone(),
+                token: terminator,
                 body: Box::new(parser.alternative_block(TokenType::EndIf)?),
             }))
         } else {

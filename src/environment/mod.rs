@@ -1,15 +1,20 @@
-use crate::node::{collect_symbols, Node};
+use crate::node::{collect_symbols, collect_uses, Node, SymbolImport};
 use crate::parser::Error;
-use tower_lsp::lsp_types::{Diagnostic, DocumentHighlight, DocumentSymbol, Position, Range};
+use tower_lsp::lsp_types::{
+    Diagnostic, DocumentHighlight, DocumentSymbol, Position, Range, SymbolKind,
+};
 
 #[derive(Debug, Default)]
 pub struct Environment {
     pub document_symbols: Vec<DocumentSymbol>,
     pub diagnostics: Vec<Diagnostic>,
+
+    /// Uses / imports in the current file
+    pub uses: Vec<SymbolImport>,
 }
 
 impl Environment {
-    pub fn cache_symbols(&mut self, ast: &Vec<Node>) {
+    pub fn cache_symbols(&mut self, ast: &[Node]) {
         self.document_symbols = ast
             .iter()
             .map(|node| collect_symbols(&node))
@@ -17,11 +22,19 @@ impl Environment {
             .concat()
     }
 
-    pub fn cache_diagnostics(&mut self, errors: &Vec<Error>) {
+    pub fn cache_diagnostics(&mut self, errors: &[Error]) {
         self.diagnostics = errors
             .iter()
-            .map(|error| Diagnostic::from(error))
+            .map(Diagnostic::from)
             .collect::<Vec<Diagnostic>>()
+    }
+
+    pub fn cache_uses(&mut self, ast: &[Node]) {
+        self.uses = ast
+            .iter()
+            .map(|node| collect_uses(&node, &Vec::new()))
+            .collect::<Vec<Vec<SymbolImport>>>()
+            .concat()
     }
 
     pub fn document_highlights(&self, position: &Position) -> Option<Vec<DocumentHighlight>> {
@@ -46,14 +59,28 @@ impl Environment {
     pub fn hover(&self, position: &Position) -> Option<&DocumentSymbol> {
         symbol_under_cursor(&self.document_symbols, position)
     }
+
+    pub fn fqdn(&self, name: &str) -> String {
+        for s in self
+            .document_symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Namespace)
+        {
+            return format!("{}\\{}", s.name, name);
+        }
+
+        return name.to_owned();
+    }
 }
 
 fn symbol_under_cursor<'a>(
-    symbols: &'a Vec<DocumentSymbol>,
+    symbols: &'a [DocumentSymbol],
     position: &Position,
 ) -> Option<&'a DocumentSymbol> {
     for symbol in symbols {
-        if in_range(position, &symbol.range) {
+        if in_range(position, &symbol.selection_range) {
+            return Some(symbol);
+        } else if in_range(position, &symbol.range) {
             if let Some(children) = symbol.children.as_ref() {
                 return symbol_under_cursor(&children, position);
             } else {
@@ -67,7 +94,7 @@ fn symbol_under_cursor<'a>(
 
 fn usages_of_symbol<'a>(
     symbol: &DocumentSymbol,
-    symbols: &'a Vec<DocumentSymbol>,
+    symbols: &'a [DocumentSymbol],
     container: &mut Vec<&'a DocumentSymbol>,
 ) {
     for child in symbols {

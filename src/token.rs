@@ -325,7 +325,7 @@ impl Token {
         if let Some(label) = self.label.as_ref() {
             return (label.len() + 1) as u16;
         }
-        return 1;
+        1
     }
 
     pub fn is_on(&self, line: u16, col: u16) -> bool {
@@ -354,9 +354,14 @@ impl From<&Token> for DocumentSymbol {
             },
         };
 
+        let kind = match token.t {
+            TokenType::Variable => SymbolKind::Variable,
+            _ => SymbolKind::Unknown,
+        };
+
         DocumentSymbol {
-            name: token.clone().label.unwrap(),
-            kind: SymbolKind::Variable,
+            name: token.clone().label.unwrap_or_else(|| "Unknown".to_owned()),
+            kind,
             range: range,
             selection_range: range,
             detail: None,

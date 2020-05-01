@@ -6,7 +6,6 @@ use async_recursion::async_recursion;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::io::{self};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
@@ -21,20 +20,23 @@ pub mod scanner;
 pub mod token;
 
 type EnvReceiver = mpsc::Receiver<(String, environment::Environment)>;
-type Registry = Arc<Mutex<HashMap<String, environment::Environment>>>;
+type Registry = Mutex<HashMap<String, environment::Environment>>;
 
 #[derive(Debug, Default)]
 struct Backend {
     registry: Registry,
-    opened_files: Arc<Mutex<HashMap<String, Vec<token::Token>>>>,
+
+    /// key: FQDN of symbol, value: Filename of importing fil
+    usages: Mutex<HashMap<String, Vec<String>>>,
+
+    /// key: FQDN of symbol, value: Location of definition
+    definitions: Mutex<HashMap<String, Location>>,
 }
 
 impl Backend {
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         if let Ok(root_path) = url.to_file_path() {
-            //if let Some(root_path) = root_path.to_str() {
             self.reindex_folder(&root_path).await?;
-            //}
         }
 
         Ok(())
@@ -48,20 +50,18 @@ impl Backend {
                 let path = entry.path();
                 if path.is_dir() {
                     self.reindex_folder(&path).await?;
-                } else {
-                    if let Some(ext) = path.extension() {
-                        if ext == "php" {
-                            let p = path.to_str().unwrap().to_string();
-                            let content = match fs::read_to_string(path) {
-                                Ok(content) => content,
-                                Err(error) => {
-                                    eprintln!("{}", error);
-                                    continue;
-                                }
-                            };
+                } else if let Some(ext) = path.extension() {
+                    if ext == "php" {
+                        let p = path.to_str().unwrap().to_string();
+                        let content = match fs::read_to_string(path) {
+                            Ok(content) => content,
+                            Err(error) => {
+                                eprintln!("{}", error);
+                                continue;
+                            }
+                        };
 
-                            self.reindex(&p, &content).await?;
-                        }
+                        self.reindex(&p, &content).await?;
                     }
                 }
             }
@@ -83,17 +83,53 @@ impl Backend {
 
             env.cache_diagnostics(&errors);
             env.cache_symbols(&ast);
-            //env.finish_namespace();
+            env.cache_uses(&ast);
 
+            // Have this in a block to free the lock as soon as possible
+            {
+                let mut usages = self.usages.lock().await;
+
+                env.uses.iter().for_each(|symbol_import| {
+                    usages
+                        .entry(
+                            symbol_import
+                                .path
+                                .iter()
+                                .map(|t| t.clone().label.unwrap_or_else(|| "\\".to_owned()))
+                                .collect::<Vec<String>>()
+                                .join(""),
+                        )
+                        .or_insert_with(|| Vec::new())
+                        .push(path.to_owned())
+                });
+            }
+
+            {
+                let mut definitions = self.definitions.lock().await;
+
+                env.document_symbols
+                    .iter()
+                    .filter(|symbol| {
+                        symbol.kind == SymbolKind::Class
+                            || symbol.kind == SymbolKind::Interface
+                            || symbol.kind == SymbolKind::Function
+                            || symbol.kind == SymbolKind::Constant
+                    })
+                    .for_each(|symbol| {
+                        // TODO: Add methods and properties of classes
+                        definitions.insert(
+                            env.fqdn(&symbol.name),
+                            Location {
+                                uri: Url::from_file_path(path).unwrap(),
+                                range: symbol.range,
+                            },
+                        );
+                    });
+            }
             self.registry.lock().await.insert(path.to_owned(), env);
         } else {
             eprintln!("shiw");
         }
-
-        self.opened_files
-            .lock()
-            .await
-            .insert(path.to_owned(), scanner.tokens);
 
         Ok(())
     }
@@ -129,6 +165,7 @@ impl LanguageServer for Backend {
                     retrigger_characters: None,
                     work_done_progress_options: Default::default(),
                 }),*/
+                references_provider: Some(true),
                 document_highlight_provider: Some(true),
                 document_symbol_provider: Some(true),
                 workspace_symbol_provider: Some(true),
@@ -147,6 +184,47 @@ impl LanguageServer for Backend {
                 ..ServerCapabilities::default()
             },
         })
+    }
+
+    async fn initialized(&self, client: &Client, _params: InitializedParams) {
+        for (file, env) in self.registry.lock().await.iter() {
+            if env.diagnostics.is_empty() {
+                continue;
+            }
+
+            client.publish_diagnostics(
+                Url::from_file_path(file).unwrap(),
+                env.diagnostics.clone(),
+                None,
+            );
+        }
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        let registry = self.registry.lock().await;
+        let mut symbols = Vec::new();
+
+        for (file, env) in registry.iter() {
+            for symbol in env.document_symbols.iter() {
+                if params.query != "" && symbol.name.starts_with(&params.query) {
+                    symbols.push(SymbolInformation {
+                        name: symbol.name.clone(),
+                        deprecated: symbol.deprecated,
+                        kind: symbol.kind,
+                        location: Location {
+                            uri: Url::from_file_path(file).unwrap(),
+                            range: symbol.range,
+                        },
+                        container_name: None,
+                    })
+                }
+            }
+        }
+
+        Ok(Some(symbols))
     }
 
     async fn document_symbol(
@@ -189,6 +267,44 @@ impl LanguageServer for Backend {
 
         if let Some(env) = self.registry.lock().await.get(file) {
             return Ok(env.document_highlights(&params.text_document_position_params.position));
+        }
+
+        Ok(None)
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let file = params.text_document_position.text_document.uri.path();
+
+        if let Some(env) = self.registry.lock().await.get(file) {
+            if let Some(symbol) = env.hover(&params.text_document_position.position) {
+                eprintln!("Searching or {}", env.fqdn(&symbol.name));
+                if let Some(usages) = self.usages.lock().await.get(&env.fqdn(&symbol.name)) {
+                    return Ok(Some(
+                        usages
+                            .iter()
+                            .map(|usage| Location {
+                                uri: Url::from_file_path(&usage).unwrap(),
+                                range: Range {
+                                    start: Position {
+                                        line: 0,
+                                        character: 0,
+                                    },
+                                    end: Position {
+                                        line: 0,
+                                        character: 0,
+                                    },
+                                },
+                            })
+                            .collect::<Vec<Location>>(),
+                    ));
+                } else {
+                    eprintln!("No Usages found");
+                }
+            } else {
+                eprintln!("Symbol not found");
+            }
+        } else {
+            eprintln!("File not found");
         }
 
         Ok(None)
