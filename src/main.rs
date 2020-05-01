@@ -22,7 +22,7 @@ pub mod token;
 type EnvReceiver = mpsc::Receiver<(String, environment::Environment)>;
 type Registry = Mutex<HashMap<String, environment::Environment>>;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct Backend {
     registry: Registry,
 

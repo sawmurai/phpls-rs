@@ -1,8 +1,7 @@
 use crate::token::Token;
-use std::cell::RefCell;
-
-use std::rc::{Rc, Weak};
 use std::sync::Mutex;
+
+use std::sync::{Arc, Weak};
 use tower_lsp::lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
 
 #[derive(Debug, PartialEq)]
@@ -1023,25 +1022,25 @@ pub struct Usage {
 #[derive(Default)]
 pub struct Scope {
     pub definitions: Vec<DocumentSymbol>,
-    usages: Rc<Mutex<Vec<Usage>>>,
+    usages: Arc<Mutex<Vec<Usage>>>,
 
     // We own our parents and write usages into them
-    parent: Option<Rc<RefCell<Scope>>>,
+    parent: Option<Arc<Mutex<Scope>>>,
 
     // Weak reference, as we never write into our children
-    children: Vec<Weak<RefCell<Scope>>>,
+    children: Vec<Weak<Mutex<Scope>>>,
 }
 
 impl Scope {
-    pub fn within(parent: Rc<RefCell<Self>>) -> Rc<RefCell<Self>> {
+    pub fn within(parent: Arc<Mutex<Self>>) -> Arc<Mutex<Self>> {
         let new = Self {
             parent: Some(parent.clone()),
             ..Default::default()
         };
 
-        let new = Rc::new(RefCell::new(new));
+        let new = Arc::new(Mutex::new(new));
 
-        parent.borrow_mut().children.push(Rc::downgrade(&new));
+        parent.lock().unwrap().children.push(Arc::downgrade(&new));
 
         new
     }
@@ -1071,14 +1070,14 @@ impl Scope {
         }
 
         if let Some(parent) = self.parent.as_ref() {
-            return parent.borrow_mut().usage(symbol);
+            return parent.lock().unwrap().usage(symbol);
         }
 
         Err("Use of undefined symbol".to_owned())
     }
 }
 
-pub fn collect_symbols(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<(), String> {
+pub fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<(), String> {
     match node {
         Node::Binary { left, right, .. } => {
             collect_symbols(left, scope.clone())?;
@@ -1241,7 +1240,7 @@ pub fn collect_symbols(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<(), Str
         | Node::Interface { .. } => {
             let def = document_symbol(node, scope.clone())?;
 
-            scope.borrow_mut().definition(def);
+            scope.lock().unwrap().definition(def);
         }
         Node::WhileStatement {
             condition, body, ..
@@ -1338,7 +1337,7 @@ pub fn collect_symbols(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<(), Str
             }
         }
         Node::CatchBlock { var, body, .. } => {
-            scope.borrow_mut().definition(DocumentSymbol::from(var));
+            scope.lock().unwrap().definition(DocumentSymbol::from(var));
             collect_symbols(body, scope.clone())?;
         }
         Node::FinallyBlock { body, .. } => {
@@ -1368,10 +1367,16 @@ pub fn collect_symbols(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<(), Str
             vars.iter()
                 .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
-        Node::Identifier(token) => scope.borrow_mut().definition(DocumentSymbol::from(token)),
+        Node::Identifier(token) => scope
+            .lock()
+            .unwrap()
+            .definition(DocumentSymbol::from(token)),
         Node::Literal(token) => {
             if token.is_identifier() {
-                scope.borrow_mut().definition(DocumentSymbol::from(token));
+                scope
+                    .lock()
+                    .unwrap()
+                    .definition(DocumentSymbol::from(token));
             }
         }
         _ => {}
@@ -1380,7 +1385,7 @@ pub fn collect_symbols(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<(), Str
     Ok(())
 }
 
-pub fn document_symbol(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<DocumentSymbol, String> {
+pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<DocumentSymbol, String> {
     match node {
         Node::Const { name, .. } => Ok(DocumentSymbol {
             name: name.clone().label.unwrap(),
@@ -1411,7 +1416,7 @@ pub fn document_symbol(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<Documen
                     .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
             }
 
-            let children = scope.borrow_mut().get_definitions();
+            let children = scope.lock().unwrap().get_definitions();
 
             Ok(DocumentSymbol {
                 name: String::from("Anonymous function"),
@@ -1440,7 +1445,7 @@ pub fn document_symbol(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<Documen
                     .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
             }
 
-            let children = scope.borrow_mut().get_definitions();
+            let children = scope.lock().unwrap().get_definitions();
 
             Ok(DocumentSymbol {
                 name: String::from("Anonymous class"),
@@ -1475,7 +1480,7 @@ pub fn document_symbol(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<Documen
             let scope = Scope::within(scope);
             collect_symbols(block, scope.clone())?;
 
-            let children = scope.borrow_mut().get_definitions();
+            let children = scope.lock().unwrap().get_definitions();
             Ok(DocumentSymbol {
                 name,
                 kind: SymbolKind::Class,
@@ -1491,7 +1496,7 @@ pub fn document_symbol(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<Documen
             let scope = Scope::within(scope);
             collect_symbols(body, scope.clone())?;
 
-            let children = scope.borrow_mut().get_definitions();
+            let children = scope.lock().unwrap().get_definitions();
 
             Ok(DocumentSymbol {
                 name: name.clone().label.unwrap(),
@@ -1508,7 +1513,7 @@ pub fn document_symbol(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<Documen
             let scope = Scope::within(scope);
             collect_symbols(body, scope.clone())?;
 
-            let children = scope.borrow_mut().get_definitions();
+            let children = scope.lock().unwrap().get_definitions();
             Ok(DocumentSymbol {
                 name: name.clone().label.unwrap(),
                 kind: SymbolKind::Class,
@@ -1524,7 +1529,7 @@ pub fn document_symbol(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<Documen
             let scope = Scope::within(scope);
             collect_symbols(body, scope.clone())?;
 
-            let children = scope.borrow_mut().get_definitions();
+            let children = scope.lock().unwrap().get_definitions();
             Ok(DocumentSymbol {
                 name: name.clone().label.unwrap(),
                 kind: SymbolKind::Interface,
@@ -1590,7 +1595,7 @@ pub fn document_symbol(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<Documen
                 collect_symbols(body, scope.clone())?;
             }
 
-            let children = scope.borrow_mut().get_definitions();
+            let children = scope.lock().unwrap().get_definitions();
             Ok(DocumentSymbol {
                 name: "Anonymous function".to_owned(),
                 kind: SymbolKind::Function,
