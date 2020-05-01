@@ -1,25 +1,29 @@
-use crate::node::{collect_symbols, collect_uses, Node, SymbolImport};
+use crate::node::{collect_symbols, collect_uses, Node, Scope, SymbolImport};
 use crate::parser::Error;
+use std::cell::RefCell;
+use std::rc::Rc;
 use tower_lsp::lsp_types::{
     Diagnostic, DocumentHighlight, DocumentSymbol, Position, Range, SymbolKind,
 };
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Environment {
     pub document_symbols: Vec<DocumentSymbol>,
     pub diagnostics: Vec<Diagnostic>,
 
     /// Uses / imports in the current file
     pub uses: Vec<SymbolImport>,
+
+    pub scope: Rc<RefCell<Scope>>,
 }
 
 impl Environment {
     pub fn cache_symbols(&mut self, ast: &[Node]) {
-        self.document_symbols = ast
-            .iter()
-            .map(|node| collect_symbols(&node))
-            .collect::<Vec<Vec<DocumentSymbol>>>()
-            .concat()
+        let scope = Rc::new(RefCell::new(Scope::default()));
+        ast.iter()
+            .for_each(|node| collect_symbols(&node, scope.clone()).unwrap());
+
+        self.document_symbols = scope.borrow().definitions.clone();
     }
 
     pub fn cache_diagnostics(&mut self, errors: &[Error]) {

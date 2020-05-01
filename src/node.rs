@@ -1,4 +1,8 @@
 use crate::token::Token;
+use std::cell::RefCell;
+
+use std::rc::{Rc, Weak};
+use std::sync::Mutex;
 use tower_lsp::lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
 
 #[derive(Debug, PartialEq)]
@@ -1011,179 +1015,245 @@ pub fn collect_uses(node: &Node, prefix: &Vec<Token>) -> Vec<SymbolImport> {
     collected_uses
 }
 
-pub fn collect_symbols(node: &Node) -> Vec<DocumentSymbol> {
-    let mut children = Vec::new();
+pub struct Usage {
+    range: Range,
+    symbol: usize,
+}
 
+#[derive(Default)]
+pub struct Scope {
+    pub definitions: Vec<DocumentSymbol>,
+    usages: Rc<Mutex<Vec<Usage>>>,
+
+    // We own our parents and write usages into them
+    parent: Option<Rc<RefCell<Scope>>>,
+
+    // Weak reference, as we never write into our children
+    children: Vec<Weak<RefCell<Scope>>>,
+}
+
+impl Scope {
+    pub fn within(parent: Rc<RefCell<Self>>) -> Rc<RefCell<Self>> {
+        let new = Self {
+            parent: Some(parent.clone()),
+            ..Default::default()
+        };
+
+        let new = Rc::new(RefCell::new(new));
+
+        parent.borrow_mut().children.push(Rc::downgrade(&new));
+
+        new
+    }
+
+    pub fn definition(&mut self, symbol: DocumentSymbol) {
+        self.definitions.push(symbol);
+    }
+
+    pub fn get_definitions(&self) -> Option<Vec<DocumentSymbol>> {
+        if self.definitions.is_empty() {
+            None
+        } else {
+            Some(self.definitions.clone())
+        }
+    }
+
+    pub fn usage(&mut self, symbol: &DocumentSymbol) -> Result<(), String> {
+        for (i, def) in self.definitions.iter().enumerate() {
+            if def.kind == symbol.kind && def.name == symbol.name {
+                self.usages.lock().unwrap().push(Usage {
+                    range: symbol.range,
+                    symbol: i,
+                });
+
+                return Ok(());
+            }
+        }
+
+        if let Some(parent) = self.parent.as_ref() {
+            return parent.borrow_mut().usage(symbol);
+        }
+
+        Err("Use of undefined symbol".to_owned())
+    }
+}
+
+pub fn collect_symbols(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<(), String> {
     match node {
         Node::Binary { left, right, .. } => {
-            children.extend(collect_symbols(left));
-            children.extend(collect_symbols(right));
+            collect_symbols(left, scope.clone())?;
+            collect_symbols(right, scope.clone())?;
         }
-        Node::Unary { expr, .. } => children.extend(collect_symbols(expr)),
-        Node::PostUnary { expr, .. } => children.extend(collect_symbols(expr)),
-        Node::Const { .. } => children.push(DocumentSymbol::from(node)),
+        Node::Unary { expr, .. } => collect_symbols(expr, scope.clone())?,
+        Node::PostUnary { expr, .. } => collect_symbols(expr, scope.clone())?,
         Node::Ternary {
             check,
             true_arm,
             false_arm,
             ..
         } => {
-            children.extend(collect_symbols(check));
+            collect_symbols(check, scope.clone())?;
             if let Some(true_arm) = true_arm {
-                children.extend(collect_symbols(true_arm))
+                collect_symbols(true_arm, scope.clone())?;
             }
-            children.extend(collect_symbols(false_arm));
+            collect_symbols(false_arm, scope.clone())?;
         }
-        Node::LexicalVariable { .. } => children.push(DocumentSymbol::from(node)),
-        Node::AliasedVariable { expr, .. } => children.extend(collect_symbols(expr)),
-        Node::DynamicVariable { expr, .. } => children.extend(collect_symbols(expr)),
-        Node::StaticVariable { .. } => children.push(DocumentSymbol::from(node)),
+        Node::AliasedVariable { expr, .. } => collect_symbols(expr, scope.clone())?,
+        Node::DynamicVariable { expr, .. } => collect_symbols(expr, scope.clone())?,
         Node::Array { elements, .. } => {
             elements
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::OldArray { elements, .. } => {
             elements
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::ArrayElement { key, value, .. } => {
             if let Some(key) = key {
-                children.extend(collect_symbols(key));
+                collect_symbols(key, scope.clone())?;
             }
-            children.extend(collect_symbols(value));
+            collect_symbols(value, scope.clone())?;
         }
         Node::List { elements, .. } => {
             elements
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::Call {
             callee, parameters, ..
         } => {
-            children.extend(collect_symbols(callee));
+            collect_symbols(callee, scope.clone())?;
             parameters
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::Isset { parameters, .. } => {
             parameters
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::Empty { parameters, .. } => {
             parameters
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::Exit { parameters, .. } => {
             if let Some(parameters) = parameters {
                 parameters
                     .iter()
-                    .for_each(|n| children.extend(collect_symbols(n)));
+                    .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
             }
         }
         Node::Die { parameters, .. } => {
             if let Some(parameters) = parameters {
                 parameters
                     .iter()
-                    .for_each(|n| children.extend(collect_symbols(n)));
+                    .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
             }
         }
-        Node::New { class, .. } => children.extend(collect_symbols(class)),
-        Node::Clone { object, .. } => children.extend(collect_symbols(object)),
+        Node::New { class, .. } => collect_symbols(class, scope.clone())?,
+        Node::Clone { object, .. } => collect_symbols(object, scope.clone())?,
         Node::Member { object, member, .. } => {
-            children.extend(collect_symbols(object));
-            children.extend(collect_symbols(member));
+            collect_symbols(object, scope.clone())?;
+            collect_symbols(member, scope.clone())?;
         }
         Node::StaticMember { class, member, .. } => {
-            children.extend(collect_symbols(class));
-            children.extend(collect_symbols(member));
+            collect_symbols(class, scope.clone())?;
+            collect_symbols(member, scope.clone())?;
         }
         Node::StaticMethod { class, method, .. } => {
-            children.extend(collect_symbols(class));
-            children.extend(collect_symbols(method));
+            collect_symbols(class, scope.clone())?;
+            collect_symbols(method, scope.clone())?;
         }
         Node::Field { array, index, .. } => {
-            children.extend(collect_symbols(array));
+            collect_symbols(array, scope.clone())?;
 
             if let Some(index) = index {
-                children.extend(collect_symbols(index));
+                collect_symbols(index, scope.clone())?;
             }
         }
         Node::Static { expr, .. } => {
             expr.iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
-        Node::Function { .. } => children.push(DocumentSymbol::from(node)),
         Node::ArrowFunction {
             arguments, body, ..
         } => {
             if let Some(arguments) = arguments {
                 arguments
                     .iter()
-                    .for_each(|n| children.extend(collect_symbols(n)));
+                    .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
             }
 
-            children.extend(collect_symbols(body));
+            collect_symbols(body, scope.clone())?;
         }
-        Node::FunctionArgument { .. } => children.push(DocumentSymbol::from(node)),
-        Node::Class { .. } => children.push(DocumentSymbol::from(node)),
         Node::Yield { expr, .. } => {
             if let Some(expr) = expr {
-                children.extend(collect_symbols(expr));
+                collect_symbols(expr, scope.clone())?;
             }
         }
-        Node::YieldFrom { expr, .. } => children.extend(collect_symbols(expr)),
-        Node::FileInclude { resource, .. } => children.extend(collect_symbols(resource)),
-        Node::ExpressionStatement { expression } => children.extend(collect_symbols(expression)),
+        Node::YieldFrom { expr, .. } => collect_symbols(expr, scope.clone())?,
+        Node::FileInclude { resource, .. } => collect_symbols(resource, scope.clone())?,
+        Node::ExpressionStatement { expression } => collect_symbols(expression, scope.clone())?,
         Node::EchoStatement { expressions, .. } => {
             expressions
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::ConstStatement { constants, .. } => {
             constants
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::PrintStatement { expressions, .. } => {
             expressions
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
-        Node::ThrowStatement { expression, .. } => children.extend(collect_symbols(expression)),
+        Node::ThrowStatement { expression, .. } => collect_symbols(expression, scope.clone())?,
         Node::UnsetStatement { vars, .. } => {
             vars.iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::ReturnStatement { expression, .. } => {
             if let Some(expression) = expression {
-                children.extend(collect_symbols(expression));
+                collect_symbols(expression, scope.clone())?;
             }
         }
-        Node::NamespaceStatement { .. } => children.push(DocumentSymbol::from(node)),
-        Node::NamespaceBlock { .. } => children.push(DocumentSymbol::from(node)),
-        Node::ClassStatement { .. } => children.push(DocumentSymbol::from(node)),
-        Node::TraitStatement { .. } => children.push(DocumentSymbol::from(node)),
-        Node::Interface { .. } => children.push(DocumentSymbol::from(node)),
-        Node::ClassConstantDefinitionStatement { .. } => children.push(DocumentSymbol::from(node)),
-        Node::PropertyDefinitionStatement { .. } => children.push(DocumentSymbol::from(node)),
-        Node::MethodDefinitionStatement { .. } => children.push(DocumentSymbol::from(node)),
-        Node::FunctionDefinitionStatement { .. } => children.push(DocumentSymbol::from(node)),
-        Node::NamedFunctionDefinitionStatement { .. } => children.push(DocumentSymbol::from(node)),
+        Node::NamespaceStatement { .. }
+        | Node::LexicalVariable { .. }
+        | Node::Variable { .. }
+        | Node::StaticVariable { .. }
+        | Node::Function { .. }
+        | Node::FunctionArgument { .. }
+        | Node::Class { .. }
+        | Node::NamespaceBlock { .. }
+        | Node::ClassStatement { .. }
+        | Node::TraitStatement { .. }
+        | Node::ClassConstantDefinitionStatement { .. }
+        | Node::PropertyDefinitionStatement { .. }
+        | Node::MethodDefinitionStatement { .. }
+        | Node::FunctionDefinitionStatement { .. }
+        | Node::NamedFunctionDefinitionStatement { .. }
+        | Node::Const { .. }
+        | Node::Interface { .. } => {
+            let def = document_symbol(node, scope.clone())?;
+
+            scope.borrow_mut().definition(def);
+        }
         Node::WhileStatement {
             condition, body, ..
         } => {
-            children.extend(collect_symbols(condition));
-            children.extend(collect_symbols(body));
+            collect_symbols(condition, scope.clone())?;
+            collect_symbols(body, scope.clone())?;
         }
         Node::DoWhileStatement {
             condition, body, ..
         } => {
-            children.extend(collect_symbols(condition));
-            children.extend(collect_symbols(body));
+            collect_symbols(condition, scope.clone())?;
+            collect_symbols(body, scope.clone())?;
         }
         Node::ForStatement {
             init,
@@ -1193,13 +1263,13 @@ pub fn collect_symbols(node: &Node) -> Vec<DocumentSymbol> {
             ..
         } => {
             init.iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
             condition
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
             step.iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
-            children.extend(collect_symbols(body));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
+            collect_symbols(body, scope.clone())?;
         }
         Node::ForEachStatement {
             collection,
@@ -1207,72 +1277,72 @@ pub fn collect_symbols(node: &Node) -> Vec<DocumentSymbol> {
             body,
             ..
         } => {
-            children.extend(collect_symbols(collection));
-            children.extend(collect_symbols(kv));
-            children.extend(collect_symbols(body));
+            collect_symbols(collection, scope.clone())?;
+            collect_symbols(kv, scope.clone())?;
+            collect_symbols(body, scope.clone())?;
         }
         Node::Block { statements, .. } => {
             statements
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::AlternativeBlock { statements, .. } => {
             statements
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::IfBranch {
             condition, body, ..
         } => {
-            children.extend(collect_symbols(condition));
-            children.extend(collect_symbols(body));
+            collect_symbols(condition, scope.clone())?;
+            collect_symbols(body, scope.clone())?;
         }
         Node::ElseBranch { body, .. } => {
-            children.extend(collect_symbols(body));
+            collect_symbols(body, scope.clone())?;
         }
         Node::IfStatement {
             if_branch,
             elseif_branches,
             else_branch,
         } => {
-            children.extend(collect_symbols(if_branch));
+            collect_symbols(if_branch, scope.clone())?;
             elseif_branches
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
 
             if let Some(else_branch) = else_branch {
-                children.extend(collect_symbols(else_branch));
+                collect_symbols(else_branch, scope.clone())?;
             }
         }
         Node::SwitchBranch { cases, body } => {
             cases
                 .iter()
                 .filter(|c| c.is_some())
-                .for_each(|n| children.extend(collect_symbols(n.as_ref().unwrap())));
+                .for_each(|n| collect_symbols(n.as_ref().unwrap(), scope.clone()).unwrap());
 
             body.iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::SwitchCase { expr, body, .. } => {
-            children.extend(collect_symbols(expr));
-            children.extend(collect_symbols(body));
+            collect_symbols(expr, scope.clone())?;
+            collect_symbols(body, scope.clone())?;
         }
         Node::SwitchBody { branches, .. } => {
             branches
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::TokenStatement { expr, .. } => {
             if let Some(expr) = expr {
-                children.extend(collect_symbols(expr));
+                collect_symbols(expr, scope.clone())?;
             }
         }
         Node::CatchBlock { var, body, .. } => {
-            children.push(DocumentSymbol::from(var));
-            children.extend(collect_symbols(body));
+            scope.borrow_mut().definition(DocumentSymbol::from(var));
+            collect_symbols(body, scope.clone())?;
         }
         Node::FinallyBlock { body, .. } => {
-            children.extend(collect_symbols(body));
+            collect_symbols(body, scope.clone())?;
         }
         Node::TryCatch {
             try_block,
@@ -1280,300 +1350,293 @@ pub fn collect_symbols(node: &Node) -> Vec<DocumentSymbol> {
             finally_block,
             ..
         } => {
-            children.extend(collect_symbols(try_block));
+            collect_symbols(try_block, scope.clone())?;
             catch_blocks
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
 
             if let Some(finally_block) = finally_block {
-                children.extend(collect_symbols(finally_block));
+                collect_symbols(finally_block, scope.clone())?;
             }
         }
         Node::StaticVariablesStatement { assignments, .. } => {
             assignments
                 .iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
         Node::GlobalVariablesStatement { vars, .. } => {
             vars.iter()
-                .for_each(|n| children.extend(collect_symbols(n)));
+                .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
         }
-        Node::Variable { .. } => {
-            children.push(DocumentSymbol::from(node));
-        }
-        Node::Identifier(token) => children.push(DocumentSymbol::from(token)),
+        Node::Identifier(token) => scope.borrow_mut().definition(DocumentSymbol::from(token)),
         Node::Literal(token) => {
             if token.is_identifier() {
-                children.push(DocumentSymbol::from(token))
+                scope.borrow_mut().definition(DocumentSymbol::from(token));
             }
         }
         _ => {}
     };
 
-    children
+    Ok(())
 }
 
-impl From<&Node> for DocumentSymbol {
-    fn from(node: &Node) -> DocumentSymbol {
-        match node {
-            Node::Const { name, .. } => DocumentSymbol {
-                name: name.clone().label.unwrap(),
-                kind: SymbolKind::Constant,
-                range: get_range(node.range()),
-                selection_range: get_range(node.range()),
+pub fn document_symbol(node: &Node, scope: Rc<RefCell<Scope>>) -> Result<DocumentSymbol, String> {
+    match node {
+        Node::Const { name, .. } => Ok(DocumentSymbol {
+            name: name.clone().label.unwrap(),
+            kind: SymbolKind::Constant,
+            range: get_range(node.range()),
+            selection_range: get_range(node.range()),
+            detail: None,
+            children: None,
+            deprecated: None,
+        }),
+        Node::LexicalVariable { variable, .. } => Ok(DocumentSymbol::from(variable)),
+        Node::StaticVariable { variable, .. } => Ok(DocumentSymbol::from(variable)),
+        Node::Function {
+            token,
+            body,
+            arguments,
+            ..
+        } => {
+            let range = get_range(node.range());
+
+            let scope = Scope::within(scope);
+
+            collect_symbols(body, scope.clone())?;
+
+            if let Some(arguments) = arguments {
+                arguments
+                    .iter()
+                    .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
+            }
+
+            let children = scope.borrow_mut().get_definitions();
+
+            Ok(DocumentSymbol {
+                name: String::from("Anonymous function"),
+                kind: SymbolKind::Function,
+                range,
+                selection_range: get_range(token.range()),
                 detail: None,
-                children: None,
+                children,
                 deprecated: None,
-            },
-            Node::LexicalVariable { variable, .. } => DocumentSymbol::from(variable),
-            Node::StaticVariable { variable, .. } => DocumentSymbol::from(variable),
-            Node::Function {
-                token,
-                body,
-                arguments,
-                ..
-            } => {
-                let range = get_range(node.range());
-                let mut children = collect_symbols(body);
+            })
+        }
+        Node::FunctionArgument { name, .. } => Ok(DocumentSymbol::from(name)),
+        Node::Class {
+            token,
+            body,
+            arguments,
+            ..
+        } => {
+            let range = get_range(node.range());
+            let scope = Scope::within(scope);
+            collect_symbols(body, scope.clone())?;
 
-                if let Some(arguments) = arguments {
-                    arguments
-                        .iter()
-                        .for_each(|n| children.extend(collect_symbols(n)));
-                }
-
-                DocumentSymbol {
-                    name: String::from("Anonymous function"),
-                    kind: SymbolKind::Function,
-                    range,
-                    selection_range: get_range(token.range()),
-                    detail: None,
-                    children: if children.len() > 0 {
-                        Some(children)
-                    } else {
-                        None
-                    },
-                    deprecated: None,
-                }
+            if let Some(arguments) = arguments {
+                arguments
+                    .iter()
+                    .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
             }
-            Node::FunctionArgument { name, .. } => DocumentSymbol::from(name),
-            Node::Class {
-                token,
-                body,
-                arguments,
-                ..
-            } => {
-                let range = get_range(node.range());
-                let mut children = collect_symbols(body);
 
-                if let Some(arguments) = arguments {
-                    arguments
-                        .iter()
-                        .for_each(|n| children.extend(collect_symbols(n)));
-                }
-                DocumentSymbol {
-                    name: String::from("Anonymous class"),
-                    kind: SymbolKind::Class,
-                    range,
-                    selection_range: get_range(token.range()),
-                    detail: None,
-                    children: if children.len() > 0 {
-                        Some(children)
-                    } else {
-                        None
-                    },
-                    deprecated: None,
-                }
-            }
-            Node::NamespaceBlock {
-                token,
-                type_ref,
-                block,
-                ..
-            } => {
-                let range = get_range(node.range());
-                let name = if let Some(name) = &**type_ref {
-                    match name {
-                        Node::TypeRef(tokens) => tokens
-                            .iter()
-                            .map(|n| n.clone().label.unwrap_or_else(|| "n to string".to_owned()))
-                            .collect::<Vec<String>>()
-                            .join(""),
-                        _ => panic!("This should not happen"),
-                    }
-                } else {
-                    "Anonymous namespace".to_string()
-                };
+            let children = scope.borrow_mut().get_definitions();
 
-                DocumentSymbol {
-                    name,
-                    kind: SymbolKind::Class,
-                    range,
-                    selection_range: get_range(token.range()),
-                    detail: None,
-                    children: Some(collect_symbols(block)),
-                    deprecated: None,
-                }
-            }
-            Node::ClassStatement { name, body, .. } => {
-                let range = get_range(node.range());
-                let children = collect_symbols(body);
-
-                DocumentSymbol {
-                    name: name.clone().label.unwrap(),
-                    kind: SymbolKind::Class,
-                    range,
-                    selection_range: get_range(name.range()),
-                    detail: None,
-                    children: if children.len() > 0 {
-                        Some(children)
-                    } else {
-                        None
-                    },
-                    deprecated: None,
-                }
-            }
-            Node::TraitStatement { name, body, .. } => {
-                let range = get_range(node.range());
-                let children = collect_symbols(body);
-
-                DocumentSymbol {
-                    name: name.clone().label.unwrap(),
-                    kind: SymbolKind::Class,
-                    range,
-                    selection_range: get_range(name.range()),
-                    detail: None,
-                    children: if children.len() > 0 {
-                        Some(children)
-                    } else {
-                        None
-                    },
-                    deprecated: None,
-                }
-            }
-            Node::Interface { name, body, .. } => {
-                let range = get_range(node.range());
-                let children = collect_symbols(body);
-
-                DocumentSymbol {
-                    name: name.clone().label.unwrap(),
-                    kind: SymbolKind::Interface,
-                    range,
-                    selection_range: get_range(name.range()),
-                    detail: None,
-                    children: if children.len() > 0 {
-                        Some(children)
-                    } else {
-                        None
-                    },
-                    deprecated: None,
-                }
-            }
-            Node::ClassConstantDefinitionStatement { name, .. } => {
-                let range = get_range(node.range());
-                DocumentSymbol {
-                    name: name.clone().label.unwrap(),
-                    kind: SymbolKind::Constant,
-                    range,
-                    selection_range: range,
-                    detail: None,
-                    children: None,
-                    deprecated: None,
-                }
-            }
-            Node::PropertyDefinitionStatement { name, .. } => {
-                let range = get_range(node.range());
-
-                DocumentSymbol {
-                    name: name.clone().label.unwrap(),
-                    kind: SymbolKind::Property,
-                    range,
-                    selection_range: range,
-                    detail: None,
-                    children: None,
-                    deprecated: None,
-                }
-            }
-            Node::MethodDefinitionStatement { name, function, .. } => {
-                let range = get_range(node.range());
-                // From the start of the declaration to the end of the method
-                let function = DocumentSymbol::from(function.as_ref());
-
-                DocumentSymbol {
-                    name: name.clone().label.unwrap(),
-                    range,
-                    selection_range: get_range(name.range()),
-                    kind: SymbolKind::Method,
-                    ..function
-                }
-            }
-            Node::FunctionDefinitionStatement {
-                arguments, body, ..
-            } => {
-                let range = get_range(node.range());
-                let mut children = Vec::new();
-
-                if let Some(arguments) = arguments {
-                    arguments
-                        .iter()
-                        .for_each(|n| children.extend(collect_symbols(n)));
-                }
-
-                if let Some(body) = body {
-                    children.extend(collect_symbols(body));
-                }
-
-                DocumentSymbol {
-                    name: "Anonymous function".to_owned(),
-                    kind: SymbolKind::Function,
-                    range,
-                    selection_range: range,
-                    detail: None,
-                    children: if children.len() > 0 {
-                        Some(children)
-                    } else {
-                        None
-                    },
-                    deprecated: None,
-                }
-            }
-            Node::NamedFunctionDefinitionStatement { name, function, .. } => {
-                let range = get_range(node.range());
-
-                // From the start of the declaration to the end of the method
-                let function = DocumentSymbol::from(function.as_ref());
-
-                DocumentSymbol {
-                    name: name.clone().label.unwrap(),
-                    range,
-                    selection_range: get_range(name.range()),
-                    ..function
-                }
-            }
-            Node::Variable(token) => DocumentSymbol::from(token),
-            Node::NamespaceStatement { type_ref, .. } => {
-                let range = get_range(node.range());
-                let name = match &**type_ref {
+            Ok(DocumentSymbol {
+                name: String::from("Anonymous class"),
+                kind: SymbolKind::Class,
+                range,
+                selection_range: get_range(token.range()),
+                detail: None,
+                children,
+                deprecated: None,
+            })
+        }
+        Node::NamespaceBlock {
+            token,
+            type_ref,
+            block,
+            ..
+        } => {
+            let range = get_range(node.range());
+            let name = if let Some(name) = &**type_ref {
+                match name {
                     Node::TypeRef(tokens) => tokens
                         .iter()
-                        .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
+                        .map(|n| n.clone().label.unwrap_or_else(|| "n to string".to_owned()))
                         .collect::<Vec<String>>()
                         .join(""),
                     _ => panic!("This should not happen"),
-                };
-
-                DocumentSymbol {
-                    name,
-                    kind: SymbolKind::Namespace,
-                    range,
-                    selection_range: range,
-                    detail: None,
-                    children: None,
-                    deprecated: None,
                 }
-            }
-            _ => unimplemented!("Unexpected {:?}", node),
+            } else {
+                "Anonymous namespace".to_string()
+            };
+
+            let scope = Scope::within(scope);
+            collect_symbols(block, scope.clone())?;
+
+            let children = scope.borrow_mut().get_definitions();
+            Ok(DocumentSymbol {
+                name,
+                kind: SymbolKind::Class,
+                range,
+                selection_range: get_range(token.range()),
+                detail: None,
+                children,
+                deprecated: None,
+            })
         }
+        Node::ClassStatement { name, body, .. } => {
+            let range = get_range(node.range());
+            let scope = Scope::within(scope);
+            collect_symbols(body, scope.clone())?;
+
+            let children = scope.borrow_mut().get_definitions();
+
+            Ok(DocumentSymbol {
+                name: name.clone().label.unwrap(),
+                kind: SymbolKind::Class,
+                range,
+                selection_range: get_range(name.range()),
+                detail: None,
+                children,
+                deprecated: None,
+            })
+        }
+        Node::TraitStatement { name, body, .. } => {
+            let range = get_range(node.range());
+            let scope = Scope::within(scope);
+            collect_symbols(body, scope.clone())?;
+
+            let children = scope.borrow_mut().get_definitions();
+            Ok(DocumentSymbol {
+                name: name.clone().label.unwrap(),
+                kind: SymbolKind::Class,
+                range,
+                selection_range: get_range(name.range()),
+                detail: None,
+                children,
+                deprecated: None,
+            })
+        }
+        Node::Interface { name, body, .. } => {
+            let range = get_range(node.range());
+            let scope = Scope::within(scope);
+            collect_symbols(body, scope.clone())?;
+
+            let children = scope.borrow_mut().get_definitions();
+            Ok(DocumentSymbol {
+                name: name.clone().label.unwrap(),
+                kind: SymbolKind::Interface,
+                range,
+                selection_range: get_range(name.range()),
+                detail: None,
+                children,
+                deprecated: None,
+            })
+        }
+        Node::ClassConstantDefinitionStatement { name, .. } => {
+            let range = get_range(node.range());
+            Ok(DocumentSymbol {
+                name: name.clone().label.unwrap(),
+                kind: SymbolKind::Constant,
+                range,
+                selection_range: range,
+                detail: None,
+                children: None,
+                deprecated: None,
+            })
+        }
+        Node::PropertyDefinitionStatement { name, .. } => {
+            let range = get_range(node.range());
+
+            Ok(DocumentSymbol {
+                name: name.clone().label.unwrap(),
+                kind: SymbolKind::Property,
+                range,
+                selection_range: range,
+                detail: None,
+                children: None,
+                deprecated: None,
+            })
+        }
+        Node::MethodDefinitionStatement { name, function, .. } => {
+            let range = get_range(node.range());
+            // From the start of the declaration to the end of the method
+            let function = document_symbol(function.as_ref(), scope);
+
+            Ok(DocumentSymbol {
+                name: name.clone().label.unwrap(),
+                range,
+                selection_range: get_range(name.range()),
+                kind: SymbolKind::Method,
+                ..function?
+            })
+        }
+        Node::FunctionDefinitionStatement {
+            arguments, body, ..
+        } => {
+            let range = get_range(node.range());
+
+            let scope = Scope::within(scope);
+
+            if let Some(arguments) = arguments {
+                arguments
+                    .iter()
+                    .for_each(|n| collect_symbols(n, scope.clone()).unwrap());
+            }
+
+            if let Some(body) = body {
+                collect_symbols(body, scope.clone())?;
+            }
+
+            let children = scope.borrow_mut().get_definitions();
+            Ok(DocumentSymbol {
+                name: "Anonymous function".to_owned(),
+                kind: SymbolKind::Function,
+                range,
+                selection_range: range,
+                detail: None,
+                children,
+                deprecated: None,
+            })
+        }
+        Node::NamedFunctionDefinitionStatement { name, function, .. } => {
+            let range = get_range(node.range());
+
+            // From the start of the declaration to the end of the method
+            let function = document_symbol(function.as_ref(), scope);
+
+            Ok(DocumentSymbol {
+                name: name.clone().label.unwrap(),
+                range,
+                selection_range: get_range(name.range()),
+                ..function?
+            })
+        }
+        Node::Variable(token) => Ok(DocumentSymbol::from(token)),
+        Node::NamespaceStatement { type_ref, .. } => {
+            let range = get_range(node.range());
+            let name = match &**type_ref {
+                Node::TypeRef(tokens) => tokens
+                    .iter()
+                    .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
+                    .collect::<Vec<String>>()
+                    .join(""),
+                _ => panic!("This should not happen"),
+            };
+
+            Ok(DocumentSymbol {
+                name,
+                kind: SymbolKind::Namespace,
+                range,
+                selection_range: range,
+                detail: None,
+                children: None,
+                deprecated: None,
+            })
+        }
+        _ => unimplemented!("Unexpected {:?}", node),
     }
 }
 

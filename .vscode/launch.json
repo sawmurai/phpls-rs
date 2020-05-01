@@ -12,6 +12,9 @@
             "outFiles": [
                 "${workspaceRoot}/client/out/**/*.js"
             ],
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
             "preLaunchTask": "build",
             //"trace": true
             //"cwd": "${workspaceRoot}/client"
