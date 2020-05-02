@@ -1,4 +1,5 @@
 use crate::token::Token;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use std::sync::{Arc, Weak};
@@ -1080,11 +1081,11 @@ pub struct Scope {
     parent: Option<Arc<Mutex<Scope>>>,
 
     // Weak reference, as we never write into our children
-    children: Vec<Weak<Mutex<Scope>>>,
+    children: HashMap<String, Weak<Mutex<Scope>>>,
 }
 
 impl Scope {
-    pub fn within(parent: Arc<Mutex<Self>>, scope_type: ScopeType) -> Arc<Mutex<Self>> {
+    pub fn within(name: &str, parent: Arc<Mutex<Self>>, scope_type: ScopeType) -> Arc<Mutex<Self>> {
         let new = Self {
             parent: Some(parent.clone()),
             scope_type,
@@ -1093,7 +1094,11 @@ impl Scope {
 
         let new = Arc::new(Mutex::new(new));
 
-        parent.lock().unwrap().children.push(Arc::downgrade(&new));
+        parent
+            .lock()
+            .unwrap()
+            .children
+            .insert(name.to_owned(), Arc::downgrade(&new));
 
         new
     }
@@ -1463,8 +1468,8 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
             ..
         } => {
             let range = get_range(node.range());
-
-            let scope = Scope::within(scope, ScopeType::Function);
+            let name = String::from("Anonymous function");
+            let scope = Scope::within(&name, scope, ScopeType::Function);
 
             collect_symbols(body, scope.clone())?;
 
@@ -1484,7 +1489,7 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
 
             Ok(Symbol {
                 data_type,
-                name: String::from("Anonymous function"),
+                name,
                 kind: SymbolKind::Function,
                 range,
                 selection_range: get_range(token.range()),
@@ -1500,8 +1505,9 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
             arguments,
             ..
         } => {
+            let name = String::from("Anonymous class");
             let range = get_range(node.range());
-            let scope = Scope::within(scope, ScopeType::Class);
+            let scope = Scope::within(&name, scope, ScopeType::Class);
             collect_symbols(body, scope.clone())?;
 
             if let Some(arguments) = arguments {
@@ -1514,7 +1520,7 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
 
             Ok(Symbol {
                 data_type: None,
-                name: String::from("Anonymous class"),
+                name,
                 kind: SymbolKind::Class,
                 range,
                 selection_range: get_range(token.range()),
@@ -1543,7 +1549,7 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
                 "Anonymous namespace".to_string()
             };
 
-            let scope = Scope::within(scope, ScopeType::Namespace);
+            let scope = Scope::within(&name, scope, ScopeType::Namespace);
             collect_symbols(block, scope.clone())?;
 
             let children = scope.lock().unwrap().get_definitions();
@@ -1559,52 +1565,58 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
             })
         }
         Node::ClassStatement { name, body, .. } => {
+            let selection_range = get_range(name.range());
+            let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let scope = Scope::within(scope, ScopeType::Class);
+            let scope = Scope::within(&name, scope, ScopeType::Class);
             collect_symbols(body, scope.clone())?;
 
             let children = scope.lock().unwrap().get_definitions();
 
             Ok(Symbol {
                 data_type: None,
-                name: name.clone().label.unwrap(),
+                name,
                 kind: SymbolKind::Class,
                 range,
-                selection_range: get_range(name.range()),
+                selection_range,
                 detail: None,
                 children,
                 deprecated: None,
             })
         }
         Node::TraitStatement { name, body, .. } => {
+            let selection_range = get_range(name.range());
+            let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let scope = Scope::within(scope, ScopeType::Class);
+            let scope = Scope::within(&name, scope, ScopeType::Class);
             collect_symbols(body, scope.clone())?;
 
             let children = scope.lock().unwrap().get_definitions();
             Ok(Symbol {
                 data_type: None,
-                name: name.clone().label.unwrap(),
+                name,
                 kind: SymbolKind::Class,
                 range,
-                selection_range: get_range(name.range()),
+                selection_range,
                 detail: None,
                 children,
                 deprecated: None,
             })
         }
         Node::Interface { name, body, .. } => {
+            let selection_range = get_range(name.range());
+            let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let scope = Scope::within(scope, ScopeType::Class);
+            let scope = Scope::within(&name, scope, ScopeType::Class);
             collect_symbols(body, scope.clone())?;
 
             let children = scope.lock().unwrap().get_definitions();
             Ok(Symbol {
                 data_type: None,
-                name: name.clone().label.unwrap(),
+                name,
                 kind: SymbolKind::Interface,
                 range,
-                selection_range: get_range(name.range()),
+                selection_range,
                 detail: None,
                 children,
                 deprecated: None,
@@ -1665,8 +1677,8 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
             ..
         } => {
             let range = get_range(node.range());
-
-            let scope = Scope::within(scope, ScopeType::Function);
+            let name = "Anonymous function".to_owned();
+            let scope = Scope::within(&name, scope, ScopeType::Function);
 
             if let Some(arguments) = arguments {
                 arguments
@@ -1688,7 +1700,7 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
 
             Ok(Symbol {
                 data_type,
-                name: "Anonymous function".to_owned(),
+                name,
                 kind: SymbolKind::Function,
                 range,
                 selection_range: range,
