@@ -1,11 +1,13 @@
 #![allow(clippy::must_use_candidate)]
 
+use crate::environment::scope::{collect_symbols, Scope, ScopeType};
 use crate::parser::Parser;
 use crate::scanner::Scanner;
 use async_recursion::async_recursion;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::io::{self};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
@@ -24,6 +26,8 @@ type Registry = Mutex<HashMap<String, environment::Environment>>;
 
 #[derive(Default)]
 struct Backend {
+    global_scope: Arc<Mutex<Scope>>,
+
     registry: Registry,
 
     /// key: FQDN of symbol, value: Filename of importing fil
@@ -81,9 +85,17 @@ impl Backend {
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens.clone()) {
             let mut env = environment::Environment::default();
 
+            let scope = Scope::within(path, self.global_scope.clone(), ScopeType::File).await;
+
+            for node in ast {
+                if let Err(e) = collect_symbols(&node, scope.clone()).await {
+                    eprintln!("Error collecting symbols in file {}: {}", path, e);
+                }
+            }
+
             env.cache_diagnostics(&errors);
-            env.cache_symbols(&ast);
-            env.cache_uses(&ast);
+            //env.cache_symbols(&ast);
+            //env.cache_uses(&ast);
 
             // Have this in a block to free the lock as soon as possible
             {
@@ -227,6 +239,11 @@ impl LanguageServer for Backend {
         Ok(Some(symbols))
     }
 
+    // TODO:
+    // * Move Scope in separate module ... it is getting too messy
+    // * Add range to scope to quickly jump into the correct scope,
+    // ** Alternatively find a way to jump from a symbol to a scope
+    // * Read symbols from scope
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,

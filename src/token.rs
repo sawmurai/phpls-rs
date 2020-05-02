@@ -1,4 +1,4 @@
-use crate::node::Symbol;
+use crate::environment::symbol::Symbol;
 use tower_lsp::lsp_types::{Position, Range, SymbolKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -1,10 +1,17 @@
-use crate::node::{collect_symbols, collect_uses, Node, Scope, SymbolImport};
+use crate::environment::import::collect_uses;
+use crate::environment::import::SymbolImport;
+use crate::environment::scope::Scope;
+use crate::node::Node;
 use crate::parser::Error;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tower_lsp::lsp_types::{
     Diagnostic, DocumentHighlight, DocumentSymbol, Position, Range, SymbolKind,
 };
+
+pub mod import;
+pub mod scope;
+pub mod symbol;
 
 #[derive(Default)]
 pub struct Environment {
@@ -20,8 +27,8 @@ pub struct Environment {
 impl Environment {
     pub fn cache_symbols(&mut self, ast: &[Node]) {
         let scope = Arc::new(Mutex::new(Scope::default()));
-        ast.iter()
-            .for_each(|node| collect_symbols(&node, scope.clone()).unwrap());
+        //ast.iter()
+        //    .for_each(|node| collect_symbols(&node, scope.clone()).unwrap());
 
         self.document_symbols = scope
             .lock()
