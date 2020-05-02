@@ -5,7 +5,6 @@ use async_recursion::async_recursion;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tower_lsp::lsp_types::Range;
 
 pub enum ScopeType {
     Function,
@@ -362,7 +361,7 @@ pub async fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<()
             }
         }
         Node::Identifier(token) => scope.lock().await.definition(Symbol::from(token)),
-        Node::Literal(token) => {
+        Node::Literal(_token) => {
             //if token.is_identifier() {
             //    scope.lock().unwrap().usage(DocumentSymbol::from(token))?;
             //}
