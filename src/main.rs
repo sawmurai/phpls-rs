@@ -26,10 +26,10 @@ type Registry = Mutex<HashMap<String, environment::Environment>>;
 
 #[derive(Default)]
 struct Backend {
+    /// Global scope that is parent to all files in the project
     global_scope: Arc<Mutex<Scope>>,
 
     registry: Registry,
-
     /// key: FQDN of symbol, value: Filename of importing fil
     usages: Mutex<HashMap<String, Vec<String>>>,
 
@@ -240,7 +240,6 @@ impl LanguageServer for Backend {
     }
 
     // TODO:
-    // * Move Scope in separate module ... it is getting too messy
     // * Add range to scope to quickly jump into the correct scope,
     // ** Alternatively find a way to jump from a symbol to a scope
     // * Read symbols from scope
@@ -249,23 +248,21 @@ impl LanguageServer for Backend {
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         let path = params.text_document.uri.path();
-        {
-            let registry = self.registry.lock().await;
+        let global_scope = self.global_scope.lock().await;
 
-            if let Some(env) = registry.get(path) {
+        if let Some(scope) = global_scope.children.get(path) {
+            //let top_level_symbols = scope.upgrade().unwrap();
+            let top_level_symbols = scope.lock().await;
+
+            if let Some(definitions) = top_level_symbols.get_definitions() {
                 return Ok(Some(DocumentSymbolResponse::Nested(
-                    env.document_symbols.clone(),
+                    definitions
+                        .iter()
+                        .map(|s| DocumentSymbol::from(s))
+                        .collect(),
                 )));
-            }
-        }
-        // Well, nothing cached yet. Index and return result
-        let content = tokio::fs::read_to_string(path).await.unwrap();
-        if let Ok(()) = self.reindex(path, &content).await {
-            let registry = self.registry.lock().await;
-            if let Some(env) = registry.get(path) {
-                return Ok(Some(DocumentSymbolResponse::Nested(
-                    env.document_symbols.clone(),
-                )));
+            } else {
+                return Ok(None);
             }
         }
 

@@ -208,6 +208,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             collect_symbols(body, scope.clone()).await?;
 
             let children = scope.lock().await.get_definitions();
+
             Ok(Symbol {
                 data_type: None,
                 name,

@@ -3,14 +3,9 @@ use crate::environment::symbol::{document_symbol, Symbol};
 use crate::node::Node;
 use async_recursion::async_recursion;
 use std::collections::HashMap;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_lsp::lsp_types::Range;
-
-pub struct Usage {
-    range: Range,
-    symbol: usize,
-}
 
 pub enum ScopeType {
     Function,
@@ -33,7 +28,7 @@ pub struct Scope {
     pub scope_type: ScopeType,
 
     /// Symbols defined in this scope
-    pub symbols: Vec<Symbol>,
+    pub symbols: HashMap<String, Symbol>,
 
     /// Symbols imported into this scope via use-statements
     pub imports: Vec<SymbolImport>,
@@ -42,7 +37,7 @@ pub struct Scope {
     pub parent: Option<Arc<Mutex<Scope>>>,
 
     /// All children. The key is the function-, class- or namespace-name
-    pub children: HashMap<String, Weak<Mutex<Scope>>>,
+    pub children: HashMap<String, Arc<Mutex<Scope>>>,
 }
 
 impl Scope {
@@ -63,20 +58,25 @@ impl Scope {
             .lock()
             .await
             .children
-            .insert(name.to_owned(), Arc::downgrade(&new));
+            .insert(name.to_owned(), Arc::clone(&new));
 
         new
     }
 
     pub fn definition(&mut self, symbol: Symbol) {
-        self.symbols.push(symbol);
+        self.symbols.insert(symbol.name.clone(), symbol);
     }
 
     pub fn get_definitions(&self) -> Option<Vec<Symbol>> {
         if self.symbols.is_empty() {
             None
         } else {
-            Some(self.symbols.clone())
+            Some(
+                self.symbols
+                    .values()
+                    .map(|s| s.clone())
+                    .collect::<Vec<Symbol>>(),
+            )
         }
     }
 }

@@ -932,6 +932,10 @@ impl Node {
             Node::GlobalVariablesStatement { token, vars } => {
                 (token.start(), vars.last().unwrap().range().1)
             }
+            Node::TypeRef(tokens) => (
+                tokens.first().unwrap().range().0,
+                tokens.last().unwrap().range().1,
+            ),
             _ => ((1, 1), (1, 1)),
         }
     }
