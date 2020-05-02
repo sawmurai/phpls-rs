@@ -1,4 +1,5 @@
-use tower_lsp::lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
+use crate::node::Symbol;
+use tower_lsp::lsp_types::{Position, Range, SymbolKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
@@ -338,8 +339,8 @@ impl Token {
     }
 }
 
-impl From<&Token> for DocumentSymbol {
-    fn from(token: &Token) -> DocumentSymbol {
+impl From<&Token> for Symbol {
+    fn from(token: &Token) -> Symbol {
         let start = token.start();
         let end = token.end();
 
@@ -359,7 +360,8 @@ impl From<&Token> for DocumentSymbol {
             _ => SymbolKind::Unknown,
         };
 
-        DocumentSymbol {
+        Symbol {
+            data_type: None,
             name: token.clone().label.unwrap_or_else(|| "Unknown".to_owned()),
             kind,
             range: range,

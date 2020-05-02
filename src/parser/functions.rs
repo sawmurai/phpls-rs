@@ -85,12 +85,12 @@ pub(crate) fn argument_type(parser: &mut Parser) -> Result<Option<Node>> {
 ///     echo "Hello!";
 /// }
 /// ```
-pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Node>> {
+pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Box<Node>>> {
     if let Some(colon) = parser.consume_or_ignore(TokenType::Colon) {
-        Ok(Some(Node::ReturnType {
+        Ok(Some(Box::new(Node::ReturnType {
             token: colon,
             data_type: Box::new(types::data_type(parser)?),
-        }))
+        })))
     } else {
         Ok(None)
     }
@@ -131,7 +131,7 @@ pub(crate) fn anonymous_function_statement(parser: &mut Parser) -> ExpressionRes
     let arguments = argument_list(parser)?;
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    let return_type = Box::new(return_type(parser)?);
+    let return_type = return_type(parser)?;
 
     if parser.consume_or_ignore(TokenType::Semicolon).is_some() {
         return Ok(Node::FunctionDefinitionStatement {
@@ -162,7 +162,7 @@ pub(crate) fn arrow_function(parser: &mut Parser, is_static: Option<Token>) -> E
     let arguments = argument_list(parser)?;
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    let return_type = Box::new(return_type(parser)?);
+    let return_type = return_type(parser)?;
 
     let arrow = parser.consume(TokenType::DoubleArrow)?;
     let body = Box::new(expressions::expression(parser)?);
@@ -198,7 +198,7 @@ pub(crate) fn anonymous_function(
         None
     };
 
-    let return_type = Box::new(return_type(parser)?);
+    let return_type = return_type(parser)?;
 
     let body = Box::new(parser.block()?);
 

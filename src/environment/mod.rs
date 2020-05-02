@@ -23,7 +23,13 @@ impl Environment {
         ast.iter()
             .for_each(|node| collect_symbols(&node, scope.clone()).unwrap());
 
-        self.document_symbols = scope.lock().unwrap().definitions.clone();
+        self.document_symbols = scope
+            .lock()
+            .unwrap()
+            .symbols
+            .iter()
+            .map(|s| DocumentSymbol::from(s))
+            .collect();
     }
 
     pub fn cache_diagnostics(&mut self, errors: &[Error]) {
