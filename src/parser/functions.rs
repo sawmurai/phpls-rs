@@ -22,7 +22,7 @@ pub(crate) fn argument_list(parser: &mut Parser) -> ArgumentListResult {
     }
 
     loop {
-        let t = argument_type(parser)?;
+        let argument_type = argument_type(parser)?;
         let reference = parser.consume_or_ignore(TokenType::BinaryAnd);
         let spread = parser.consume_or_ignore(TokenType::Elipsis);
         let name = parser.consume(TokenType::Variable)?;
@@ -35,7 +35,7 @@ pub(crate) fn argument_list(parser: &mut Parser) -> ArgumentListResult {
         };
 
         arguments.push(Node::FunctionArgument {
-            argument_type: Box::new(t),
+            argument_type,
             name,
             spread,
             reference,
@@ -61,17 +61,17 @@ pub(crate) fn argument_list(parser: &mut Parser) -> ArgumentListResult {
 ///     echo "Hello!";
 /// }
 /// ```
-pub(crate) fn argument_type(parser: &mut Parser) -> Result<Option<Node>> {
+pub(crate) fn argument_type(parser: &mut Parser) -> Result<Option<Box<Node>>> {
     if let Some(qm) = parser.consume_or_ignore(TokenType::QuestionMark) {
-        Ok(Some(Node::ArgumentType {
+        Ok(Some(Box::new(Node::ArgumentType {
             nullable: Some(qm),
             type_ref: Box::new(types::non_empty_type_ref(parser)?),
-        }))
+        })))
     } else if let Some(type_ref) = types::type_ref(parser)? {
-        Ok(Some(Node::ArgumentType {
+        Ok(Some(Box::new(Node::ArgumentType {
             nullable: None,
-            type_ref: Box::new(type_ref),
-        }))
+            type_ref,
+        })))
     } else {
         Ok(None)
     }

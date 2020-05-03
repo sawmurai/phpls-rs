@@ -15,7 +15,7 @@ pub(crate) fn type_ref_list(parser: &mut Parser) -> ExpressionListResult {
 }
 
 // path -> identifier ("\" identifier)*
-pub(crate) fn type_ref(parser: &mut Parser) -> Result<Option<Node>> {
+pub(crate) fn type_ref(parser: &mut Parser) -> Result<Option<Box<Node>>> {
     let mut path = Vec::new();
 
     if let Some(ns) = parser.consume_or_ignore(TokenType::NamespaceSeparator) {
@@ -39,7 +39,7 @@ pub(crate) fn type_ref(parser: &mut Parser) -> Result<Option<Node>> {
     if path.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(Node::TypeRef(path)))
+        Ok(Some(Box::new(Node::TypeRef(path))))
     }
 }
 

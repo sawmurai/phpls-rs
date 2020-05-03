@@ -16,15 +16,12 @@ pub(crate) fn namespace_statement(parser: &mut Parser) -> ExpressionResult {
     if parser.next_token_one_of(&[TokenType::OpenCurly]) {
         Ok(Node::NamespaceBlock {
             token,
-            type_ref: Box::new(type_ref),
+            type_ref: type_ref,
             block: Box::new(parser.block()?),
         })
     } else if let Some(type_ref) = type_ref {
         parser.consume_end_of_statement()?;
-        Ok(Node::NamespaceStatement {
-            token,
-            type_ref: Box::new(type_ref),
-        })
+        Ok(Node::NamespaceStatement { token, type_ref })
     } else if let Some(token) = parser.next() {
         Err(Error::WrongTokenError {
             expected: vec![TokenType::OpenBrackets, TokenType::Identifier],

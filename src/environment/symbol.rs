@@ -133,8 +133,8 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             ..
         } => {
             let range = get_range(node.range());
-            let name = if let Some(name) = &**type_ref {
-                match name {
+            let name = if let Some(name) = type_ref {
+                match name.as_ref() {
                     Node::TypeRef(tokens) => tokens
                         .iter()
                         .map(|n| n.clone().label.unwrap_or_else(|| "n to string".to_owned()))

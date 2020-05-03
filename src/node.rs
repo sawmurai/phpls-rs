@@ -174,7 +174,7 @@ pub enum Node {
         body: Box<Node>,
     },
     FunctionArgument {
-        argument_type: Box<Option<Node>>,
+        argument_type: Option<Box<Node>>,
         name: Token,
         has_default: Option<Token>,
         default_value: Option<Box<Node>>,
@@ -291,7 +291,7 @@ pub enum Node {
     },
     NamespaceBlock {
         token: Token,
-        type_ref: Box<Option<Node>>,
+        type_ref: Option<Box<Node>>,
         block: Box<Node>,
     },
     UseStatement {
@@ -499,21 +499,369 @@ pub enum Node {
     },
 }
 
-pub trait Expr {
-    /// Tells if the expression can be used as offset
-    fn is_offset(&self) -> bool;
-
-    /// Tells if the expression can have values assigned
-    fn is_lvalue(&self) -> bool;
-}
-
-impl Expr for Node {
-    fn is_offset(&self) -> bool {
+impl Node {
+    pub fn is_offset(&self) -> bool {
         true
     }
 
-    fn is_lvalue(&self) -> bool {
+    pub fn is_lvalue(&self) -> bool {
         true
+    }
+
+    /// Return a Vec of all the child nodes of this node.
+    pub fn children(&self) -> Vec<&Node> {
+        match self {
+            Node::Binary { left, right, .. } => vec![left, right],
+            Node::Unary { expr, .. }
+            | Node::PostUnary { expr, .. }
+            | Node::AliasedVariable { expr, .. }
+            | Node::DynamicVariable { expr, .. }
+            | Node::YieldFrom { expr, .. } => vec![expr],
+            Node::Ternary {
+                check,
+                true_arm,
+                false_arm,
+                ..
+            } => {
+                if let Some(true_arm) = true_arm {
+                    vec![check, true_arm, false_arm]
+                } else {
+                    vec![check, false_arm]
+                }
+            }
+            Node::Array { elements, .. }
+            | Node::OldArray { elements, .. }
+            | Node::List { elements, .. } => (*elements).iter().map(|n| n).collect(),
+            Node::ArrayElement { key, value, .. } => {
+                if let Some(key) = key {
+                    vec![key, value]
+                } else {
+                    vec![value]
+                }
+            }
+            Node::Call {
+                callee, parameters, ..
+            } => {
+                let mut children: Vec<&Node> = (*parameters).iter().map(|n| n).collect();
+
+                children.push(callee);
+
+                children
+            }
+            Node::Isset { parameters, .. } | Node::Empty { parameters, .. } => {
+                (*parameters).iter().map(|n| n).collect()
+            }
+            Node::Exit { parameters, .. } | Node::Die { parameters, .. } => {
+                if let Some(parameters) = parameters {
+                    (*parameters).iter().map(|n| n).collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            Node::New { class, .. } => vec![class],
+            Node::Clone { object, .. } => vec![object],
+            Node::Member { object, member, .. } => vec![object, member],
+            Node::StaticMember { class, member, .. } => vec![class, member],
+            Node::StaticMethod { class, method, .. } => vec![class, method],
+            Node::Field { array, index, .. } => {
+                if let Some(index) = index {
+                    vec![array, index]
+                } else {
+                    vec![array]
+                }
+            }
+            Node::Static { expr, .. } => (*expr).iter().map(|n| n).collect(),
+            Node::ArrowFunction {
+                arguments, body, ..
+            } => {
+                if let Some(arguments) = arguments {
+                    let mut children: Vec<&Node> = (*arguments).iter().map(|n| n).collect();
+
+                    children.push(body);
+
+                    children
+                } else {
+                    vec![body]
+                }
+            }
+            Node::Yield { expr, .. } => {
+                if let Some(expr) = expr {
+                    vec![expr]
+                } else {
+                    Vec::new()
+                }
+            }
+            Node::FileInclude { resource, .. } => vec![resource],
+            Node::ExpressionStatement { expression } | Node::ThrowStatement { expression, .. } => {
+                vec![expression]
+            }
+            Node::EchoStatement { expressions, .. } | Node::PrintStatement { expressions, .. } => {
+                (*expressions).iter().map(|n| n).collect()
+            }
+            Node::ConstStatement { constants, .. } => (*constants).iter().map(|n| n).collect(),
+
+            Node::UnsetStatement { vars, .. } | Node::GlobalVariablesStatement { vars, .. } => {
+                (*vars).iter().map(|n| n).collect()
+            }
+            Node::ReturnStatement { expression, .. } => {
+                if let Some(expression) = expression {
+                    vec![expression]
+                } else {
+                    vec![]
+                }
+            }
+            Node::NamespaceStatement { type_ref, .. } => vec![type_ref],
+            Node::StaticVariable { value, .. } => {
+                if let Some(value) = value {
+                    vec![value]
+                } else {
+                    vec![]
+                }
+            }
+            Node::Function {
+                arguments,
+                uses,
+                return_type,
+                body,
+                ..
+            } => {
+                let mut children: Vec<&Node> = Vec::new();
+
+                if let Some(arguments) = arguments {
+                    children.extend((*arguments).iter().map(|n| n).collect::<Vec<&Node>>());
+                }
+                if let Some(uses) = uses {
+                    children.extend((*uses).iter().map(|n| n).collect::<Vec<&Node>>());
+                }
+                if let Some(return_type) = return_type {
+                    children.push(return_type);
+                }
+
+                children.push(body);
+
+                children
+            }
+            Node::FunctionArgument {
+                argument_type,
+                default_value,
+                ..
+            } => {
+                let mut children: Vec<&Node> = Vec::new();
+
+                if let Some(argument_type) = argument_type {
+                    children.push(argument_type);
+                }
+
+                if let Some(default_value) = default_value {
+                    children.push(default_value);
+                }
+
+                children
+            }
+            Node::Class {
+                arguments,
+                extends,
+                implements,
+                body,
+                ..
+            } => {
+                let mut children: Vec<&Node> = Vec::new();
+
+                if let Some(arguments) = arguments {
+                    children.extend((*arguments).iter().map(|n| n).collect::<Vec<&Node>>());
+                }
+
+                if let Some(extends) = extends {
+                    children.extend((*extends).iter().map(|n| n).collect::<Vec<&Node>>());
+                }
+
+                if let Some(implements) = implements {
+                    children.extend((*implements).iter().map(|n| n).collect::<Vec<&Node>>());
+                }
+
+                children.push(body);
+
+                children
+            }
+            Node::NamespaceBlock {
+                type_ref, block, ..
+            } => {
+                let mut children: Vec<&Node> = Vec::new();
+
+                if let Some(type_ref) = type_ref {
+                    children.push(type_ref);
+                }
+
+                children.push(block);
+
+                children
+            }
+            Node::ClassStatement {
+                extends,
+                implements,
+                body,
+                ..
+            } => {
+                let mut children: Vec<&Node> = Vec::new();
+
+                if let Some(extends) = extends {
+                    children.extend((*extends).iter().map(|n| n).collect::<Vec<&Node>>());
+                }
+
+                if let Some(implements) = implements {
+                    children.extend((*implements).iter().map(|n| n).collect::<Vec<&Node>>());
+                }
+
+                children.push(body);
+
+                children
+            }
+            Node::TraitStatement { body, .. } => vec![body],
+            Node::ClassConstantDefinitionStatement { value, .. } | Node::Const { value, .. } => {
+                vec![value]
+            }
+            Node::PropertyDefinitionStatement {
+                data_type, value, ..
+            } => {
+                let mut children: Vec<&Node> = Vec::new();
+
+                if let Some(data_type) = data_type {
+                    children.push(data_type);
+                }
+
+                if let Some(value) = value {
+                    children.push(value);
+                }
+
+                children
+            }
+            Node::MethodDefinitionStatement { function, .. }
+            | Node::NamedFunctionDefinitionStatement { function, .. } => vec![function],
+            Node::FunctionDefinitionStatement {
+                arguments,
+                return_type,
+                body,
+                ..
+            } => {
+                let mut children: Vec<&Node> = Vec::new();
+
+                if let Some(arguments) = arguments {
+                    children.extend((*arguments).iter().map(|n| n).collect::<Vec<&Node>>());
+                }
+
+                if let Some(return_type) = return_type {
+                    children.push(return_type);
+                }
+
+                if let Some(body) = body {
+                    children.push(body);
+                }
+
+                children
+            }
+            Node::Interface { extends, body, .. } => {
+                let mut children: Vec<&Node> = Vec::new();
+
+                if let Some(extends) = extends {
+                    children.extend((*extends).iter().map(|n| n).collect::<Vec<&Node>>());
+                }
+
+                children.push(body);
+
+                children
+            }
+            Node::WhileStatement {
+                condition, body, ..
+            }
+            | Node::DoWhileStatement {
+                condition, body, ..
+            } => vec![condition, body],
+            Node::ForStatement {
+                init,
+                condition,
+                step,
+                body,
+                ..
+            } => {
+                let mut children: Vec<&Node> = Vec::new();
+
+                children.extend((*init).iter().map(|n| n).collect::<Vec<&Node>>());
+                children.extend((*condition).iter().map(|n| n).collect::<Vec<&Node>>());
+                children.extend((*step).iter().map(|n| n).collect::<Vec<&Node>>());
+                children.push(body);
+
+                children
+            }
+            Node::ForEachStatement {
+                collection,
+                kv,
+                body,
+                ..
+            } => vec![collection, kv, body],
+            Node::Block { statements, .. } | Node::AlternativeBlock { statements, .. } => {
+                (*statements).iter().map(|n| n).collect()
+            }
+            Node::IfBranch {
+                condition, body, ..
+            } => vec![condition, body],
+            Node::ElseBranch { body, .. } => vec![body],
+            Node::IfStatement {
+                if_branch,
+                elseif_branches,
+                else_branch,
+            } => {
+                let mut children: Vec<&Node> = vec![if_branch];
+                children.extend((*elseif_branches).iter().map(|n| n).collect::<Vec<&Node>>());
+                if let Some(else_branch) = else_branch {
+                    children.push(else_branch);
+                }
+
+                children
+            }
+            Node::SwitchBranch { cases, body } => {
+                let mut children: Vec<&Node> = Vec::new();
+                children.extend(
+                    (cases)
+                        .iter()
+                        .filter(|c| c.is_some())
+                        .map(|n| n.as_ref().unwrap())
+                        .collect::<Vec<&Node>>(),
+                );
+                children.extend((*body).iter().map(|n| n).collect::<Vec<&Node>>());
+
+                children
+            }
+            Node::SwitchCase { expr, body, .. } => vec![expr, body],
+            Node::SwitchBody { branches, .. } => {
+                (*branches).iter().map(|n| n).collect::<Vec<&Node>>()
+            }
+            Node::TokenStatement { expr, .. } => {
+                if let Some(expr) = expr {
+                    vec![expr]
+                } else {
+                    Vec::new()
+                }
+            }
+            Node::CatchBlock { body, .. } | Node::FinallyBlock { body, .. } => vec![body],
+            Node::TryCatch {
+                try_block,
+                catch_blocks,
+                finally_block,
+                ..
+            } => {
+                let mut children: Vec<&Node> = vec![try_block];
+                children.extend((*catch_blocks).iter().map(|n| n).collect::<Vec<&Node>>());
+                if let Some(finally_block) = finally_block {
+                    children.push(finally_block);
+                }
+
+                children
+            }
+            Node::StaticVariablesStatement { assignments, .. } => {
+                (*assignments).iter().map(|n| n).collect::<Vec<&Node>>()
+            }
+            _ => Vec::new(),
+        }
     }
 }
 
@@ -645,7 +993,7 @@ impl Node {
             } => {
                 let start = if let Some(reference) = reference {
                     reference.start()
-                } else if let Some(argument_type) = &**argument_type {
+                } else if let Some(argument_type) = argument_type {
                     argument_type.range().0
                 } else if let Some(spread) = spread {
                     spread.start()
