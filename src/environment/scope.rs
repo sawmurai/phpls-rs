@@ -197,31 +197,47 @@ impl Scope {
         self.references.push(reference);
     }
 
+    /// Resolve all dangling references using the provided symbol table.
+    /// The symbol table gets enriched with the symbols registered in each new scope
+    /// Due to all the cloning of the HashMaps this might be slow  
+    /// TODO: Treat scope boundaries correctly, so that functions hide some stuff of the parent scope
     #[async_recursion]
-    pub async fn resolve(&self, reference: &Reference) -> Option<Symbol> {
-        let ref_name = if let Some(token) = reference.token.as_ref() {
-            if let Some(label) = token.label.as_ref() {
-                label
-            } else {
-                ""
-            }
-        } else {
-            ""
-        };
+    pub async fn resolve_references(
+        &mut self,
+        uri: &Url,
+        symbol_table: HashMap<String, Symbol>,
+    ) -> Result<(), String> {
+        let mut local_table = symbol_table.clone();
 
         for (name, symbol) in self.symbols.iter() {
-            if name == &ref_name {
-                return Some(symbol.clone());
+            local_table.insert(name.clone(), symbol.clone());
+        }
+
+        for reference in self.references.iter_mut() {
+            let ref_name = if let Some(token) = reference.token.as_ref() {
+                if let Some(label) = token.label.as_ref() {
+                    label
+                } else {
+                    ""
+                }
+            } else {
+                ""
+            };
+
+            if let Some(symbol) = local_table.get(ref_name) {
+                reference.defining_symbol = Some(symbol.clone());
             }
         }
 
-        if let Some(parent) = self.parent.as_ref() {
-            let parent = parent.lock().await;
-
-            return parent.resolve(reference).await;
+        for child in self.children.values() {
+            child
+                .lock()
+                .await
+                .resolve_references(uri, local_table.clone())
+                .await?;
         }
 
-        None
+        Ok(())
     }
 }
 
@@ -278,20 +294,6 @@ pub async fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<()
             }
         }
     };
-
-    Ok(())
-}
-#[async_recursion]
-pub async fn resolve_references(uri: &Url, scope: Arc<Mutex<Scope>>) -> Result<(), String> {
-    let scope = scope.lock().await;
-
-    for reference in scope.references.iter().as_ref() {
-        scope.resolve(&reference).await;
-    }
-
-    for child in scope.children.values() {
-        resolve_references(uri, child.clone()).await?;
-    }
 
     Ok(())
 }

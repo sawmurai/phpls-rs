@@ -1,6 +1,6 @@
 #![allow(clippy::must_use_candidate)]
 
-use crate::environment::scope::{collect_symbols, resolve_references, Scope, ScopeType};
+use crate::environment::scope::{collect_symbols, Scope, ScopeType};
 use crate::parser::Parser;
 use crate::scanner::Scanner;
 use async_recursion::async_recursion;
@@ -45,7 +45,13 @@ impl Backend {
         let root_scope = self.global_scope.lock().await;
 
         for (file, scope) in root_scope.children.iter() {
-            resolve_references(&Url::from_file_path(file).unwrap(), scope.clone())
+            scope
+                .lock()
+                .await
+                .resolve_references(
+                    &Url::from_file_path(file).unwrap(),
+                    root_scope.symbols.clone(),
+                )
                 .await
                 .unwrap();
         }
