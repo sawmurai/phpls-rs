@@ -29,12 +29,11 @@ struct Backend {
     /// Global scope that is parent to all files in the project
     global_scope: Arc<Mutex<Scope>>,
 
-    registry: Registry,
+    /// Global list of all diagnostics
+    diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
+
     /// key: FQDN of symbol, value: Filename of importing fil
     usages: Mutex<HashMap<String, Vec<String>>>,
-
-    /// key: FQDN of symbol, value: Location of definition
-    definitions: Mutex<HashMap<String, Location>>,
 }
 
 impl Backend {
@@ -83,8 +82,6 @@ impl Backend {
         }
 
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens.clone()) {
-            let mut env = environment::Environment::default();
-
             let scope = Scope::within(path, self.global_scope.clone(), ScopeType::File).await;
 
             for node in ast {
@@ -93,52 +90,17 @@ impl Backend {
                 }
             }
 
-            env.cache_diagnostics(&errors);
-            //env.cache_symbols(&ast);
-            //env.cache_uses(&ast);
-
-            // Have this in a block to free the lock as soon as possible
-            {
-                let mut usages = self.usages.lock().await;
-
-                env.uses.iter().for_each(|symbol_import| {
-                    usages
-                        .entry(
-                            symbol_import
-                                .path
-                                .iter()
-                                .map(|t| t.clone().label.unwrap_or_else(|| "\\".to_owned()))
-                                .collect::<Vec<String>>()
-                                .join(""),
-                        )
-                        .or_insert_with(|| Vec::new())
-                        .push(path.to_owned())
-                });
-            }
-
-            {
-                let mut definitions = self.definitions.lock().await;
-
-                env.document_symbols
+            self.diagnostics.lock().await.insert(
+                path.to_owned(),
+                errors
                     .iter()
-                    .filter(|symbol| {
-                        symbol.kind == SymbolKind::Class
-                            || symbol.kind == SymbolKind::Interface
-                            || symbol.kind == SymbolKind::Function
-                            || symbol.kind == SymbolKind::Constant
-                    })
-                    .for_each(|symbol| {
-                        // TODO: Add methods and properties of classes
-                        definitions.insert(
-                            env.fqdn(&symbol.name),
-                            Location {
-                                uri: Url::from_file_path(path).unwrap(),
-                                range: symbol.range,
-                            },
-                        );
-                    });
-            }
-            self.registry.lock().await.insert(path.to_owned(), env);
+                    .map(Diagnostic::from)
+                    .collect::<Vec<Diagnostic>>(),
+            );
+        //env.cache_symbols(&ast);
+        //env.cache_uses(&ast);
+
+        // Have this in a block to free the lock as soon as possible
         } else {
             eprintln!("shiw");
         }
@@ -199,14 +161,14 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, client: &Client, _params: InitializedParams) {
-        for (file, env) in self.registry.lock().await.iter() {
-            if env.diagnostics.is_empty() {
+        for (file, diagnostics) in self.diagnostics.lock().await.iter() {
+            if diagnostics.is_empty() {
                 continue;
             }
 
             client.publish_diagnostics(
                 Url::from_file_path(file).unwrap(),
-                env.diagnostics.clone(),
+                diagnostics.clone(),
                 None,
             );
         }
@@ -216,11 +178,13 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
-        let registry = self.registry.lock().await;
+        let global_scope = self.global_scope.lock().await;
         let mut symbols = Vec::new();
 
-        for (file, env) in registry.iter() {
-            for symbol in env.document_symbols.iter() {
+        for (file, scope) in global_scope.children.iter() {
+            let definitions = scope.lock().await;
+
+            for symbol in definitions.all_definitions().await {
                 if params.query != "" && symbol.name.starts_with(&params.query) {
                     symbols.push(SymbolInformation {
                         name: symbol.name.clone(),
@@ -254,7 +218,8 @@ impl LanguageServer for Backend {
             //let top_level_symbols = scope.upgrade().unwrap();
             let top_level_symbols = scope.lock().await;
 
-            if let Some(definitions) = top_level_symbols.get_definitions() {
+            let definitions = top_level_symbols.get_definitions();
+            if !definitions.is_empty() {
                 return Ok(Some(DocumentSymbolResponse::Nested(
                     definitions
                         .iter()
@@ -279,8 +244,13 @@ impl LanguageServer for Backend {
             .uri
             .path();
 
-        if let Some(env) = self.registry.lock().await.get(file) {
-            return Ok(env.document_highlights(&params.text_document_position_params.position));
+        if let Some(scope) = self.global_scope.lock().await.children.get(file) {
+            let scope = scope.lock().await;
+            return Ok(environment::document_highlights(
+                &params.text_document_position_params.position,
+                &scope,
+            )
+            .await);
         }
 
         Ok(None)
@@ -289,10 +259,22 @@ impl LanguageServer for Backend {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let file = params.text_document_position.text_document.uri.path();
 
-        if let Some(env) = self.registry.lock().await.get(file) {
-            if let Some(symbol) = env.hover(&params.text_document_position.position) {
-                eprintln!("Searching or {}", env.fqdn(&symbol.name));
-                if let Some(usages) = self.usages.lock().await.get(&env.fqdn(&symbol.name)) {
+        if let Some(file_scope) = self.global_scope.lock().await.children.get(file) {
+            let file_scope = file_scope.lock().await;
+
+            if let Some(symbol) =
+                environment::hover(&params.text_document_position.position, &file_scope).await
+            {
+                eprintln!(
+                    "Searching or {}",
+                    environment::fqdn(&symbol.name, &file_scope).await
+                );
+                if let Some(usages) = self
+                    .usages
+                    .lock()
+                    .await
+                    .get(&environment::fqdn(&symbol.name, &file_scope).await)
+                {
                     return Ok(Some(
                         usages
                             .iter()
@@ -333,10 +315,14 @@ impl LanguageServer for Backend {
             return;
         }
 
-        if let Some(env) = self.registry.lock().await.get(path) {
+        if let Some(diagnostics) = self.diagnostics.lock().await.get(path) {
+            if diagnostics.is_empty() {
+                return;
+            }
+
             client.publish_diagnostics(
                 params.text_document.uri,
-                env.diagnostics.clone(),
+                diagnostics.clone(),
                 params.text_document.version,
             );
         }
@@ -352,10 +338,14 @@ impl LanguageServer for Backend {
             return;
         }
 
-        if let Some(env) = self.registry.lock().await.get(path) {
+        if let Some(diagnostics) = self.diagnostics.lock().await.get(path) {
+            if diagnostics.is_empty() {
+                return;
+            }
+
             client.publish_diagnostics(
                 params.text_document.uri,
-                env.diagnostics.clone(),
+                diagnostics.clone(),
                 Some(params.text_document.version),
             );
         }
@@ -368,11 +358,14 @@ impl LanguageServer for Backend {
             .uri
             .path();
 
-        if let Some(env) = self.registry.lock().await.get(file) {
+        if let Some(file_scope) = self.global_scope.lock().await.children.get(file) {
+            let file_scope = file_scope.lock().await;
+
             return Ok(Some(Hover {
                 contents: HoverContents::Scalar(MarkedString::String(format!(
                     "{:?}",
-                    env.hover(&params.text_document_position_params.position)
+                    environment::hover(&params.text_document_position_params.position, &file_scope)
+                        .await
                 ))),
                 range: None,
             }));

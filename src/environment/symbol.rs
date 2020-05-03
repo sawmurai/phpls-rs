@@ -7,7 +7,7 @@ use tower_lsp::lsp_types::{DocumentSymbol, Range, SymbolKind};
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Symbol {
     /// The data type of this symbol. Of course not all symbols have data types (Namespaces for example do not), so
     /// this remains an `Option`
@@ -68,7 +68,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 collect_symbols(c, scope.clone()).await?;
             }
 
-            let children = scope.lock().await.get_definitions();
+            let children = Some(scope.lock().await.get_definitions());
 
             let data_type = if let Some(data_type) = return_type {
                 Some(*data_type.clone())
@@ -97,7 +97,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 collect_symbols(c, scope.clone()).await?;
             }
 
-            let children = scope.lock().await.get_definitions();
+            let children = Some(scope.lock().await.get_definitions());
 
             Ok(Symbol {
                 data_type: None,
@@ -133,7 +133,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 collect_symbols(c, scope.clone()).await?;
             }
 
-            let children = scope.lock().await.get_definitions();
+            let children = Some(scope.lock().await.get_definitions());
             Ok(Symbol {
                 data_type: None,
                 name,
@@ -153,7 +153,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             for c in node.children() {
                 collect_symbols(c, scope.clone()).await?;
             }
-            let children = scope.lock().await.get_definitions();
+            let children = Some(scope.lock().await.get_definitions());
 
             Ok(Symbol {
                 data_type: None,
@@ -175,7 +175,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 collect_symbols(c, scope.clone()).await?;
             }
 
-            let children = scope.lock().await.get_definitions();
+            let children = Some(scope.lock().await.get_definitions());
             Ok(Symbol {
                 data_type: None,
                 name,
@@ -195,7 +195,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             for c in node.children() {
                 collect_symbols(c, scope.clone()).await?;
             }
-            let children = scope.lock().await.get_definitions();
+            let children = Some(scope.lock().await.get_definitions());
 
             Ok(Symbol {
                 data_type: None,
@@ -265,7 +265,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 collect_symbols(c, scope.clone()).await?;
             }
 
-            let children = scope.lock().await.get_definitions();
+            let children = Some(scope.lock().await.get_definitions());
 
             let data_type = if let Some(data_type) = return_type {
                 Some(*data_type.clone())

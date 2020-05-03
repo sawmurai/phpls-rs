@@ -66,17 +66,24 @@ impl Scope {
         self.symbols.insert(symbol.name.clone(), symbol);
     }
 
-    pub fn get_definitions(&self) -> Option<Vec<Symbol>> {
-        if self.symbols.is_empty() {
-            None
-        } else {
-            Some(
-                self.symbols
-                    .values()
-                    .map(|s| s.clone())
-                    .collect::<Vec<Symbol>>(),
-            )
+    pub fn get_definitions(&self) -> Vec<Symbol> {
+        self.symbols
+            .values()
+            .map(|s| s.clone())
+            .collect::<Vec<Symbol>>()
+    }
+
+    #[async_recursion]
+    pub async fn all_definitions(&self) -> Vec<Symbol> {
+        let mut symbols: Vec<Symbol> = self.get_definitions();
+
+        for scope in self.children.values() {
+            let child = scope.lock().await;
+
+            symbols.extend(child.all_definitions().await);
         }
+
+        symbols
     }
 }
 

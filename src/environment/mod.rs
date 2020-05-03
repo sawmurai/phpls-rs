@@ -1,13 +1,9 @@
 use crate::environment::import::collect_uses;
 use crate::environment::import::SymbolImport;
 use crate::environment::scope::Scope;
+use crate::environment::symbol::Symbol;
 use crate::node::Node;
-use crate::parser::Error;
-use std::sync::Arc;
-use std::sync::Mutex;
-use tower_lsp::lsp_types::{
-    Diagnostic, DocumentHighlight, DocumentSymbol, Position, Range, SymbolKind,
-};
+use tower_lsp::lsp_types::{DocumentHighlight, Position, Range, SymbolKind};
 
 pub mod import;
 pub mod scope;
@@ -15,23 +11,40 @@ pub mod symbol;
 
 #[derive(Default)]
 pub struct Environment {
-    pub document_symbols: Vec<DocumentSymbol>,
-    pub diagnostics: Vec<Diagnostic>,
-
     /// Uses / imports in the current file
     pub uses: Vec<SymbolImport>,
+}
 
-    pub scope: Arc<Mutex<Scope>>,
+pub async fn document_highlights(
+    position: &Position,
+    scope: &Scope,
+) -> Option<Vec<DocumentHighlight>> {
+    let all_symbols: Vec<Symbol> = scope.all_definitions().await;
+
+    if let Some(symbol) = symbol_under_cursor(&all_symbols, position) {
+        let mut container = Vec::new();
+        usages_of_symbol(&symbol, &all_symbols, &mut container);
+
+        return Some(
+            container
+                .iter()
+                .map(|usage| DocumentHighlight {
+                    range: usage.range,
+                    kind: None,
+                })
+                .collect::<Vec<DocumentHighlight>>(),
+        );
+    }
+
+    None
+}
+pub async fn hover(position: &Position, scope: &Scope) -> Option<Symbol> {
+    let all_symbols: Vec<Symbol> = scope.all_definitions().await;
+
+    symbol_under_cursor(&all_symbols, position)
 }
 
 impl Environment {
-    pub fn cache_diagnostics(&mut self, errors: &[Error]) {
-        self.diagnostics = errors
-            .iter()
-            .map(Diagnostic::from)
-            .collect::<Vec<Diagnostic>>()
-    }
-
     pub fn cache_uses(&mut self, ast: &[Node]) {
         self.uses = ast
             .iter()
@@ -39,55 +52,30 @@ impl Environment {
             .collect::<Vec<Vec<SymbolImport>>>()
             .concat()
     }
-
-    pub fn document_highlights(&self, position: &Position) -> Option<Vec<DocumentHighlight>> {
-        if let Some(symbol) = symbol_under_cursor(&self.document_symbols, position) {
-            let mut container = Vec::new();
-            usages_of_symbol(&symbol, &self.document_symbols, &mut container);
-
-            return Some(
-                container
-                    .iter()
-                    .map(|usage| DocumentHighlight {
-                        range: usage.range,
-                        kind: None,
-                    })
-                    .collect::<Vec<DocumentHighlight>>(),
-            );
-        }
-
-        None
-    }
-
-    pub fn hover(&self, position: &Position) -> Option<&DocumentSymbol> {
-        symbol_under_cursor(&self.document_symbols, position)
-    }
-
-    pub fn fqdn(&self, name: &str) -> String {
-        for s in self
-            .document_symbols
-            .iter()
-            .filter(|s| s.kind == SymbolKind::Namespace)
-        {
-            return format!("{}\\{}", s.name, name);
-        }
-
-        return name.to_owned();
-    }
 }
 
-fn symbol_under_cursor<'a>(
-    symbols: &'a [DocumentSymbol],
-    position: &Position,
-) -> Option<&'a DocumentSymbol> {
+pub async fn fqdn(name: &str, scope: &Scope) -> String {
+    let all_symbols: Vec<Symbol> = scope.all_definitions().await;
+
+    for s in all_symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Namespace)
+    {
+        return format!("{}\\{}", s.name, name);
+    }
+
+    return name.to_owned();
+}
+
+pub fn symbol_under_cursor<'a>(symbols: &'a [Symbol], position: &Position) -> Option<Symbol> {
     for symbol in symbols {
         if in_range(position, &symbol.selection_range) {
-            return Some(symbol);
+            return Some(symbol.clone());
         } else if in_range(position, &symbol.range) {
             if let Some(children) = symbol.children.as_ref() {
                 return symbol_under_cursor(&children, position);
             } else {
-                return Some(symbol);
+                return Some(symbol.clone());
             }
         }
     }
@@ -95,10 +83,10 @@ fn symbol_under_cursor<'a>(
     return None;
 }
 
-fn usages_of_symbol<'a>(
-    symbol: &DocumentSymbol,
-    symbols: &'a [DocumentSymbol],
-    container: &mut Vec<&'a DocumentSymbol>,
+pub fn usages_of_symbol<'a>(
+    symbol: &Symbol,
+    symbols: &'a [Symbol],
+    container: &mut Vec<&'a Symbol>,
 ) {
     for child in symbols {
         if child.name == symbol.name && child.kind == symbol.kind {
