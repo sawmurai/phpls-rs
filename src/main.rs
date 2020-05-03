@@ -1,6 +1,6 @@
 #![allow(clippy::must_use_candidate)]
 
-use crate::environment::scope::{collect_symbols, Scope, ScopeType};
+use crate::environment::scope::{collect_symbols, resolve_references, Scope, ScopeType};
 use crate::parser::Parser;
 use crate::scanner::Scanner;
 use async_recursion::async_recursion;
@@ -40,6 +40,24 @@ impl Backend {
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         if let Ok(root_path) = url.to_file_path() {
             self.reindex_folder(&root_path).await?;
+        }
+
+        let root_scope = self.global_scope.lock().await;
+
+        for (file, scope) in root_scope.children.iter() {
+            resolve_references(&Url::from_file_path(file).unwrap(), scope.clone())
+                .await
+                .unwrap();
+        }
+
+        let mut diagnostics = self.diagnostics.lock().await;
+        for (file, scope) in root_scope.children.iter() {
+            for missing in scope.lock().await.all_unresolvable().await {
+                diagnostics
+                    .get_mut(file)
+                    .unwrap()
+                    .push(Diagnostic::from(missing));
+            }
         }
 
         Ok(())
@@ -97,8 +115,6 @@ impl Backend {
                     .map(Diagnostic::from)
                     .collect::<Vec<Diagnostic>>(),
             );
-        //env.cache_symbols(&ast);
-        //env.cache_uses(&ast);
 
         // Have this in a block to free the lock as soon as possible
         } else {

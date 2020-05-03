@@ -3,7 +3,7 @@ use crate::node::{get_range, Node};
 use async_recursion::async_recursion;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tower_lsp::lsp_types::{DocumentSymbol, Range, SymbolKind};
+use tower_lsp::lsp_types::{DocumentSymbol, Location, Range, SymbolKind};
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
@@ -19,6 +19,7 @@ pub struct Symbol {
     pub detail: Option<String>,
     pub deprecated: Option<bool>,
     pub children: Option<Vec<Symbol>>,
+    pub references: Option<Vec<Location>>,
 }
 
 /// Basically a 1:1 mapping that omits the data type
@@ -42,6 +43,16 @@ impl From<&Symbol> for DocumentSymbol {
     }
 }
 
+impl Symbol {
+    pub fn reference(&mut self, location: Location) {
+        if let Some(references) = self.references.as_mut() {
+            references.push(location);
+        } else {
+            self.references = Some(vec![location]);
+        }
+    }
+}
+
 #[async_recursion]
 pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, String> {
     match node {
@@ -54,6 +65,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             detail: None,
             children: None,
             deprecated: None,
+            references: None,
         }),
         Node::LexicalVariable { variable, .. } => Ok(Symbol::from(variable)),
         Node::StaticVariable { variable, .. } => Ok(Symbol::from(variable)),
@@ -85,6 +97,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 detail: None,
                 children,
                 deprecated: None,
+                references: None,
             })
         }
         Node::FunctionArgument { name, .. } => Ok(Symbol::from(name)),
@@ -108,6 +121,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 detail: None,
                 children,
                 deprecated: None,
+                references: None,
             })
         }
         Node::NamespaceBlock {
@@ -143,6 +157,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 detail: None,
                 children,
                 deprecated: None,
+                references: None,
             })
         }
         Node::ClassStatement { name, .. } => {
@@ -164,6 +179,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 detail: None,
                 children,
                 deprecated: None,
+                references: None,
             })
         }
         Node::TraitStatement { name, .. } => {
@@ -185,6 +201,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 detail: None,
                 children,
                 deprecated: None,
+                references: None,
             })
         }
         Node::Interface { name, .. } => {
@@ -206,6 +223,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 detail: None,
                 children,
                 deprecated: None,
+                references: None,
             })
         }
         Node::ClassConstantDefinitionStatement { name, .. } => {
@@ -219,6 +237,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 detail: None,
                 children: None,
                 deprecated: None,
+                references: None,
             })
         }
         Node::PropertyDefinitionStatement {
@@ -241,6 +260,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 detail: None,
                 children: None,
                 deprecated: None,
+                references: None,
             })
         }
         Node::MethodDefinitionStatement { name, function, .. } => {
@@ -282,6 +302,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 detail: None,
                 children,
                 deprecated: None,
+                references: None,
             })
         }
         Node::NamedFunctionDefinitionStatement { name, function, .. } => {
@@ -318,6 +339,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 detail: None,
                 children: None,
                 deprecated: None,
+                references: None,
             })
         }
         _ => unimplemented!("Unexpected {:?}", node),

@@ -658,6 +658,7 @@ impl Node {
 
                 children
             }
+            Node::ArgumentType { type_ref, .. } => vec![type_ref],
             Node::Class {
                 arguments,
                 extends,

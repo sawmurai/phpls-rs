@@ -369,6 +369,7 @@ impl From<&Token> for Symbol {
             detail: None,
             children: None,
             deprecated: None,
+            references: None,
         }
     }
 }

@@ -15,6 +15,7 @@ pub struct Environment {
     pub uses: Vec<SymbolImport>,
 }
 
+/// Return all references to the symbol under the cursor at `position`
 pub async fn document_highlights(
     position: &Position,
     scope: &Scope,
@@ -22,18 +23,17 @@ pub async fn document_highlights(
     let all_symbols: Vec<Symbol> = scope.all_definitions().await;
 
     if let Some(symbol) = symbol_under_cursor(&all_symbols, position) {
-        let mut container = Vec::new();
-        usages_of_symbol(&symbol, &all_symbols, &mut container);
-
-        return Some(
-            container
-                .iter()
-                .map(|usage| DocumentHighlight {
-                    range: usage.range,
-                    kind: None,
-                })
-                .collect::<Vec<DocumentHighlight>>(),
-        );
+        if let Some(container) = symbol.references {
+            return Some(
+                container
+                    .iter()
+                    .map(|usage| DocumentHighlight {
+                        range: usage.range,
+                        kind: None,
+                    })
+                    .collect::<Vec<DocumentHighlight>>(),
+            );
+        }
     }
 
     None
