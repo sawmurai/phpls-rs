@@ -58,22 +58,14 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
         Node::LexicalVariable { variable, .. } => Ok(Symbol::from(variable)),
         Node::StaticVariable { variable, .. } => Ok(Symbol::from(variable)),
         Node::Function {
-            token,
-            body,
-            arguments,
-            return_type,
-            ..
+            token, return_type, ..
         } => {
             let range = get_range(node.range());
             let name = String::from("Anonymous function");
             let scope = Scope::within(&name, scope, ScopeType::Function).await;
 
-            collect_symbols(body, scope.clone()).await?;
-
-            if let Some(arguments) = arguments {
-                for n in arguments {
-                    collect_symbols(n, scope.clone()).await?;
-                }
+            for c in node.children() {
+                collect_symbols(c, scope.clone()).await?;
             }
 
             let children = scope.lock().await.get_definitions();
@@ -96,21 +88,13 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             })
         }
         Node::FunctionArgument { name, .. } => Ok(Symbol::from(name)),
-        Node::Class {
-            token,
-            body,
-            arguments,
-            ..
-        } => {
+        Node::Class { token, .. } => {
             let name = String::from("Anonymous class");
             let range = get_range(node.range());
             let scope = Scope::within(&name, scope, ScopeType::Class).await;
-            collect_symbols(body, scope.clone()).await?;
 
-            if let Some(arguments) = arguments {
-                for n in arguments {
-                    collect_symbols(n, scope.clone()).await?;
-                }
+            for c in node.children() {
+                collect_symbols(c, scope.clone()).await?;
             }
 
             let children = scope.lock().await.get_definitions();
@@ -127,10 +111,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             })
         }
         Node::NamespaceBlock {
-            token,
-            type_ref,
-            block,
-            ..
+            token, type_ref, ..
         } => {
             let range = get_range(node.range());
             let name = if let Some(name) = type_ref {
@@ -147,7 +128,10 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             };
 
             let scope = Scope::within(&name, scope, ScopeType::Namespace).await;
-            collect_symbols(block, scope.clone()).await?;
+
+            for c in node.children() {
+                collect_symbols(c, scope.clone()).await?;
+            }
 
             let children = scope.lock().await.get_definitions();
             Ok(Symbol {
@@ -161,13 +145,14 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 deprecated: None,
             })
         }
-        Node::ClassStatement { name, body, .. } => {
+        Node::ClassStatement { name, .. } => {
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
             let scope = Scope::within(&name, scope, ScopeType::Class).await;
-            collect_symbols(body, scope.clone()).await?;
-
+            for c in node.children() {
+                collect_symbols(c, scope.clone()).await?;
+            }
             let children = scope.lock().await.get_definitions();
 
             Ok(Symbol {
@@ -181,12 +166,14 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 deprecated: None,
             })
         }
-        Node::TraitStatement { name, body, .. } => {
+        Node::TraitStatement { name, .. } => {
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
             let scope = Scope::within(&name, scope, ScopeType::Class).await;
-            collect_symbols(body, scope.clone()).await?;
+            for c in node.children() {
+                collect_symbols(c, scope.clone()).await?;
+            }
 
             let children = scope.lock().await.get_definitions();
             Ok(Symbol {
@@ -200,13 +187,14 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 deprecated: None,
             })
         }
-        Node::Interface { name, body, .. } => {
+        Node::Interface { name, .. } => {
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
             let scope = Scope::within(&name, scope, ScopeType::Class).await;
-            collect_symbols(body, scope.clone()).await?;
-
+            for c in node.children() {
+                collect_symbols(c, scope.clone()).await?;
+            }
             let children = scope.lock().await.get_definitions();
 
             Ok(Symbol {
@@ -268,24 +256,13 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 ..function?
             })
         }
-        Node::FunctionDefinitionStatement {
-            return_type,
-            arguments,
-            body,
-            ..
-        } => {
+        Node::FunctionDefinitionStatement { return_type, .. } => {
             let range = get_range(node.range());
             let name = "Anonymous function".to_owned();
             let scope = Scope::within(&name, scope, ScopeType::Function).await;
 
-            if let Some(arguments) = arguments {
-                for n in arguments {
-                    collect_symbols(n, scope.clone()).await?;
-                }
-            }
-
-            if let Some(body) = body {
-                collect_symbols(body, scope.clone()).await?;
+            for c in node.children() {
+                collect_symbols(c, scope.clone()).await?;
             }
 
             let children = scope.lock().await.get_definitions();
