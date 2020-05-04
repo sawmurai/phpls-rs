@@ -55,11 +55,13 @@ impl Backend {
 
         let mut diagnostics = self.diagnostics.lock().await;
         for (file, scope) in root_scope.children.iter() {
-            for missing in scope.lock().await.all_unresolvable().await {
-                diagnostics
-                    .get_mut(file)
-                    .unwrap()
-                    .push(Diagnostic::from(missing));
+            if file.ends_with("DeserializationServiceProvider.php") {
+                for missing in scope.lock().await.all_unresolvable().await {
+                    diagnostics
+                        .get_mut(file)
+                        .unwrap()
+                        .push(Diagnostic::from(missing));
+                }
             }
         }
 

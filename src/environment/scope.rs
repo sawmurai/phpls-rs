@@ -1,4 +1,4 @@
-use crate::environment::import::SymbolImport;
+use crate::environment::import::{collect_uses, SymbolImport};
 use crate::environment::symbol::{document_symbol, Symbol};
 use crate::node::{get_range, Node};
 use crate::token::Token;
@@ -79,7 +79,7 @@ impl From<Reference> for Diagnostic {
     fn from(reference: Reference) -> Diagnostic {
         Diagnostic {
             range: reference.range,
-            message: String::from("Missing"),
+            message: format!("{:#?}", reference),
             ..Diagnostic::default()
         }
     }
@@ -94,7 +94,7 @@ pub struct Scope {
     pub symbols: HashMap<String, Symbol>,
 
     /// Symbols imported into this scope via use-statements
-    pub imports: Vec<SymbolImport>,
+    pub aliases: Vec<SymbolImport>,
 
     /// All children. The key is the function-, class- or namespace-name
     pub children: HashMap<String, Arc<Mutex<Scope>>>,
@@ -190,15 +190,26 @@ impl Scope {
             local_table.insert(name.clone(), symbol.clone());
         }
 
+        for import in self.aliases.iter() {
+            let alias = if let Some(alias) = import.alias.as_ref() {
+                alias
+            } else {
+                import.path.last().unwrap()
+            };
+
+            local_table.insert(alias.label.clone().unwrap(), Symbol::from(alias));
+        }
+
         for reference in self.references.iter_mut() {
             let ref_name = if let Some(token) = reference.token.as_ref() {
                 if let Some(label) = token.label.as_ref() {
                     label
                 } else {
-                    ""
+                    continue;
                 }
+            // Add support for type refs etc
             } else {
-                ""
+                continue;
             };
 
             if let Some(symbol) = local_table.get(ref_name) {
@@ -264,6 +275,16 @@ pub async fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<()
                     .map(|t| t.clone())
                     .collect(),
             ));
+        }
+        Node::GroupedUse { .. }
+        | Node::UseDeclaration { .. }
+        | Node::UseFunction { .. }
+        | Node::UseConst { .. } => {
+            scope
+                .lock()
+                .await
+                .aliases
+                .extend(collect_uses(node, &Vec::new()));
         }
         _ => {
             for child in node.children() {

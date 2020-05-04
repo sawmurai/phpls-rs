@@ -861,6 +861,11 @@ impl Node {
             Node::StaticVariablesStatement { assignments, .. } => {
                 (*assignments).iter().map(|n| n).collect::<Vec<&Node>>()
             }
+            Node::UseStatement { imports, .. }
+            | Node::UseFunctionStatement { imports, .. }
+            | Node::UseConstStatement { imports, .. } => {
+                (*imports).iter().map(|n| n).collect::<Vec<&Node>>()
+            }
             _ => Vec::new(),
         }
     }
