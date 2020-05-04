@@ -31,9 +31,6 @@ struct Backend {
 
     /// Global list of all diagnostics
     diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
-
-    /// key: FQDN of symbol, value: Filename of importing fil
-    usages: Mutex<HashMap<String, Vec<String>>>,
 }
 
 impl Backend {
@@ -284,40 +281,9 @@ impl LanguageServer for Backend {
         if let Some(file_scope) = self.global_scope.lock().await.children.get(file) {
             let file_scope = file_scope.lock().await;
 
-            if let Some(symbol) =
+            if let Some(_symbol) =
                 environment::hover(&params.text_document_position.position, &file_scope).await
             {
-                eprintln!(
-                    "Searching or {}",
-                    environment::fqdn(&symbol.name, &file_scope).await
-                );
-                if let Some(usages) = self
-                    .usages
-                    .lock()
-                    .await
-                    .get(&environment::fqdn(&symbol.name, &file_scope).await)
-                {
-                    return Ok(Some(
-                        usages
-                            .iter()
-                            .map(|usage| Location {
-                                uri: Url::from_file_path(&usage).unwrap(),
-                                range: Range {
-                                    start: Position {
-                                        line: 0,
-                                        character: 0,
-                                    },
-                                    end: Position {
-                                        line: 0,
-                                        character: 0,
-                                    },
-                                },
-                            })
-                            .collect::<Vec<Location>>(),
-                    ));
-                } else {
-                    eprintln!("No Usages found");
-                }
             } else {
                 eprintln!("Symbol not found");
             }

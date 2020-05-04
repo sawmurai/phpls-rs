@@ -6,7 +6,7 @@ use async_recursion::async_recursion;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tower_lsp::lsp_types::{Diagnostic, Location, Range, Url};
+use tower_lsp::lsp_types::{Diagnostic, Range, Url};
 
 pub enum ScopeType {
     Function,
