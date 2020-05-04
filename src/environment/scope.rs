@@ -96,9 +96,6 @@ pub struct Scope {
     /// Symbols imported into this scope via use-statements
     pub imports: Vec<SymbolImport>,
 
-    /// Access to this scope's parent
-    pub parent: Option<Arc<Mutex<Scope>>>,
-
     /// All children. The key is the function-, class- or namespace-name
     pub children: HashMap<String, Arc<Mutex<Scope>>>,
 
@@ -113,7 +110,6 @@ impl Scope {
         scope_type: ScopeType,
     ) -> Arc<Mutex<Self>> {
         let new = Self {
-            parent: Some(parent.clone()),
             scope_type,
             ..Default::default()
         };
@@ -131,25 +127,6 @@ impl Scope {
 
     pub fn definition(&mut self, symbol: Symbol) {
         self.symbols.insert(symbol.name.clone(), symbol);
-    }
-
-    #[async_recursion]
-    pub async fn reference(&mut self, token: &Token, location: Location) -> Result<(), String> {
-        let name = if let Some(name) = token.label.as_ref() {
-            name
-        } else {
-            return Err("Usage of token without label is impossible".to_owned());
-        };
-
-        if let Some(definition) = self.symbols.get_mut(name) {
-            definition.reference(location);
-
-            return Ok(());
-        } else if let Some(parent) = self.parent.as_ref() {
-            return parent.lock().await.reference(token, location).await;
-        }
-
-        return Err("Usage of undefined symbol!".to_owned());
     }
 
     pub fn get_definitions(&self) -> Vec<Symbol> {
