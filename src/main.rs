@@ -40,19 +40,18 @@ impl Backend {
         for (file, scope) in root_scope.children.iter() {
             scope
                 .lock()
-                .await
+                .unwrap()
                 .resolve_references(
                     &Url::from_file_path(file).unwrap(),
                     root_scope.symbols.clone(),
                 )
-                .await
                 .unwrap();
         }
 
         let mut diagnostics = self.diagnostics.lock().await;
         for (file, scope) in root_scope.children.iter() {
             if file.ends_with("DeserializationServiceProvider.php") {
-                for missing in scope.lock().await.all_unresolvable().await {
+                for missing in scope.lock().unwrap().all_unresolvable() {
                     diagnostics
                         .get_mut(file)
                         .unwrap()
@@ -100,14 +99,18 @@ impl Backend {
             return Ok(());
         }
 
+        let mut root_scope = self.global_scope.lock().await;
+
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens.clone()) {
-            let scope = Scope::within(path, self.global_scope.clone(), ScopeType::File).await;
+            let scope = Scope::within(path, None, ScopeType::File);
 
             for node in ast {
-                if let Err(e) = collect_symbols(&node, scope.clone()).await {
+                if let Err(e) = collect_symbols(&node, scope.clone()) {
                     eprintln!("Error collecting symbols in file {}: {}", path, e);
                 }
             }
+
+            root_scope.children.insert(path.to_owned(), scope);
 
             self.diagnostics.lock().await.insert(
                 path.to_owned(),
@@ -199,9 +202,9 @@ impl LanguageServer for Backend {
         let mut symbols = Vec::new();
 
         for (file, scope) in global_scope.children.iter() {
-            let definitions = scope.lock().await;
+            let definitions = scope.lock().unwrap();
 
-            for symbol in definitions.all_definitions().await {
+            for symbol in definitions.all_definitions() {
                 if params.query != "" && symbol.name.starts_with(&params.query) {
                     symbols.push(SymbolInformation {
                         name: symbol.name.clone(),
@@ -233,7 +236,7 @@ impl LanguageServer for Backend {
 
         if let Some(scope) = global_scope.children.get(path) {
             //let top_level_symbols = scope.upgrade().unwrap();
-            let top_level_symbols = scope.lock().await;
+            let top_level_symbols = scope.lock().unwrap();
 
             let definitions = top_level_symbols.get_definitions();
             if !definitions.is_empty() {
@@ -262,12 +265,11 @@ impl LanguageServer for Backend {
             .path();
 
         if let Some(scope) = self.global_scope.lock().await.children.get(file) {
-            let scope = scope.lock().await;
+            let scope = scope.lock().unwrap();
             return Ok(environment::document_highlights(
                 &params.text_document_position_params.position,
                 &scope,
-            )
-            .await);
+            ));
         }
 
         Ok(None)
@@ -277,10 +279,10 @@ impl LanguageServer for Backend {
         let file = params.text_document_position.text_document.uri.path();
 
         if let Some(file_scope) = self.global_scope.lock().await.children.get(file) {
-            let file_scope = file_scope.lock().await;
+            let file_scope = file_scope.lock().unwrap();
 
             if let Some(_symbol) =
-                environment::hover(&params.text_document_position.position, &file_scope).await
+                environment::hover(&params.text_document_position.position, &file_scope)
             {
             } else {
                 eprintln!("Symbol not found");
@@ -345,13 +347,12 @@ impl LanguageServer for Backend {
             .path();
 
         if let Some(file_scope) = self.global_scope.lock().await.children.get(file) {
-            let file_scope = file_scope.lock().await;
+            let file_scope = file_scope.lock().unwrap();
 
             return Ok(Some(Hover {
                 contents: HoverContents::Scalar(MarkedString::String(format!(
                     "{:?}",
                     environment::hover(&params.text_document_position_params.position, &file_scope)
-                        .await
                 ))),
                 range: None,
             }));

@@ -7,11 +7,8 @@ pub mod scope;
 pub mod symbol;
 
 /// Return all references to the symbol under the cursor at `position`
-pub async fn document_highlights(
-    position: &Position,
-    scope: &Scope,
-) -> Option<Vec<DocumentHighlight>> {
-    let all_symbols: Vec<Symbol> = scope.all_definitions().await;
+pub fn document_highlights(position: &Position, scope: &Scope) -> Option<Vec<DocumentHighlight>> {
+    let all_symbols: Vec<Symbol> = scope.all_definitions();
 
     if let Some(symbol) = symbol_under_cursor(&all_symbols, position) {
         if let Some(container) = symbol.references {
@@ -31,14 +28,14 @@ pub async fn document_highlights(
 }
 
 /// Handle hover action triggered by the language server
-pub async fn hover(position: &Position, scope: &Scope) -> Option<Symbol> {
-    let all_symbols: Vec<Symbol> = scope.all_definitions().await;
+pub fn hover(position: &Position, scope: &Scope) -> Option<Symbol> {
+    let all_symbols: Vec<Symbol> = scope.all_definitions();
 
     symbol_under_cursor(&all_symbols, position)
 }
 
-pub async fn fqdn(name: &str, scope: &Scope) -> String {
-    let all_symbols: Vec<Symbol> = scope.all_definitions().await;
+pub fn fqdn(name: &str, scope: &Scope) -> String {
+    let all_symbols: Vec<Symbol> = scope.all_definitions();
 
     for s in all_symbols
         .iter()

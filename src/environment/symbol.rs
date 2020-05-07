@@ -1,9 +1,7 @@
 use crate::environment::scope::{collect_symbols, Reference, Scope, ScopeType};
 use crate::node::{get_range, Node};
 use crate::token::Token;
-use async_recursion::async_recursion;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tower_lsp::lsp_types::{DocumentSymbol, Location, Range, SymbolKind};
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
@@ -64,8 +62,7 @@ fn get_type_ref(node: &Node) -> Option<Vec<Token>> {
     }
 }
 
-#[async_recursion]
-pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, String> {
+pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, String> {
     match node {
         Node::Const { name, .. } => Ok(Symbol {
             data_type: None,
@@ -85,13 +82,13 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
         } => {
             let range = get_range(node.range());
             let name = String::from("Anonymous function");
-            let scope = Scope::within(&name, scope, ScopeType::Function).await;
+            let scope = Scope::within(&name, Some(scope), ScopeType::Function);
 
             for c in node.children() {
-                collect_symbols(c, scope.clone()).await?;
+                collect_symbols(c, scope.clone())?;
             }
 
-            let children = Some(scope.lock().await.get_definitions());
+            let children = Some(scope.lock().unwrap().get_definitions());
 
             let data_type = if let Some(data_type) = return_type {
                 if let Some(type_ref) = get_type_ref(data_type) {
@@ -136,13 +133,13 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
         Node::Class { token, .. } => {
             let name = String::from("Anonymous class");
             let range = get_range(node.range());
-            let scope = Scope::within(&name, scope, ScopeType::Class).await;
+            let scope = Scope::within(&name, Some(scope), ScopeType::Class);
 
             for c in node.children() {
-                collect_symbols(c, scope.clone()).await?;
+                collect_symbols(c, scope.clone())?;
             }
 
-            let children = Some(scope.lock().await.get_definitions());
+            let children = Some(scope.lock().unwrap().get_definitions());
 
             Ok(Symbol {
                 data_type: None,
@@ -173,13 +170,13 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 "Anonymous namespace".to_string()
             };
 
-            let scope = Scope::within(&name, scope, ScopeType::Namespace).await;
+            let scope = Scope::within(&name, Some(scope), ScopeType::Namespace);
 
             for c in node.children() {
-                collect_symbols(c, scope.clone()).await?;
+                collect_symbols(c, scope.clone())?;
             }
 
-            let children = Some(scope.lock().await.get_definitions());
+            let children = Some(scope.lock().unwrap().get_definitions());
             Ok(Symbol {
                 data_type: None,
                 name,
@@ -196,11 +193,11 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let scope = Scope::within(&name, scope, ScopeType::Class).await;
+            let scope = Scope::within(&name, Some(scope), ScopeType::Class);
             for c in node.children() {
-                collect_symbols(c, scope.clone()).await?;
+                collect_symbols(c, scope.clone())?;
             }
-            let children = Some(scope.lock().await.get_definitions());
+            let children = Some(scope.lock().unwrap().get_definitions());
 
             Ok(Symbol {
                 data_type: None,
@@ -218,12 +215,12 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let scope = Scope::within(&name, scope, ScopeType::Class).await;
+            let scope = Scope::within(&name, Some(scope), ScopeType::Class);
             for c in node.children() {
-                collect_symbols(c, scope.clone()).await?;
+                collect_symbols(c, scope.clone())?;
             }
 
-            let children = Some(scope.lock().await.get_definitions());
+            let children = Some(scope.lock().unwrap().get_definitions());
             Ok(Symbol {
                 data_type: None,
                 name,
@@ -240,11 +237,11 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let scope = Scope::within(&name, scope, ScopeType::Class).await;
+            let scope = Scope::within(&name, Some(scope), ScopeType::Class);
             for c in node.children() {
-                collect_symbols(c, scope.clone()).await?;
+                collect_symbols(c, scope.clone())?;
             }
-            let children = Some(scope.lock().await.get_definitions());
+            let children = Some(scope.lock().unwrap().get_definitions());
 
             Ok(Symbol {
                 data_type: None,
@@ -302,7 +299,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
         Node::MethodDefinitionStatement { name, function, .. } => {
             let range = get_range(node.range());
             // From the start of the declaration to the end of the method
-            let function = document_symbol(function.as_ref(), scope).await;
+            let function = document_symbol(function.as_ref(), scope);
 
             Ok(Symbol {
                 name: name.clone().label.unwrap(),
@@ -315,13 +312,13 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
         Node::FunctionDefinitionStatement { return_type, .. } => {
             let range = get_range(node.range());
             let name = "Anonymous function".to_owned();
-            let scope = Scope::within(&name, scope, ScopeType::Function).await;
+            let scope = Scope::within(&name, Some(scope), ScopeType::Function);
 
             for c in node.children() {
-                collect_symbols(c, scope.clone()).await?;
+                collect_symbols(c, scope.clone())?;
             }
 
-            let children = Some(scope.lock().await.get_definitions());
+            let children = Some(scope.lock().unwrap().get_definitions());
 
             let data_type = if let Some(data_type) = return_type {
                 if let Some(type_ref) = get_type_ref(data_type) {
@@ -349,7 +346,7 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             let range = get_range(node.range());
 
             // From the start of the declaration to the end of the method
-            let function = document_symbol(function.as_ref(), scope).await;
+            let function = document_symbol(function.as_ref(), scope);
 
             Ok(Symbol {
                 name: name.clone().label.unwrap(),

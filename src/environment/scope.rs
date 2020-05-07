@@ -2,10 +2,8 @@ use crate::environment::import::{collect_uses, SymbolImport};
 use crate::environment::symbol::{document_symbol, Symbol};
 use crate::node::{get_range, Node};
 use crate::token::Token;
-use async_recursion::async_recursion;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tower_lsp::lsp_types::{Diagnostic, Location, Range, Url};
 
 pub enum ScopeType {
@@ -104,9 +102,9 @@ pub struct Scope {
 }
 
 impl Scope {
-    pub async fn within(
+    pub fn within(
         name: &str,
-        parent: Arc<Mutex<Self>>,
+        parent: Option<Arc<Mutex<Self>>>,
         scope_type: ScopeType,
     ) -> Arc<Mutex<Self>> {
         let new = Self {
@@ -116,11 +114,13 @@ impl Scope {
 
         let new = Arc::new(Mutex::new(new));
 
-        parent
-            .lock()
-            .await
-            .children
-            .insert(name.to_owned(), Arc::clone(&new));
+        if let Some(parent) = parent {
+            parent
+                .lock()
+                .unwrap()
+                .children
+                .insert(name.to_owned(), Arc::clone(&new));
+        }
 
         new
     }
@@ -148,27 +148,25 @@ impl Scope {
             .collect::<Vec<Reference>>()
     }
 
-    #[async_recursion]
-    pub async fn all_definitions(&self) -> Vec<Symbol> {
+    pub fn all_definitions(&self) -> Vec<Symbol> {
         let mut symbols: Vec<Symbol> = self.get_definitions();
 
         for scope in self.children.values() {
-            let child = scope.lock().await;
+            let child = scope.lock().unwrap();
 
-            symbols.extend(child.all_definitions().await);
+            symbols.extend(child.all_definitions());
         }
 
         symbols
     }
 
-    #[async_recursion]
-    pub async fn all_unresolvable(&self) -> Vec<Reference> {
+    pub fn all_unresolvable(&self) -> Vec<Reference> {
         let mut references: Vec<Reference> = self.get_unresolvable();
 
         for scope in self.children.values() {
-            let child = scope.lock().await;
+            let child = scope.lock().unwrap();
 
-            references.extend(child.all_unresolvable().await);
+            references.extend(child.all_unresolvable());
         }
 
         references
@@ -182,8 +180,7 @@ impl Scope {
     /// The symbol table gets enriched with the symbols registered in each new scope
     /// Due to all the cloning of the HashMaps this might be slow  
     /// TODO: Treat scope boundaries correctly, so that functions hide some stuff of the parent scope
-    #[async_recursion]
-    pub async fn resolve_references(
+    pub fn resolve_references(
         &mut self,
         uri: &Url,
         symbol_table: HashMap<String, Symbol>,
@@ -236,17 +233,15 @@ impl Scope {
         for child in self.children.values() {
             child
                 .lock()
-                .await
-                .resolve_references(uri, local_table.clone())
-                .await?;
+                .unwrap()
+                .resolve_references(uri, local_table.clone())?;
         }
 
         Ok(())
     }
 }
 
-#[async_recursion]
-pub async fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<(), String> {
+pub fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<(), String> {
     match node {
         Node::NamespaceStatement { .. }
         | Node::Function { .. }
@@ -262,31 +257,31 @@ pub async fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<()
         | Node::NamedFunctionDefinitionStatement { .. }
         | Node::Const { .. }
         | Node::Interface { .. } => {
-            let def = document_symbol(node, scope.clone()).await?;
+            let def = document_symbol(node, scope.clone())?;
 
-            scope.lock().await.definition(def);
+            scope.lock().unwrap().definition(def);
         }
 
         Node::LexicalVariable { variable, .. }
         | Node::Variable(variable)
         | Node::StaticVariable { variable, .. } => {
-            let def = document_symbol(node, scope.clone()).await?;
+            let def = document_symbol(node, scope.clone())?;
 
-            let mut scope = scope.lock().await;
+            let mut scope = scope.lock().unwrap();
             scope.definition(def);
             scope.prepare_reference(Reference::variable(variable));
         }
-        Node::Identifier(token) => scope.lock().await.definition(Symbol::from(token)),
+        Node::Identifier(token) => scope.lock().unwrap().definition(Symbol::from(token)),
         Node::Literal(token) => {
             if token.is_identifier() {
                 scope
                     .lock()
-                    .await
+                    .unwrap()
                     .prepare_reference(Reference::identifier(token));
             }
         }
         Node::TypeRef(parts) => {
-            scope.lock().await.prepare_reference(Reference::type_ref(
+            scope.lock().unwrap().prepare_reference(Reference::type_ref(
                 parts
                     .iter()
                     .filter(|t| t.label.is_some())
@@ -300,13 +295,13 @@ pub async fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<()
         | Node::UseConst { .. } => {
             scope
                 .lock()
-                .await
+                .unwrap()
                 .aliases
                 .extend(collect_uses(node, &Vec::new()));
         }
         _ => {
             for child in node.children() {
-                collect_symbols(child, scope.clone()).await?;
+                collect_symbols(child, scope.clone())?;
             }
         }
     };
