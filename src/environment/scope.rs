@@ -99,6 +99,9 @@ pub struct Scope {
 
     /// All unresolved references
     pub references: Vec<Reference>,
+
+    /// A reference to the parent which is needed to register references of symbols
+    pub parent: Option<Arc<Mutex<Scope>>>,
 }
 
 impl Scope {
@@ -107,22 +110,25 @@ impl Scope {
         parent: Option<Arc<Mutex<Self>>>,
         scope_type: ScopeType,
     ) -> Arc<Mutex<Self>> {
-        let new = Self {
+        let mut new = Self {
             scope_type,
             ..Default::default()
         };
 
-        let new = Arc::new(Mutex::new(new));
-
         if let Some(parent) = parent {
+            new.parent = Some(parent.clone());
+
+            let new = Arc::new(Mutex::new(new));
             parent
                 .lock()
                 .unwrap()
                 .children
                 .insert(name.to_owned(), Arc::clone(&new));
+
+            return new;
         }
 
-        new
+        Arc::new(Mutex::new(new))
     }
 
     pub fn definition(&mut self, symbol: Symbol) {
