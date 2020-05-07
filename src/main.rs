@@ -9,7 +9,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{self};
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -20,9 +19,6 @@ pub mod node;
 pub mod parser;
 pub mod scanner;
 pub mod token;
-
-type EnvReceiver = mpsc::Receiver<(String, environment::Environment)>;
-type Registry = Mutex<HashMap<String, environment::Environment>>;
 
 #[derive(Default)]
 struct Backend {
@@ -373,12 +369,6 @@ impl LanguageServer for Backend {
             CompletionItem::new_simple("Hello".to_string(), "Some detail".to_string()),
             CompletionItem::new_simple("Bye".to_string(), "More detail".to_string()),
         ])))
-    }
-}
-
-pub async fn launch_registry_writer(registry: Registry, mut rx: EnvReceiver) {
-    while let Some((path, env)) = rx.recv().await {
-        registry.lock().await.insert(path, env);
     }
 }
 

@@ -326,7 +326,11 @@ impl Token {
         if let Some(label) = self.label.as_ref() {
             return (label.len() + 1) as u16;
         }
-        1
+
+        match self.t {
+            TokenType::Class => 5,
+            _ => 1,
+        }
     }
 
     pub fn is_on(&self, line: u16, col: u16) -> bool {

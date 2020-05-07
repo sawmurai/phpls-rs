@@ -1,5 +1,6 @@
-use crate::environment::scope::{collect_symbols, Scope, ScopeType};
+use crate::environment::scope::{collect_symbols, Reference, Scope, ScopeType};
 use crate::node::{get_range, Node};
+use crate::token::Token;
 use async_recursion::async_recursion;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -11,7 +12,7 @@ use tower_lsp::lsp_types::{DocumentSymbol, Location, Range, SymbolKind};
 pub struct Symbol {
     /// The data type of this symbol. Of course not all symbols have data types (Namespaces for example do not), so
     /// this remains an `Option`
-    pub data_type: Option<Node>,
+    pub data_type: Option<Box<Reference>>,
     pub kind: SymbolKind,
     pub name: String,
     pub range: Range,
@@ -53,6 +54,16 @@ impl Symbol {
     }
 }
 
+fn get_type_ref(node: &Node) -> Option<Vec<Token>> {
+    match node {
+        Node::ArgumentType { type_ref, .. } => match &**type_ref {
+            Node::TypeRef(items) => Some(items.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 #[async_recursion]
 pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, String> {
     match node {
@@ -83,7 +94,11 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             let children = Some(scope.lock().await.get_definitions());
 
             let data_type = if let Some(data_type) = return_type {
-                Some(*data_type.clone())
+                if let Some(type_ref) = get_type_ref(data_type) {
+                    Some(Box::new(Reference::type_ref(type_ref)))
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -100,7 +115,24 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
                 references: None,
             })
         }
-        Node::FunctionArgument { name, .. } => Ok(Symbol::from(name)),
+        Node::FunctionArgument {
+            name,
+            argument_type,
+            ..
+        } => {
+            if let Some(argument_type) = argument_type {
+                if let Some(type_ref) = get_type_ref(argument_type) {
+                    Ok(Symbol {
+                        data_type: Some(Box::new(Reference::type_ref(type_ref))),
+                        ..Symbol::from(name)
+                    })
+                } else {
+                    Ok(Symbol::from(name))
+                }
+            } else {
+                Ok(Symbol::from(name))
+            }
+        }
         Node::Class { token, .. } => {
             let name = String::from("Anonymous class");
             let range = get_range(node.range());
@@ -246,7 +278,11 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             let range = get_range(node.range());
 
             let data_type = if let Some(data_type) = data_type {
-                Some(*data_type.clone())
+                if let Some(type_ref) = get_type_ref(data_type) {
+                    Some(Box::new(Reference::type_ref(type_ref)))
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -288,7 +324,11 @@ pub async fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Sy
             let children = Some(scope.lock().await.get_definitions());
 
             let data_type = if let Some(data_type) = return_type {
-                Some(*data_type.clone())
+                if let Some(type_ref) = get_type_ref(data_type) {
+                    Some(Box::new(Reference::type_ref(type_ref)))
+                } else {
+                    None
+                }
             } else {
                 None
             };

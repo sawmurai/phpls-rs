@@ -6,7 +6,7 @@ use async_recursion::async_recursion;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tower_lsp::lsp_types::{Diagnostic, Range, Url};
+use tower_lsp::lsp_types::{Diagnostic, Location, Range, Url};
 
 pub enum ScopeType {
     Function,
@@ -126,7 +126,11 @@ impl Scope {
     }
 
     pub fn definition(&mut self, symbol: Symbol) {
-        self.symbols.insert(symbol.name.clone(), symbol);
+        let name = symbol.name.clone();
+
+        if self.symbols.get(&name).is_none() {
+            self.symbols.insert(name, symbol);
+        }
     }
 
     pub fn get_definitions(&self) -> Vec<Symbol> {
@@ -208,11 +212,23 @@ impl Scope {
                     continue;
                 }
             // Add support for type refs etc
+            } else if let Some(type_ref) = reference.type_ref.as_ref() {
+                let last = type_ref.last().unwrap();
+
+                if let Some(label) = last.label.as_ref() {
+                    label
+                } else {
+                    continue;
+                }
             } else {
                 continue;
             };
 
-            if let Some(symbol) = local_table.get(ref_name) {
+            if let Some(symbol) = local_table.get_mut(ref_name) {
+                symbol.reference(Location {
+                    uri: uri.clone(),
+                    range: reference.range,
+                });
                 reference.defining_symbol = Some(symbol.clone());
             }
         }
@@ -262,10 +278,12 @@ pub async fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<()
         }
         Node::Identifier(token) => scope.lock().await.definition(Symbol::from(token)),
         Node::Literal(token) => {
-            scope
-                .lock()
-                .await
-                .prepare_reference(Reference::identifier(token));
+            if token.is_identifier() {
+                scope
+                    .lock()
+                    .await
+                    .prepare_reference(Reference::identifier(token));
+            }
         }
         Node::TypeRef(parts) => {
             scope.lock().await.prepare_reference(Reference::type_ref(

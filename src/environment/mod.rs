@@ -1,19 +1,10 @@
-use crate::environment::import::collect_uses;
-use crate::environment::import::SymbolImport;
 use crate::environment::scope::Scope;
 use crate::environment::symbol::Symbol;
-use crate::node::Node;
 use tower_lsp::lsp_types::{DocumentHighlight, Position, Range, SymbolKind};
 
 pub mod import;
 pub mod scope;
 pub mod symbol;
-
-#[derive(Default)]
-pub struct Environment {
-    /// Uses / imports in the current file
-    pub uses: Vec<SymbolImport>,
-}
 
 /// Return all references to the symbol under the cursor at `position`
 pub async fn document_highlights(
@@ -38,20 +29,12 @@ pub async fn document_highlights(
 
     None
 }
+
+/// Handle hover action triggered by the language server
 pub async fn hover(position: &Position, scope: &Scope) -> Option<Symbol> {
     let all_symbols: Vec<Symbol> = scope.all_definitions().await;
 
     symbol_under_cursor(&all_symbols, position)
-}
-
-impl Environment {
-    pub fn cache_uses(&mut self, ast: &[Node]) {
-        self.uses = ast
-            .iter()
-            .map(|node| collect_uses(&node, &Vec::new()))
-            .collect::<Vec<Vec<SymbolImport>>>()
-            .concat()
-    }
 }
 
 pub async fn fqdn(name: &str, scope: &Scope) -> String {
@@ -67,6 +50,7 @@ pub async fn fqdn(name: &str, scope: &Scope) -> String {
     return name.to_owned();
 }
 
+/// Find the definition or reference under the cursor
 pub fn symbol_under_cursor<'a>(symbols: &'a [Symbol], position: &Position) -> Option<Symbol> {
     for symbol in symbols {
         if in_range(position, &symbol.selection_range) {
@@ -77,6 +61,17 @@ pub fn symbol_under_cursor<'a>(symbols: &'a [Symbol], position: &Position) -> Op
             } else {
                 return Some(symbol.clone());
             }
+        }
+
+        if let Some(references) = &symbol.references {
+            eprintln!("Found refernces of {:?}", symbol);
+            for reference in references {
+                if in_range(position, &reference.range) {
+                    return symbol_under_cursor(symbols, &reference.range.start);
+                }
+            }
+        } else {
+            eprintln!("No references");
         }
     }
 
