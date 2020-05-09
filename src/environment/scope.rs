@@ -1,10 +1,11 @@
 use crate::environment::import::{collect_uses, SymbolImport};
+use crate::environment::in_range;
 use crate::environment::symbol::{document_symbol, Symbol};
-use crate::node::{get_range, Node};
+use crate::node::{get_range, Node, NodeRange};
 use crate::token::Token;
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
-use tower_lsp::lsp_types::{Diagnostic, Location, Range, SymbolKind, Url};
+use tower_lsp::lsp_types::{Diagnostic, Location, Position, Range, SymbolKind, Url};
 #[derive(Debug)]
 pub enum ScopeType {
     Function,
@@ -96,14 +97,38 @@ pub struct Scope {
 
     /// All unresolved references
     pub references: Vec<Reference>,
+
+    /// A range to help find the correct scope from a cursor position
+    pub range: Range,
 }
 
 impl Scope {
-    pub fn new(scope_type: ScopeType) -> Self {
+    pub fn new(scope_type: ScopeType, range: NodeRange) -> Self {
         Self {
             scope_type,
+            range: get_range(range),
             ..Default::default()
         }
+    }
+
+    pub fn symbol_at_position(&self, position: &Position) -> Option<&Symbol> {
+        for (_, symbol) in self.symbols.iter() {
+            if in_range(position, &symbol.range) {
+                return Some(symbol);
+            }
+        }
+
+        None
+    }
+
+    pub fn reference_at_position(&self, position: &Position) -> Option<&Reference> {
+        for reference in self.references.iter() {
+            if in_range(position, &reference.range) {
+                return Some(reference);
+            }
+        }
+
+        None
     }
 
     pub fn definition(&mut self, symbol: Symbol) {

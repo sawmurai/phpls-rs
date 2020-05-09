@@ -78,6 +78,7 @@ impl Backend {
                 let entry = entry?;
                 let path = entry.path();
                 if path.is_dir() {
+                    //} && !path.ends_with("vendor") {
                     self.reindex_folder(&path).await?;
                 } else if let Some(ext) = path.extension() {
                     if ext == "php" {
@@ -110,7 +111,7 @@ impl Backend {
 
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens.clone()) {
             let mut arena = self.arena.lock().await;
-            let scope = arena.new_node(Scope::new(ScopeType::File));
+            let scope = arena.new_node(Scope::new(ScopeType::File, scanner.document_range()));
             let global_scope = self.global_scope.lock().await;
 
             global_scope.append(scope, &mut arena);
@@ -124,8 +125,13 @@ impl Backend {
                         // Get the namespace symbol
                         let symbol = document_symbol(&mut arena, &scope, &node).unwrap();
 
-                        // Create a new scope for the namespace
-                        let child = arena.new_node(Scope::new(ScopeType::Namespace));
+                        // Create a new scope for the namespace and use the entire file range
+                        let range = arena[scope].get().range;
+                        let child = arena.new_node(Scope {
+                            scope_type: ScopeType::Namespace,
+                            range,
+                            ..Default::default()
+                        });
 
                         // Append the new namespace under the file scope
                         scope.append(child, &mut arena);
@@ -138,6 +144,7 @@ impl Backend {
                         // Create a new symbol that also includes the children
                         let symbol = Symbol {
                             children: Some(arena[child].get().get_definitions()),
+                            range,
                             ..symbol
                         };
                         arena[scope].get_mut().definition(symbol);
@@ -407,24 +414,27 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let file = params
-            .text_document_position_params
-            .text_document
-            .uri
-            .path();
+        let uri = params.text_document_position_params.text_document.uri;
+        let file = uri.path();
         let arena = self.arena.lock().await;
+        let root_scopes = self.root_scopes.lock().await;
 
-        if let Some(node_id) = self.root_scopes.lock().await.get(file) {
-            return Ok(Some(Hover {
-                contents: HoverContents::Scalar(MarkedString::String(format!(
-                    "{:?}",
-                    environment::hover(
-                        &params.text_document_position_params.position,
-                        &arena[*node_id].get()
-                    )
-                ))),
-                range: None,
-            }));
+        if let Some(node_id) = root_scopes.get(file) {
+            let global_symbols = self.global_symbols.lock().await;
+
+            if let Some(string) = environment::hover(
+                &uri,
+                &arena,
+                node_id,
+                &params.text_document_position_params.position,
+                &global_symbols,
+                &root_scopes,
+            ) {
+                return Ok(Some(Hover {
+                    contents: HoverContents::Scalar(MarkedString::String(string)),
+                    range: None,
+                }));
+            }
         }
 
         Ok(None)

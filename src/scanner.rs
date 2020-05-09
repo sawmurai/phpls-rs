@@ -1,3 +1,4 @@
+use crate::node::NodeRange;
 use crate::token::{Token, TokenType};
 
 /// Enum to represent the current scanner context. Can either be within a code block (`InScript`),
@@ -47,6 +48,11 @@ impl Scanner {
             tokens: Vec::new(),
             chars,
         }
+    }
+
+    /// Return the range of the entire document
+    pub fn document_range(&self) -> NodeRange {
+        ((0, 0), (self.line as u16, self.col as u16))
     }
 
     /// Scans the source file into a token stream `tokens` and returns a result containing a

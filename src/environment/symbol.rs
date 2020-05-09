@@ -72,7 +72,7 @@ pub fn document_symbol(
         Node::Function {
             token, return_type, ..
         } => {
-            let child = arena.new_node(Scope::new(ScopeType::Function));
+            let child = arena.new_node(Scope::new(ScopeType::Function, node.range()));
             scope.append(child, arena);
 
             for c in node.children() {
@@ -123,7 +123,7 @@ pub fn document_symbol(
         Node::Class { token, .. } => {
             let name = String::from("Anonymous class");
             let range = get_range(node.range());
-            let child = arena.new_node(Scope::new(ScopeType::Class));
+            let child = arena.new_node(Scope::new(ScopeType::Class, node.range()));
             scope.append(child, arena);
 
             for c in node.children() {
@@ -160,7 +160,7 @@ pub fn document_symbol(
                 "Anonymous namespace".to_string()
             };
 
-            let child = arena.new_node(Scope::new(ScopeType::Namespace));
+            let child = arena.new_node(Scope::new(ScopeType::Namespace, node.range()));
             scope.append(child, arena);
 
             for c in node.children() {
@@ -184,7 +184,7 @@ pub fn document_symbol(
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
 
-            let child = arena.new_node(Scope::new(ScopeType::Class));
+            let child = arena.new_node(Scope::new(ScopeType::Class, node.range()));
             scope.append(child, arena);
 
             for c in node.children() {
@@ -208,7 +208,7 @@ pub fn document_symbol(
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let child = arena.new_node(Scope::new(ScopeType::Class));
+            let child = arena.new_node(Scope::new(ScopeType::Class, node.range()));
             scope.append(child, arena);
 
             for c in node.children() {
@@ -231,7 +231,7 @@ pub fn document_symbol(
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let child = arena.new_node(Scope::new(ScopeType::Class));
+            let child = arena.new_node(Scope::new(ScopeType::Class, node.range()));
             scope.append(child, arena);
 
             for c in node.children() {
@@ -306,7 +306,7 @@ pub fn document_symbol(
         Node::FunctionDefinitionStatement { return_type, .. } => {
             let range = get_range(node.range());
             let name = "Anonymous function".to_owned();
-            let child = arena.new_node(Scope::new(ScopeType::Function));
+            let child = arena.new_node(Scope::new(ScopeType::Function, node.range()));
             scope.append(child, arena);
 
             for c in node.children() {
