@@ -8,7 +8,7 @@ pub mod symbol;
 
 /// Return all references to the symbol under the cursor at `position`
 pub fn document_highlights(position: &Position, scope: &Scope) -> Option<Vec<DocumentHighlight>> {
-    let all_symbols: Vec<Symbol> = scope.all_definitions();
+    let all_symbols: Vec<Symbol> = scope.get_definitions();
 
     if let Some(symbol) = symbol_under_cursor(&all_symbols, position) {
         if let Some(container) = symbol.references {
@@ -29,13 +29,13 @@ pub fn document_highlights(position: &Position, scope: &Scope) -> Option<Vec<Doc
 
 /// Handle hover action triggered by the language server
 pub fn hover(position: &Position, scope: &Scope) -> Option<Symbol> {
-    let all_symbols: Vec<Symbol> = scope.all_definitions();
+    let all_symbols: Vec<Symbol> = scope.get_definitions();
 
     symbol_under_cursor(&all_symbols, position)
 }
 
 pub fn fqdn(name: &str, scope: &Scope) -> String {
-    let all_symbols: Vec<Symbol> = scope.all_definitions();
+    let all_symbols: Vec<Symbol> = scope.get_definitions();
 
     for s in all_symbols
         .iter()
@@ -60,6 +60,7 @@ pub fn symbol_under_cursor<'a>(symbols: &'a [Symbol], position: &Position) -> Op
             }
         }
 
+        // TODO: Make this work if child scopes have definitions only
         if let Some(references) = &symbol.references {
             eprintln!("Found refernces of {:?}", symbol);
             for reference in references {
@@ -67,8 +68,6 @@ pub fn symbol_under_cursor<'a>(symbols: &'a [Symbol], position: &Position) -> Op
                     return symbol_under_cursor(symbols, &reference.range.start);
                 }
             }
-        } else {
-            eprintln!("No references");
         }
     }
 

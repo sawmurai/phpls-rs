@@ -4,6 +4,7 @@ use crate::environment::scope::{collect_symbols, Scope, ScopeType};
 use crate::parser::Parser;
 use crate::scanner::Scanner;
 use async_recursion::async_recursion;
+use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -22,8 +23,11 @@ pub mod token;
 
 #[derive(Default)]
 struct Backend {
-    /// Global scope that is parent to all files in the project
-    global_scope: Arc<Mutex<Scope>>,
+    /// Storage arena for all scopes
+    arena: Arc<Mutex<Arena<Scope>>>,
+
+    /// NodeIds of entry points to files
+    root_scopes: Arc<Mutex<HashMap<String, NodeId>>>,
 
     /// Global list of all diagnostics
     diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
@@ -35,27 +39,18 @@ impl Backend {
             self.reindex_folder(&root_path).await?;
         }
 
-        let root_scope = self.global_scope.lock().await;
-
-        for (file, scope) in root_scope.children.iter() {
-            scope
-                .lock()
-                .unwrap()
-                .resolve_references(
-                    &Url::from_file_path(file).unwrap(),
-                    root_scope.symbols.clone(),
-                )
-                .unwrap();
-        }
-
+        let arena = self.arena.lock().await;
         let mut diagnostics = self.diagnostics.lock().await;
-        for (file, scope) in root_scope.children.iter() {
+
+        for (file, node_id) in self.root_scopes.lock().await.iter() {
             if file.ends_with("DeserializationServiceProvider.php") {
-                for missing in scope.lock().unwrap().all_unresolvable() {
-                    diagnostics
-                        .get_mut(file)
-                        .unwrap()
-                        .push(Diagnostic::from(missing));
+                for scope in node_id.descendants(&arena) {
+                    for missing in arena[scope].get().get_unresolvable() {
+                        diagnostics
+                            .get_mut(file)
+                            .unwrap()
+                            .push(Diagnostic::from(missing));
+                    }
                 }
             }
         }
@@ -99,18 +94,17 @@ impl Backend {
             return Ok(());
         }
 
-        let mut root_scope = self.global_scope.lock().await;
-
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens.clone()) {
-            let scope = Scope::within(path, None, ScopeType::File);
+            let mut arena = self.arena.lock().await;
+            let scope = arena.new_node(Scope::new(ScopeType::File));
 
             for node in ast {
-                if let Err(e) = collect_symbols(&node, scope.clone()) {
+                if let Err(e) = collect_symbols(&mut arena, scope, &node) {
                     eprintln!("Error collecting symbols in file {}: {}", path, e);
                 }
             }
 
-            root_scope.children.insert(path.to_owned(), scope);
+            self.root_scopes.lock().await.insert(path.to_owned(), scope);
 
             self.diagnostics.lock().await.insert(
                 path.to_owned(),
@@ -198,13 +192,13 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
-        let global_scope = self.global_scope.lock().await;
         let mut symbols = Vec::new();
+        let arena = self.arena.lock().await;
 
-        for (file, scope) in global_scope.children.iter() {
-            let definitions = scope.lock().unwrap();
+        for (file, node_id) in self.root_scopes.lock().await.iter() {
+            let scope = arena[*node_id].get();
 
-            for symbol in definitions.all_definitions() {
+            for symbol in scope.get_definitions() {
                 if params.query != "" && symbol.name.starts_with(&params.query) {
                     symbols.push(SymbolInformation {
                         name: symbol.name.clone(),
@@ -232,13 +226,13 @@ impl LanguageServer for Backend {
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         let path = params.text_document.uri.path();
-        let global_scope = self.global_scope.lock().await;
+        let arena = self.arena.lock().await;
 
-        if let Some(scope) = global_scope.children.get(path) {
+        if let Some(node_id) = self.root_scopes.lock().await.get(path) {
+            let scope = arena[*node_id].get();
+
             //let top_level_symbols = scope.upgrade().unwrap();
-            let top_level_symbols = scope.lock().unwrap();
-
-            let definitions = top_level_symbols.get_definitions();
+            let definitions = scope.get_definitions();
             if !definitions.is_empty() {
                 return Ok(Some(DocumentSymbolResponse::Nested(
                     definitions
@@ -263,12 +257,12 @@ impl LanguageServer for Backend {
             .text_document
             .uri
             .path();
+        let arena = self.arena.lock().await;
 
-        if let Some(scope) = self.global_scope.lock().await.children.get(file) {
-            let scope = scope.lock().unwrap();
+        if let Some(node_id) = self.root_scopes.lock().await.get(file) {
             return Ok(environment::document_highlights(
                 &params.text_document_position_params.position,
-                &scope,
+                &arena[*node_id].get(),
             ));
         }
 
@@ -278,15 +272,13 @@ impl LanguageServer for Backend {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let file = params.text_document_position.text_document.uri.path();
 
-        if let Some(file_scope) = self.global_scope.lock().await.children.get(file) {
-            let file_scope = file_scope.lock().unwrap();
-
-            if let Some(_symbol) =
+        if let Some(_arena) = self.root_scopes.lock().await.get(file) {
+            /* if let Some(_symbol) =
                 environment::hover(&params.text_document_position.position, &file_scope)
             {
             } else {
                 eprintln!("Symbol not found");
-            }
+            }*/
         } else {
             eprintln!("File not found");
         }
@@ -345,14 +337,16 @@ impl LanguageServer for Backend {
             .text_document
             .uri
             .path();
+        let arena = self.arena.lock().await;
 
-        if let Some(file_scope) = self.global_scope.lock().await.children.get(file) {
-            let file_scope = file_scope.lock().unwrap();
-
+        if let Some(node_id) = self.root_scopes.lock().await.get(file) {
             return Ok(Some(Hover {
                 contents: HoverContents::Scalar(MarkedString::String(format!(
                     "{:?}",
-                    environment::hover(&params.text_document_position_params.position, &file_scope)
+                    environment::hover(
+                        &params.text_document_position_params.position,
+                        &arena[*node_id].get()
+                    )
                 ))),
                 range: None,
             }));

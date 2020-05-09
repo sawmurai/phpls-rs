@@ -2,10 +2,10 @@ use crate::environment::import::{collect_uses, SymbolImport};
 use crate::environment::symbol::{document_symbol, Symbol};
 use crate::node::{get_range, Node};
 use crate::token::Token;
+use indextree::{Arena, NodeId};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use tower_lsp::lsp_types::{Diagnostic, Location, Range, Url};
-
+use tower_lsp::lsp_types::{Diagnostic, Range, SymbolKind, Url};
+#[derive(Debug)]
 pub enum ScopeType {
     Function,
     Class,
@@ -83,7 +83,7 @@ impl From<Reference> for Diagnostic {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Scope {
     /// Type of this scope
     pub scope_type: ScopeType,
@@ -94,41 +94,16 @@ pub struct Scope {
     /// Symbols imported into this scope via use-statements
     pub aliases: Vec<SymbolImport>,
 
-    /// All children. The key is the function-, class- or namespace-name
-    pub children: HashMap<String, Arc<Mutex<Scope>>>,
-
     /// All unresolved references
     pub references: Vec<Reference>,
-
-    /// A reference to the parent which is needed to register references of symbols
-    pub parent: Option<Arc<Mutex<Scope>>>,
 }
 
 impl Scope {
-    pub fn within(
-        name: &str,
-        parent: Option<Arc<Mutex<Self>>>,
-        scope_type: ScopeType,
-    ) -> Arc<Mutex<Self>> {
-        let mut new = Self {
+    pub fn new(scope_type: ScopeType) -> Self {
+        Self {
             scope_type,
             ..Default::default()
-        };
-
-        if let Some(parent) = parent {
-            new.parent = Some(parent.clone());
-
-            let new = Arc::new(Mutex::new(new));
-            parent
-                .lock()
-                .unwrap()
-                .children
-                .insert(name.to_owned(), Arc::clone(&new));
-
-            return new;
         }
-
-        Arc::new(Mutex::new(new))
     }
 
     pub fn definition(&mut self, symbol: Symbol) {
@@ -136,6 +111,14 @@ impl Scope {
 
         if self.symbols.get(&name).is_none() {
             self.symbols.insert(name, symbol);
+        } else if symbol.kind != SymbolKind::Variable {
+            self.symbols.insert(
+                format!(
+                    "{}-{}:{}",
+                    name, symbol.range.start.line, symbol.range.start.character
+                ),
+                symbol,
+            );
         }
     }
 
@@ -154,30 +137,6 @@ impl Scope {
             .collect::<Vec<Reference>>()
     }
 
-    pub fn all_definitions(&self) -> Vec<Symbol> {
-        let mut symbols: Vec<Symbol> = self.get_definitions();
-
-        for scope in self.children.values() {
-            let child = scope.lock().unwrap();
-
-            symbols.extend(child.all_definitions());
-        }
-
-        symbols
-    }
-
-    pub fn all_unresolvable(&self) -> Vec<Reference> {
-        let mut references: Vec<Reference> = self.get_unresolvable();
-
-        for scope in self.children.values() {
-            let child = scope.lock().unwrap();
-
-            references.extend(child.all_unresolvable());
-        }
-
-        references
-    }
-
     pub fn prepare_reference(&mut self, reference: Reference) {
         self.references.push(reference);
     }
@@ -188,9 +147,11 @@ impl Scope {
     /// TODO: Treat scope boundaries correctly, so that functions hide some stuff of the parent scope
     pub fn resolve_references(
         &mut self,
-        uri: &Url,
-        symbol_table: HashMap<String, Symbol>,
+        _uri: &Url,
+        _arena: &mut Arena<Scope>,
+        _scope: NodeId,
     ) -> Result<(), String> {
+        /*
         let mut local_table = symbol_table.clone();
 
         for (name, symbol) in self.symbols.iter() {
@@ -228,10 +189,16 @@ impl Scope {
             };
 
             if let Some(symbol) = local_table.get_mut(ref_name) {
+                // This works but is kind of useless, as the local_table gets thrown away anyway
+                // TODO: Find a way to keep this. Maybe aggregate and return an entirely new scope?
+                // Maybe a reduced scope that only contains symbols and references?
+                // Maybe it could even just be a stupid list because there won't be so many definitions?
+                // Or we just say fuck it and do not cache it at all .. safe some memory
                 symbol.reference(Location {
                     uri: uri.clone(),
                     range: reference.range,
                 });
+
                 reference.defining_symbol = Some(symbol.clone());
             }
         }
@@ -241,13 +208,13 @@ impl Scope {
                 .lock()
                 .unwrap()
                 .resolve_references(uri, local_table.clone())?;
-        }
+        }*/
 
         Ok(())
     }
 }
 
-pub fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<(), String> {
+pub fn collect_symbols(arena: &mut Arena<Scope>, scope: NodeId, node: &Node) -> Result<(), String> {
     match node {
         Node::NamespaceStatement { .. }
         | Node::Function { .. }
@@ -263,51 +230,52 @@ pub fn collect_symbols(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<(), Stri
         | Node::NamedFunctionDefinitionStatement { .. }
         | Node::Const { .. }
         | Node::Interface { .. } => {
-            let def = document_symbol(node, scope.clone())?;
+            let def = document_symbol(arena, scope, node)?;
 
-            scope.lock().unwrap().definition(def);
+            arena[scope].get_mut().definition(def);
         }
 
         Node::LexicalVariable { variable, .. }
         | Node::Variable(variable)
         | Node::StaticVariable { variable, .. } => {
-            let def = document_symbol(node, scope.clone())?;
+            let def = document_symbol(arena, scope, node)?;
 
-            let mut scope = scope.lock().unwrap();
-            scope.definition(def);
-            scope.prepare_reference(Reference::variable(variable));
+            arena[scope].get_mut().definition(def);
+            arena[scope]
+                .get_mut()
+                .prepare_reference(Reference::variable(variable));
         }
-        Node::Identifier(token) => scope.lock().unwrap().definition(Symbol::from(token)),
+        Node::Identifier(token) => arena[scope].get_mut().definition(Symbol::from(token)),
         Node::Literal(token) => {
             if token.is_identifier() {
-                scope
-                    .lock()
-                    .unwrap()
+                arena[scope]
+                    .get_mut()
                     .prepare_reference(Reference::identifier(token));
             }
         }
         Node::TypeRef(parts) => {
-            scope.lock().unwrap().prepare_reference(Reference::type_ref(
-                parts
-                    .iter()
-                    .filter(|t| t.label.is_some())
-                    .map(|t| t.clone())
-                    .collect(),
-            ));
+            arena[scope]
+                .get_mut()
+                .prepare_reference(Reference::type_ref(
+                    parts
+                        .iter()
+                        .filter(|t| t.label.is_some())
+                        .map(|t| t.clone())
+                        .collect(),
+                ));
         }
         Node::GroupedUse { .. }
         | Node::UseDeclaration { .. }
         | Node::UseFunction { .. }
         | Node::UseConst { .. } => {
-            scope
-                .lock()
-                .unwrap()
+            arena[scope]
+                .get_mut()
                 .aliases
                 .extend(collect_uses(node, &Vec::new()));
         }
         _ => {
             for child in node.children() {
-                collect_symbols(child, scope.clone())?;
+                collect_symbols(arena, scope, child)?;
             }
         }
     };

@@ -1,7 +1,7 @@
 use crate::environment::scope::{collect_symbols, Reference, Scope, ScopeType};
 use crate::node::{get_range, Node};
 use crate::token::Token;
-use std::sync::{Arc, Mutex};
+use indextree::{Arena, NodeId};
 use tower_lsp::lsp_types::{DocumentSymbol, Location, Range, SymbolKind};
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
@@ -62,7 +62,11 @@ fn get_type_ref(node: &Node) -> Option<Vec<Token>> {
     }
 }
 
-pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, String> {
+pub fn document_symbol(
+    arena: &mut Arena<Scope>,
+    scope: NodeId,
+    node: &Node,
+) -> Result<Symbol, String> {
     match node {
         Node::Const { name, .. } => Ok(Symbol {
             data_type: None,
@@ -80,15 +84,14 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
         Node::Function {
             token, return_type, ..
         } => {
-            let range = get_range(node.range());
-            let name = String::from("Anonymous function");
-            let scope = Scope::within(&name, Some(scope), ScopeType::Function);
+            let child = arena.new_node(Scope::new(ScopeType::Function));
+            scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(c, scope.clone())?;
+                collect_symbols(arena, child, c)?;
             }
 
-            let children = Some(scope.lock().unwrap().get_definitions());
+            let children = Some(arena[child].get().get_definitions());
 
             let data_type = if let Some(data_type) = return_type {
                 if let Some(type_ref) = get_type_ref(data_type) {
@@ -102,9 +105,9 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
 
             Ok(Symbol {
                 data_type,
-                name,
+                name: String::from("Anonymous function"),
                 kind: SymbolKind::Function,
-                range,
+                range: get_range(node.range()),
                 selection_range: get_range(token.range()),
                 detail: None,
                 children,
@@ -133,13 +136,14 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
         Node::Class { token, .. } => {
             let name = String::from("Anonymous class");
             let range = get_range(node.range());
-            let scope = Scope::within(&name, Some(scope), ScopeType::Class);
+            let child = arena.new_node(Scope::new(ScopeType::Class));
+            scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(c, scope.clone())?;
+                collect_symbols(arena, child, c)?;
             }
 
-            let children = Some(scope.lock().unwrap().get_definitions());
+            let children = Some(arena[child].get().get_definitions());
 
             Ok(Symbol {
                 data_type: None,
@@ -170,13 +174,14 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
                 "Anonymous namespace".to_string()
             };
 
-            let scope = Scope::within(&name, Some(scope), ScopeType::Namespace);
+            let child = arena.new_node(Scope::new(ScopeType::Namespace));
+            scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(c, scope.clone())?;
+                collect_symbols(arena, child, c)?;
             }
 
-            let children = Some(scope.lock().unwrap().get_definitions());
+            let children = Some(arena[child].get().get_definitions());
             Ok(Symbol {
                 data_type: None,
                 name,
@@ -193,11 +198,15 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let scope = Scope::within(&name, Some(scope), ScopeType::Class);
+
+            let child = arena.new_node(Scope::new(ScopeType::Class));
+            scope.append(child, arena);
+
             for c in node.children() {
-                collect_symbols(c, scope.clone())?;
+                collect_symbols(arena, child, c)?;
             }
-            let children = Some(scope.lock().unwrap().get_definitions());
+
+            let children = Some(arena[child].get().get_definitions());
 
             Ok(Symbol {
                 data_type: None,
@@ -215,12 +224,14 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let scope = Scope::within(&name, Some(scope), ScopeType::Class);
+            let child = arena.new_node(Scope::new(ScopeType::Class));
+            scope.append(child, arena);
+
             for c in node.children() {
-                collect_symbols(c, scope.clone())?;
+                collect_symbols(arena, child, c)?;
             }
 
-            let children = Some(scope.lock().unwrap().get_definitions());
+            let children = Some(arena[child].get().get_definitions());
             Ok(Symbol {
                 data_type: None,
                 name,
@@ -237,11 +248,14 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            let scope = Scope::within(&name, Some(scope), ScopeType::Class);
+            let child = arena.new_node(Scope::new(ScopeType::Class));
+            scope.append(child, arena);
+
             for c in node.children() {
-                collect_symbols(c, scope.clone())?;
+                collect_symbols(arena, child, c)?;
             }
-            let children = Some(scope.lock().unwrap().get_definitions());
+
+            let children = Some(arena[child].get().get_definitions());
 
             Ok(Symbol {
                 data_type: None,
@@ -299,7 +313,7 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
         Node::MethodDefinitionStatement { name, function, .. } => {
             let range = get_range(node.range());
             // From the start of the declaration to the end of the method
-            let function = document_symbol(function.as_ref(), scope);
+            let function = document_symbol(arena, scope, function.as_ref());
 
             Ok(Symbol {
                 name: name.clone().label.unwrap(),
@@ -312,13 +326,14 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
         Node::FunctionDefinitionStatement { return_type, .. } => {
             let range = get_range(node.range());
             let name = "Anonymous function".to_owned();
-            let scope = Scope::within(&name, Some(scope), ScopeType::Function);
+            let child = arena.new_node(Scope::new(ScopeType::Function));
+            scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(c, scope.clone())?;
+                collect_symbols(arena, child, c)?;
             }
 
-            let children = Some(scope.lock().unwrap().get_definitions());
+            let children = Some(arena[child].get().get_definitions());
 
             let data_type = if let Some(data_type) = return_type {
                 if let Some(type_ref) = get_type_ref(data_type) {
@@ -346,7 +361,7 @@ pub fn document_symbol(node: &Node, scope: Arc<Mutex<Scope>>) -> Result<Symbol, 
             let range = get_range(node.range());
 
             // From the start of the declaration to the end of the method
-            let function = document_symbol(function.as_ref(), scope);
+            let function = document_symbol(arena, scope, function.as_ref());
 
             Ok(Symbol {
                 name: name.clone().label.unwrap(),
