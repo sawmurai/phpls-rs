@@ -4,7 +4,7 @@ use crate::node::{get_range, Node};
 use crate::token::Token;
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
-use tower_lsp::lsp_types::{Diagnostic, Range, SymbolKind, Url};
+use tower_lsp::lsp_types::{Diagnostic, Location, Range, SymbolKind, Url};
 #[derive(Debug)]
 pub enum ScopeType {
     Function,
@@ -73,8 +73,8 @@ impl Reference {
     }
 }
 
-impl From<Reference> for Diagnostic {
-    fn from(reference: Reference) -> Diagnostic {
+impl From<&Reference> for Diagnostic {
+    fn from(reference: &Reference) -> Diagnostic {
         Diagnostic {
             range: reference.range,
             message: format!("{:#?}", reference),
@@ -129,12 +129,25 @@ impl Scope {
             .collect::<Vec<Symbol>>()
     }
 
-    pub fn get_unresolvable(&self) -> Vec<Reference> {
-        self.references
-            .iter()
-            .filter(|r| r.defining_symbol.is_none())
-            .map(|s| s.clone())
-            .collect::<Vec<Reference>>()
+    pub fn get_unresolvable(
+        &self,
+        uri: &Url,
+        arena: &Arena<Scope>,
+        scope: NodeId,
+        global_symbols: &HashMap<String, Location>,
+    ) -> Vec<&Reference> {
+        let mut unresolvable = Vec::new();
+
+        for reference in self.references.iter() {
+            if self
+                .resolve_reference(uri, reference, arena, scope, global_symbols)
+                .is_none()
+            {
+                unresolvable.push(reference);
+            }
+        }
+
+        unresolvable
     }
 
     pub fn prepare_reference(&mut self, reference: Reference) {
@@ -145,18 +158,46 @@ impl Scope {
     /// The symbol table gets enriched with the symbols registered in each new scope
     /// Due to all the cloning of the HashMaps this might be slow  
     /// TODO: Treat scope boundaries correctly, so that functions hide some stuff of the parent scope
-    pub fn resolve_references(
-        &mut self,
-        _uri: &Url,
-        _arena: &mut Arena<Scope>,
-        _scope: NodeId,
-    ) -> Result<(), String> {
-        /*
-        let mut local_table = symbol_table.clone();
+    pub fn resolve_reference<'a>(
+        &'a self,
+        uri: &Url,
+        reference: &Reference,
+        arena: &'a Arena<Scope>,
+        scope: NodeId,
+        global_symbols: &HashMap<String, Location>,
+    ) -> Option<Location> {
+        let ref_name = if let Some(token) = reference.token.as_ref() {
+            if let Some(label) = token.label.as_ref() {
+                label
+            } else {
+                return None;
+            }
+        } else if let Some(type_ref) = reference.type_ref.as_ref() {
+            let full_name: String = type_ref
+                .iter()
+                .map(|token| {
+                    if let Some(label) = token.label.as_ref() {
+                        label
+                    } else {
+                        "\\"
+                    }
+                })
+                .collect();
 
-        for (name, symbol) in self.symbols.iter() {
-            local_table.insert(name.clone(), symbol.clone());
-        }
+            if let Some(location) = global_symbols.get(&full_name) {
+                return Some(location.clone());
+            }
+
+            let last = type_ref.last().unwrap();
+
+            if let Some(label) = last.label.as_ref() {
+                label
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        };
 
         for import in self.aliases.iter() {
             let alias = if let Some(alias) = import.alias.as_ref() {
@@ -165,56 +206,51 @@ impl Scope {
                 import.path.last().unwrap()
             };
 
-            local_table.insert(alias.label.clone().unwrap(), Symbol::from(alias));
-        }
+            if let Some(type_ref) = reference.type_ref.as_ref() {
+                let first = type_ref.first().unwrap();
 
-        for reference in self.references.iter_mut() {
-            let ref_name = if let Some(token) = reference.token.as_ref() {
-                if let Some(label) = token.label.as_ref() {
-                    label
-                } else {
-                    continue;
+                // If the first token of the type ref is equal to the name of the import,
+                // we continue resolving the alias using the expanded name
+                if first.label.is_some() && first.label == alias.label {
+                    if let Some(parent) = arena[scope].parent() {
+                        return arena[parent].get().resolve_reference(
+                            uri,
+                            &Reference::type_ref(import.path.clone()),
+                            arena,
+                            parent,
+                            global_symbols,
+                        );
+                    } else {
+                        return None;
+                    }
                 }
-            // Add support for type refs etc
-            } else if let Some(type_ref) = reference.type_ref.as_ref() {
-                let last = type_ref.last().unwrap();
-
-                if let Some(label) = last.label.as_ref() {
-                    label
-                } else {
-                    continue;
-                }
-            } else {
-                continue;
-            };
-
-            if let Some(symbol) = local_table.get_mut(ref_name) {
-                // This works but is kind of useless, as the local_table gets thrown away anyway
-                // TODO: Find a way to keep this. Maybe aggregate and return an entirely new scope?
-                // Maybe a reduced scope that only contains symbols and references?
-                // Maybe it could even just be a stupid list because there won't be so many definitions?
-                // Or we just say fuck it and do not cache it at all .. safe some memory
-                symbol.reference(Location {
-                    uri: uri.clone(),
-                    range: reference.range,
-                });
-
-                reference.defining_symbol = Some(symbol.clone());
             }
         }
 
-        for child in self.children.values() {
-            child
-                .lock()
-                .unwrap()
-                .resolve_references(uri, local_table.clone())?;
-        }*/
+        if let Some(symbol) = self.symbols.get(ref_name) {
+            return Some(Location {
+                uri: uri.clone(),
+                range: symbol.range,
+            });
+        } else if let Some(parent) = arena[scope].parent() {
+            return arena[parent].get().resolve_reference(
+                uri,
+                reference,
+                arena,
+                parent,
+                global_symbols,
+            );
+        }
 
-        Ok(())
+        None
     }
 }
 
-pub fn collect_symbols(arena: &mut Arena<Scope>, scope: NodeId, node: &Node) -> Result<(), String> {
+pub fn collect_symbols(
+    arena: &mut Arena<Scope>,
+    scope: &NodeId,
+    node: &Node,
+) -> Result<(), String> {
     match node {
         Node::NamespaceStatement { .. }
         | Node::Function { .. }
@@ -232,7 +268,7 @@ pub fn collect_symbols(arena: &mut Arena<Scope>, scope: NodeId, node: &Node) -> 
         | Node::Interface { .. } => {
             let def = document_symbol(arena, scope, node)?;
 
-            arena[scope].get_mut().definition(def);
+            arena[*scope].get_mut().definition(def);
         }
 
         Node::LexicalVariable { variable, .. }
@@ -240,21 +276,21 @@ pub fn collect_symbols(arena: &mut Arena<Scope>, scope: NodeId, node: &Node) -> 
         | Node::StaticVariable { variable, .. } => {
             let def = document_symbol(arena, scope, node)?;
 
-            arena[scope].get_mut().definition(def);
-            arena[scope]
+            arena[*scope].get_mut().definition(def);
+            arena[*scope]
                 .get_mut()
                 .prepare_reference(Reference::variable(variable));
         }
-        Node::Identifier(token) => arena[scope].get_mut().definition(Symbol::from(token)),
+        Node::Identifier(token) => arena[*scope].get_mut().definition(Symbol::from(token)),
         Node::Literal(token) => {
             if token.is_identifier() {
-                arena[scope]
+                arena[*scope]
                     .get_mut()
                     .prepare_reference(Reference::identifier(token));
             }
         }
         Node::TypeRef(parts) => {
-            arena[scope]
+            arena[*scope]
                 .get_mut()
                 .prepare_reference(Reference::type_ref(
                     parts
@@ -268,7 +304,7 @@ pub fn collect_symbols(arena: &mut Arena<Scope>, scope: NodeId, node: &Node) -> 
         | Node::UseDeclaration { .. }
         | Node::UseFunction { .. }
         | Node::UseConst { .. } => {
-            arena[scope]
+            arena[*scope]
                 .get_mut()
                 .aliases
                 .extend(collect_uses(node, &Vec::new()));

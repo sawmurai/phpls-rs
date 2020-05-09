@@ -2,7 +2,7 @@ use crate::environment::scope::{collect_symbols, Reference, Scope, ScopeType};
 use crate::node::{get_range, Node};
 use crate::token::Token;
 use indextree::{Arena, NodeId};
-use tower_lsp::lsp_types::{DocumentSymbol, Location, Range, SymbolKind};
+use tower_lsp::lsp_types::{DocumentSymbol, Range, SymbolKind};
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
@@ -18,7 +18,6 @@ pub struct Symbol {
     pub detail: Option<String>,
     pub deprecated: Option<bool>,
     pub children: Option<Vec<Symbol>>,
-    pub references: Option<Vec<Location>>,
 }
 
 /// Basically a 1:1 mapping that omits the data type
@@ -42,16 +41,6 @@ impl From<&Symbol> for DocumentSymbol {
     }
 }
 
-impl Symbol {
-    pub fn reference(&mut self, location: Location) {
-        if let Some(references) = self.references.as_mut() {
-            references.push(location);
-        } else {
-            self.references = Some(vec![location]);
-        }
-    }
-}
-
 fn get_type_ref(node: &Node) -> Option<Vec<Token>> {
     match node {
         Node::ArgumentType { type_ref, .. } => match &**type_ref {
@@ -64,7 +53,7 @@ fn get_type_ref(node: &Node) -> Option<Vec<Token>> {
 
 pub fn document_symbol(
     arena: &mut Arena<Scope>,
-    scope: NodeId,
+    scope: &NodeId,
     node: &Node,
 ) -> Result<Symbol, String> {
     match node {
@@ -77,7 +66,6 @@ pub fn document_symbol(
             detail: None,
             children: None,
             deprecated: None,
-            references: None,
         }),
         Node::LexicalVariable { variable, .. } => Ok(Symbol::from(variable)),
         Node::StaticVariable { variable, .. } => Ok(Symbol::from(variable)),
@@ -88,7 +76,7 @@ pub fn document_symbol(
             scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(arena, child, c)?;
+                collect_symbols(arena, &child, c)?;
             }
 
             let children = Some(arena[child].get().get_definitions());
@@ -112,7 +100,6 @@ pub fn document_symbol(
                 detail: None,
                 children,
                 deprecated: None,
-                references: None,
             })
         }
         Node::FunctionArgument {
@@ -140,7 +127,7 @@ pub fn document_symbol(
             scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(arena, child, c)?;
+                collect_symbols(arena, &child, c)?;
             }
 
             let children = Some(arena[child].get().get_definitions());
@@ -154,7 +141,6 @@ pub fn document_symbol(
                 detail: None,
                 children,
                 deprecated: None,
-                references: None,
             })
         }
         Node::NamespaceBlock {
@@ -178,7 +164,7 @@ pub fn document_symbol(
             scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(arena, child, c)?;
+                collect_symbols(arena, &child, c)?;
             }
 
             let children = Some(arena[child].get().get_definitions());
@@ -191,7 +177,6 @@ pub fn document_symbol(
                 detail: None,
                 children,
                 deprecated: None,
-                references: None,
             })
         }
         Node::ClassStatement { name, .. } => {
@@ -203,7 +188,7 @@ pub fn document_symbol(
             scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(arena, child, c)?;
+                collect_symbols(arena, &child, c)?;
             }
 
             let children = Some(arena[child].get().get_definitions());
@@ -217,7 +202,6 @@ pub fn document_symbol(
                 detail: None,
                 children,
                 deprecated: None,
-                references: None,
             })
         }
         Node::TraitStatement { name, .. } => {
@@ -228,7 +212,7 @@ pub fn document_symbol(
             scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(arena, child, c)?;
+                collect_symbols(arena, &child, c)?;
             }
 
             let children = Some(arena[child].get().get_definitions());
@@ -241,7 +225,6 @@ pub fn document_symbol(
                 detail: None,
                 children,
                 deprecated: None,
-                references: None,
             })
         }
         Node::Interface { name, .. } => {
@@ -252,7 +235,7 @@ pub fn document_symbol(
             scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(arena, child, c)?;
+                collect_symbols(arena, &child, c)?;
             }
 
             let children = Some(arena[child].get().get_definitions());
@@ -266,7 +249,6 @@ pub fn document_symbol(
                 detail: None,
                 children,
                 deprecated: None,
-                references: None,
             })
         }
         Node::ClassConstantDefinitionStatement { name, .. } => {
@@ -280,7 +262,6 @@ pub fn document_symbol(
                 detail: None,
                 children: None,
                 deprecated: None,
-                references: None,
             })
         }
         Node::PropertyDefinitionStatement {
@@ -307,7 +288,6 @@ pub fn document_symbol(
                 detail: None,
                 children: None,
                 deprecated: None,
-                references: None,
             })
         }
         Node::MethodDefinitionStatement { name, function, .. } => {
@@ -330,7 +310,7 @@ pub fn document_symbol(
             scope.append(child, arena);
 
             for c in node.children() {
-                collect_symbols(arena, child, c)?;
+                collect_symbols(arena, &child, c)?;
             }
 
             let children = Some(arena[child].get().get_definitions());
@@ -354,7 +334,6 @@ pub fn document_symbol(
                 detail: None,
                 children,
                 deprecated: None,
-                references: None,
             })
         }
         Node::NamedFunctionDefinitionStatement { name, function, .. } => {
@@ -391,7 +370,6 @@ pub fn document_symbol(
                 detail: None,
                 children: None,
                 deprecated: None,
-                references: None,
             })
         }
         _ => unimplemented!("Unexpected {:?}", node),

@@ -10,19 +10,7 @@ pub mod symbol;
 pub fn document_highlights(position: &Position, scope: &Scope) -> Option<Vec<DocumentHighlight>> {
     let all_symbols: Vec<Symbol> = scope.get_definitions();
 
-    if let Some(symbol) = symbol_under_cursor(&all_symbols, position) {
-        if let Some(container) = symbol.references {
-            return Some(
-                container
-                    .iter()
-                    .map(|usage| DocumentHighlight {
-                        range: usage.range,
-                        kind: None,
-                    })
-                    .collect::<Vec<DocumentHighlight>>(),
-            );
-        }
-    }
+    if let Some(_symbol) = symbol_under_cursor(&all_symbols, position) {}
 
     None
 }
@@ -57,16 +45,6 @@ pub fn symbol_under_cursor<'a>(symbols: &'a [Symbol], position: &Position) -> Op
                 return symbol_under_cursor(&children, position);
             } else {
                 return Some(symbol.clone());
-            }
-        }
-
-        // TODO: Make this work if child scopes have definitions only
-        if let Some(references) = &symbol.references {
-            eprintln!("Found refernces of {:?}", symbol);
-            for reference in references {
-                if in_range(position, &reference.range) {
-                    return symbol_under_cursor(symbols, &reference.range.start);
-                }
             }
         }
     }

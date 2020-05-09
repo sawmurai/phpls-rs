@@ -1,6 +1,8 @@
 #![allow(clippy::must_use_candidate)]
 
 use crate::environment::scope::{collect_symbols, Scope, ScopeType};
+use crate::environment::symbol::{document_symbol, Symbol};
+use crate::node::Node;
 use crate::parser::Parser;
 use crate::scanner::Scanner;
 use async_recursion::async_recursion;
@@ -21,13 +23,19 @@ pub mod parser;
 pub mod scanner;
 pub mod token;
 
-#[derive(Default)]
 struct Backend {
     /// Storage arena for all scopes
     arena: Arc<Mutex<Arena<Scope>>>,
 
+    /// Global entry point
+    global_scope: Arc<Mutex<NodeId>>,
+
     /// NodeIds of entry points to files
     root_scopes: Arc<Mutex<HashMap<String, NodeId>>>,
+
+    /// Global symbol table. Key is the full name of the symbol, including the namespace
+    /// Value is the NodeId of the symbols parent
+    global_symbols: Arc<Mutex<HashMap<String, Location>>>,
 
     /// Global list of all diagnostics
     diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
@@ -41,11 +49,16 @@ impl Backend {
 
         let arena = self.arena.lock().await;
         let mut diagnostics = self.diagnostics.lock().await;
+        let global_symbols = self.global_symbols.lock().await;
 
         for (file, node_id) in self.root_scopes.lock().await.iter() {
             if file.ends_with("DeserializationServiceProvider.php") {
                 for scope in node_id.descendants(&arena) {
-                    for missing in arena[scope].get().get_unresolvable() {
+                    for missing in
+                        arena[scope]
+                            .get()
+                            .get_unresolvable(&url, &arena, scope, &global_symbols)
+                    {
                         diagnostics
                             .get_mut(file)
                             .unwrap()
@@ -86,6 +99,7 @@ impl Backend {
     }
 
     async fn reindex(&self, path: &str, content: &str) -> io::Result<()> {
+        let uri = Url::from_file_path(path).unwrap();
         let mut scanner = Scanner::new(&content);
 
         if let Err(msg) = scanner.scan() {
@@ -97,15 +111,78 @@ impl Backend {
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens.clone()) {
             let mut arena = self.arena.lock().await;
             let scope = arena.new_node(Scope::new(ScopeType::File));
+            let global_scope = self.global_scope.lock().await;
 
-            for node in ast {
-                if let Err(e) = collect_symbols(&mut arena, scope, &node) {
+            global_scope.append(scope, &mut arena);
+
+            let mut iter = ast.iter();
+            while let Some(node) = iter.next() {
+                match node {
+                    // Once we detect a namespace statement we consider all following definitions to be
+                    // within the namespaces scope
+                    Node::NamespaceStatement { .. } => {
+                        // Get the namespace symbol
+                        let symbol = document_symbol(&mut arena, &scope, &node).unwrap();
+
+                        // Create a new scope for the namespace
+                        let child = arena.new_node(Scope::new(ScopeType::Namespace));
+
+                        // Append the new namespace under the file scope
+                        scope.append(child, &mut arena);
+
+                        // Read all further nodes into the namespace scope
+                        while let Some(node) = iter.next() {
+                            collect_symbols(&mut arena, &child, &node).unwrap();
+                        }
+
+                        // Create a new symbol that also includes the children
+                        let symbol = Symbol {
+                            children: Some(arena[child].get().get_definitions()),
+                            ..symbol
+                        };
+                        arena[scope].get_mut().definition(symbol);
+
+                        continue;
+                    }
+                    _ => {}
+                }
+
+                if let Err(e) = collect_symbols(&mut arena, &scope, &node) {
                     eprintln!("Error collecting symbols in file {}: {}", path, e);
                 }
             }
 
-            self.root_scopes.lock().await.insert(path.to_owned(), scope);
+            let mut global_symbols = self.global_symbols.lock().await;
 
+            // Register globally available symbols
+            arena[scope]
+                .get()
+                .symbols
+                .iter()
+                .filter(|(_, symbol)| {
+                    symbol.kind == SymbolKind::Namespace && symbol.children.is_some()
+                })
+                .for_each(|(name, symbol)| {
+                    symbol
+                        .children
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .filter(|child| {
+                            child.kind == SymbolKind::Class || child.kind == SymbolKind::Interface
+                        })
+                        .for_each(|child| {
+                            global_symbols.insert(
+                                format!("{}\\{}", name.clone(), child.name),
+                                Location {
+                                    uri: uri.clone(),
+                                    range: child.range,
+                                },
+                            );
+                        });
+                });
+
+            self.root_scopes.lock().await.insert(path.to_owned(), scope);
             self.diagnostics.lock().await.insert(
                 path.to_owned(),
                 errors
@@ -113,8 +190,6 @@ impl Backend {
                     .map(Diagnostic::from)
                     .collect::<Vec<Diagnostic>>(),
             );
-
-        // Have this in a block to free the lock as soon as possible
         } else {
             eprintln!("shiw");
         }
@@ -371,7 +446,17 @@ impl LanguageServer for Backend {
 async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-    let backend = Backend::default();
+
+    let mut arena = Arena::new();
+    let global_scope = arena.new_node(Scope::default());
+
+    let backend = Backend {
+        arena: Arc::new(Mutex::new(arena)),
+        global_scope: Arc::new(Mutex::new(global_scope)),
+        global_symbols: Arc::new(Mutex::new(HashMap::new())),
+        root_scopes: Arc::new(Mutex::new(HashMap::new())),
+        diagnostics: Arc::new(Mutex::new(HashMap::new())),
+    };
 
     let (service, messages) = LspService::new(backend);
     Server::new(stdin, stdout)
