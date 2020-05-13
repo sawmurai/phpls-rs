@@ -86,19 +86,6 @@ pub fn hover(
     }
 }
 
-pub fn fqdn(name: &str, scope: &Scope) -> String {
-    let all_symbols: Vec<Symbol> = scope.get_definitions();
-
-    for s in all_symbols
-        .iter()
-        .filter(|s| s.kind == SymbolKind::Namespace)
-    {
-        return format!("{}\\{}", s.name, name);
-    }
-
-    return name.to_owned();
-}
-
 /// Find the definition or reference under the cursor
 pub fn scope_under_cursor(
     arena: &Arena<Scope>,
@@ -122,20 +109,6 @@ pub fn scope_under_cursor(
 
     // Should not really happen as the most outer scope encloses the entire document
     return None;
-}
-
-pub fn usages_of_symbol<'a>(
-    symbol: &Symbol,
-    symbols: &'a [Symbol],
-    container: &mut Vec<&'a Symbol>,
-) {
-    for child in symbols {
-        if child.name == symbol.name && child.kind == symbol.kind {
-            container.push(&child);
-        } else if let Some(children) = child.children.as_ref() {
-            usages_of_symbol(symbol, &children, container);
-        }
-    }
 }
 
 pub fn in_range(position: &Position, range: &Range) -> bool {
