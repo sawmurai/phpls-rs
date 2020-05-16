@@ -3,7 +3,7 @@ use crate::environment::symbol::{document_symbol, Symbol};
 use crate::node::{get_range, Node};
 use crate::token::Token;
 use indextree::{Arena, NodeId};
-use tower_lsp::lsp_types::{Diagnostic, Range};
+use tower_lsp::lsp_types::{Range};
 
 #[derive(Clone, Debug)]
 pub struct Reference {
@@ -57,15 +57,6 @@ impl Reference {
     }
 }
 
-impl From<&Reference> for Diagnostic {
-    fn from(reference: &Reference) -> Diagnostic {
-        Diagnostic {
-            range: reference.range,
-            message: format!("{:#?}", reference),
-            ..Diagnostic::default()
-        }
-    }
-}
 
 pub fn collect_symbols(
     arena: &mut Arena<Symbol>,
@@ -86,14 +77,14 @@ pub fn collect_symbols(
         | Node::FunctionDefinitionStatement { .. }
         | Node::NamedFunctionDefinitionStatement { .. }
         | Node::Const { .. }
-        | Node::Interface { .. } 
+        | Node::Interface { .. }
         | Node::Identifier( .. )
-        | Node::TypeRef { .. } 
+        | Node::TypeRef { .. }
         | Node::LexicalVariable {  .. }
         | Node::Variable(..)
-        | Node::StaticVariable {  .. } 
+        | Node::StaticVariable {  .. }
         | Node::Literal(..) => {
-            //if !token.is_identifier() { 
+            //if !token.is_identifier() {
                 document_symbol(arena, symbol, node, None)?;
             //}
         }
@@ -103,19 +94,19 @@ pub fn collect_symbols(
         | Node::UseConst { .. } => {
             let symbol = arena[*symbol].get_mut();
 
-            if let Some(imports) = symbol.imports.as_mut() { 
+            if let Some(imports) = symbol.imports.as_mut() {
                 imports.extend(collect_uses(node, &Vec::new()));
             } else {
                 symbol.imports = Some(collect_uses(node, &Vec::new()));
             }
-        }  
+        }
         Node::Call { callee, parameters, ..} => {
             document_symbol(arena, symbol, callee, None)?;
 
             for child in parameters {
                 collect_symbols(arena, symbol, child)?;
             }
-        }     
+        }
         _ => {
             for child in node.children() {
                 collect_symbols(arena, symbol, child)?;

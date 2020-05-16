@@ -1,6 +1,7 @@
 use crate::environment::symbol::Symbol;
 use indextree::{Arena, NodeId};
 use tower_lsp::lsp_types::{DocumentHighlight, Position, Range, Url};
+use std::collections::HashMap;
 
 pub mod import;
 pub mod symbol;
@@ -23,13 +24,19 @@ pub fn hover(
     arena: &Arena<Symbol>,
     symbol_node: &NodeId,
     position: &Position,
+    global_symbols: &HashMap<String, NodeId>
 ) -> Option<String> {
     if let Some(symbol_node) = symbol_under_cursor(arena, symbol_node, position) {
         let symbol = arena[symbol_node].get();
 
-        Some(symbol.hover_text(arena))
+        if let Some(resolved) = symbol.resolve(arena, &symbol_node, global_symbols) {
+            Some(format!("{} resolved", arena[resolved].get().hover_text(arena, &resolved)))
+        } else {
+            Some(symbol.hover_text(arena, &symbol_node))
+        }
+
     } else {
-        None
+        Some(String::from("Nothing found :("))
     }
 }
 

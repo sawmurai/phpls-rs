@@ -3,8 +3,8 @@ use crate::environment::import::SymbolImport;
 use crate::node::{get_range, Node};
 use crate::token::Token;
 use indextree::{Arena, NodeId};
-use tower_lsp::lsp_types::{DocumentSymbol, Range, SymbolKind};
-
+use tower_lsp::lsp_types::{DocumentSymbol, Range, SymbolKind, Diagnostic};
+use std::collections::HashMap;
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
@@ -69,11 +69,76 @@ impl Symbol {
         }
     }
 
-    pub fn hover_text(&self, arena: &Arena<Symbol>) -> String {
+    pub fn hover_text(&self, arena: &Arena<Symbol>, me: &NodeId) -> String {
         if let Some(parent) = self.parent {
-            format!("{}, child of {}", self.name, arena[parent].get().hover_text(&arena))
+            format!("{}, child of {}", self.name, arena[parent].get().hover_text(&arena, me))
         } else {
-            self.name.clone()
+            format!("{} ({:?}) < {:?}", self.name, self.kind, arena[arena[*me].parent().unwrap()].get().kind)
+        }
+    }
+
+    /// Resolve this symbol to the defining symbol (can also be itself)
+    pub fn resolve(&self, arena: &Arena<Symbol>, node: &NodeId, global_symbols: &HashMap<String, NodeId>) -> Option<NodeId> {
+        match self.kind {
+            SymbolKind::Variable => {
+                // Find first instance this one was named and return it
+                // But for now, just resolve to itself
+                Some(*node)
+            },
+            SymbolKind::Unknown => {
+                // Resolve reference
+
+                if let Some(reference) = self.references.as_ref() {
+                    let symbol_name = if let Some(token) = reference.token.as_ref() {
+                        token.label.clone().unwrap_or_else(|| "empty 123".to_owned())
+                    } else if let Some(type_ref) = reference.type_ref.as_ref() {
+                        type_ref.last().unwrap().label.clone().unwrap_or_else(|| "le fuck".to_owned())
+                    } else {
+                        return None;
+                    };
+
+                    let mut node = *node;
+                    while let Some(parent) = arena[node].parent() {
+                        // Check symbols on this level
+                        for symbol in parent.children(arena) {
+                            if arena[symbol].get().name == symbol_name {
+                                return Some(symbol);
+                            }
+                        }
+
+                        // Check imports if they exist
+                        if let Some(imports) = &arena[node].get().imports {
+                            for import in imports {
+                                if import.name() == symbol_name {
+                                    // TODO: Return the imported symbol instead of just something
+                                    let full_name = import.full_name();
+
+                                    if let Some(node) = global_symbols.get(&full_name) {
+                                        return Some(*node);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Up we go
+                        node = parent;
+                    }
+                }
+
+                None
+            },
+            // All else is a definition
+            _ => Some(*node)
+        }
+    }
+}
+
+impl From<&Symbol> for Diagnostic {
+    fn from(reference: &Symbol) -> Diagnostic {
+        Diagnostic {
+            range: reference.range,
+            message: format!("{:#?}", reference),
+            ..Diagnostic::default()
         }
     }
 }
@@ -127,11 +192,24 @@ pub fn document_symbol(
 
             Ok(member_node)
         }
+        Node::Field { array, index, .. } => {
+            let array_node = document_symbol(arena, enclosing, array, parent)?;
+
+            if let Some(index) = index {
+                let index_node = document_symbol(arena, enclosing, index, Some(array_node))?;
+                enclosing.append(array_node, arena);
+
+                Ok(index_node)
+
+            } else {
+                Ok(array_node)
+            }
+        }
         Node::Literal(token) => {
             let reference = Reference::identifier(token);
 
             let child = arena.new_node(Symbol {
-                name: token.label.clone().unwrap_or_else(|| "unknown".to_string()),
+                name: token.label.clone().unwrap_or_else(|| format!("{:?}", token)),
                 kind: SymbolKind::Unknown,
                 range: get_range(node.range()),
                 selection_range: get_range(node.range()),
@@ -160,12 +238,12 @@ pub fn document_symbol(
             );
 
             let child = arena.new_node(Symbol {
-                name: String::new(),
+                name: parts.last().unwrap().label.clone().unwrap(),
                 kind: SymbolKind::Unknown,
                 range: get_range(node.range()),
                 selection_range: get_range(node.range()),
                 detail: None,
-                deprecated: None,                
+                deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
                 references: Some(reference),
@@ -187,7 +265,7 @@ pub fn document_symbol(
                 range: get_range(node.range()),
                 selection_range: get_range(node.range()),
                 detail: None,
-                deprecated: None,                
+                deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
                 references: None,
@@ -209,7 +287,7 @@ pub fn document_symbol(
 
             Ok(child)
         },
-        
+
         Node::Function {
             token, return_type, ..
         } => {
@@ -229,7 +307,7 @@ pub fn document_symbol(
                 range: get_range(node.range()),
                 selection_range: get_range(token.range()),
                 detail: None,
-                deprecated: None,                
+                deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
                 references: None,
@@ -243,7 +321,7 @@ pub fn document_symbol(
 
             for c in node.children() {
                 collect_symbols(arena, &child, c)?;
-            }           
+            }
 
             Ok(child)
         }
@@ -254,6 +332,14 @@ pub fn document_symbol(
         } => {
             let data_types = if let Some(argument_type) = argument_type {
                 if let Some(type_ref) = get_type_ref(argument_type) {
+                    // Register node for the type_ref as well
+                    let child = arena.new_node(
+                        Symbol {
+                            references: Some(Reference::type_ref(type_ref.clone())),
+                            ..Symbol::from(type_ref.last().unwrap())
+                        });
+                    enclosing.append(child, arena);
+
                     vec![Reference::type_ref(type_ref)]
                 } else {
                     Vec::new()
@@ -264,10 +350,11 @@ pub fn document_symbol(
 
             let child = arena.new_node(Symbol {
                 data_types,
+                parent,
                 ..Symbol::from(name)
             });
 
-            enclosing.append(child, arena);   
+            enclosing.append(child, arena);
 
             Ok(child)
         }
@@ -330,7 +417,6 @@ pub fn document_symbol(
                 selection_range: get_range(token.range()),
                 detail: None,
                 deprecated: None,
-                
                 inherits_from: Vec::new(),
                 parent,
                 references: None,
@@ -351,7 +437,7 @@ pub fn document_symbol(
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());
-            
+
             let child = arena.new_node(Symbol {
                 name,
                 kind: SymbolKind::Class,
@@ -359,7 +445,6 @@ pub fn document_symbol(
                 selection_range,
                 detail: None,
                 deprecated: None,
-                
                 inherits_from: Vec::new(),
                 parent,
                 references: None,
@@ -422,7 +507,7 @@ pub fn document_symbol(
                 selection_range: range,
                 detail: None,
                 deprecated: None,
-                
+
                 inherits_from: Vec::new(),
                 parent,
                 references: None,
@@ -432,7 +517,7 @@ pub fn document_symbol(
                 imports: None
             });
             enclosing.append(child, arena);
-            
+
             Ok(child)
         }
         Node::PropertyDefinitionStatement {
@@ -456,7 +541,6 @@ pub fn document_symbol(
                 selection_range: range,
                 detail: None,
                 deprecated: None,
-                
                 inherits_from: Vec::new(),
                 parent,
                 references: None,
@@ -465,7 +549,7 @@ pub fn document_symbol(
                 is_static: false,
                 imports: None
             });
-            
+
             Ok(child)
         }
         Node::MethodDefinitionStatement { name, function, is_static, .. } => {
@@ -492,7 +576,6 @@ pub fn document_symbol(
                 selection_range: get_range(name.range()),
                 detail: None,
                 deprecated: None,
-                
                 inherits_from: Vec::new(),
                 parent,
                 references: None,
@@ -506,7 +589,7 @@ pub fn document_symbol(
 
             for c in function.children() {
                 collect_symbols(arena, &child, c)?;
-            }           
+            }
 
             Ok(child)
         }
@@ -530,7 +613,6 @@ pub fn document_symbol(
                 selection_range: range,
                 detail: None,
                 deprecated: None,
-                
                 inherits_from: Vec::new(),
                 parent,
                 references: None,
@@ -572,7 +654,6 @@ pub fn document_symbol(
                 selection_range: get_range(name.range()),
                 detail: None,
                 deprecated: None,
-                
                 inherits_from: Vec::new(),
                 parent,
                 references: None,
@@ -586,7 +667,7 @@ pub fn document_symbol(
 
             for c in function.children() {
                 collect_symbols(arena, &child, c)?;
-            }           
+            }
 
             Ok(child)
         }

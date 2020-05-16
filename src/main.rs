@@ -30,6 +30,9 @@ struct Backend {
     /// NodeIds of entry points to files
     root_symbols: Arc<Mutex<HashMap<String, NodeId>>>,
 
+    /// FQDN to NodeId
+    global_symbols: Arc<Mutex<HashMap<String, NodeId>>>,
+
     /// Global list of all diagnostics
     diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
 }
@@ -42,23 +45,39 @@ impl Backend {
 
         let arena = self.arena.lock().await;
         let mut diagnostics = self.diagnostics.lock().await;
+        let root_symbols = self.root_symbols.lock().await;
 
-        for (file, node_id) in self.root_symbols.lock().await.iter() {
+        let mut global_table: HashMap<String, NodeId> = HashMap::new();
+        for (_file, node_id) in root_symbols.iter() {
+            for symbol_id in node_id.children(&arena) {
+                let symbol = arena[symbol_id].get();
+
+                if symbol.kind == SymbolKind::Namespace {
+                    let base_name = symbol.name.clone();
+
+                    for symbol_id in symbol_id.children(&arena) {
+                        global_table.insert(format!("{}\\{}", base_name, arena[symbol_id].get().name), symbol_id);
+                    }
+                } else {
+                    global_table.insert(symbol.name.clone(), symbol_id);
+                }
+            }
+        }
+
+        for (file, node_id) in root_symbols.iter() {
             if file.ends_with("DeserializationServiceProvider.php") {
                 for symbol in node_id.descendants(&arena) {
-                    for missing in
-                        arena[symbol]
-                            .get()
-                            .get_unresolvable(&url, &arena, symbol)
-                    {
+                    if arena[symbol].get().resolve(&arena, &symbol, &global_table).is_none() {
                         diagnostics
                             .get_mut(file)
                             .unwrap()
-                            .push(Diagnostic::from(missing));
+                            .push(Diagnostic::from(arena[symbol].get()));
                     }
                 }
             }
         }
+
+        *self.global_symbols.lock().await = global_table;
 
         Ok(())
     }
@@ -119,7 +138,7 @@ impl Backend {
                 is_static: false,
                 imports: None
             });
-            
+
             // By default, put all symbols in the file scope
             let mut current_parent = enclosing_file;
 
@@ -136,7 +155,7 @@ impl Backend {
                                 .collect::<Vec<String>>()
                                 .join(""),
                                 // Range from first part of name until the last one
-                                get_range((tokens.first().unwrap().range().0, tokens.last().unwrap().range().1)), 
+                                get_range((tokens.first().unwrap().range().0, tokens.last().unwrap().range().1)),
                             ),
                             _ => panic!("This should not happen"),
                         };
@@ -161,12 +180,12 @@ impl Backend {
                     }
                     _ => {
                         if let Err(e) = collect_symbols(&mut arena, &current_parent, &node) {
-                            eprintln!("FUCK!: {} {}", path, e);
+                            eprintln!("Mööp!: {} {}", path, e);
                         }
                     }
                 }
             }
-            
+
             self.root_symbols.lock().await.insert(path.to_owned(), enclosing_file);
             self.diagnostics.lock().await.insert(
                 path.to_owned(),
@@ -255,7 +274,7 @@ impl LanguageServer for Backend {
         let mut symbols = Vec::new();
         let arena = self.arena.lock().await;
 
-        for (file_name, node) in self.root_symbols.lock().await.iter() {           
+        for (file_name, node) in self.root_symbols.lock().await.iter() {
             for symbol in node.children(&arena) {
                 let symbol = arena[symbol].get();
 
@@ -287,11 +306,11 @@ impl LanguageServer for Backend {
         if let Some(node_id) = self.root_symbols.lock().await.get(path) {
             return Ok(Some(DocumentSymbolResponse::Nested(
                 node_id.children(&arena)
-                    
+
                     .map(|s| arena[s].get().to_doc_sym(&arena, &s))
                     .collect(),
             )));
-            
+
         }
 
         Ok(None)
@@ -386,13 +405,15 @@ impl LanguageServer for Backend {
         let file = uri.path();
         let arena = self.arena.lock().await;
         let root_symbols = self.root_symbols.lock().await;
+        let global_symbols = self.global_symbols.lock().await;
 
         if let Some(node_id) = root_symbols.get(file) {
             if let Some(string) = environment::hover(
                 &uri,
                 &arena,
                 node_id,
-                &params.text_document_position_params.position
+                &params.text_document_position_params.position,
+                &global_symbols
             ) {
                 return Ok(Some(Hover {
                     contents: HoverContents::Scalar(MarkedString::String(string)),
@@ -420,10 +441,11 @@ impl LanguageServer for Backend {
 async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-    
+
     let backend = Backend {
         arena: Arc::new(Mutex::new(Arena::new())),
         root_symbols: Arc::new(Mutex::new(HashMap::new())),
+        global_symbols: Arc::new(Mutex::new(HashMap::new())),
         diagnostics: Arc::new(Mutex::new(HashMap::new())),
     };
 

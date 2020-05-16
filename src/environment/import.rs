@@ -7,6 +7,24 @@ pub struct SymbolImport {
     pub alias: Option<Token>,
 }
 
+impl SymbolImport {
+    pub fn name(&self) -> String {
+        if let Some(alias) = &self.alias {
+            alias.label.clone().unwrap_or_else(|| "Anonymous alias".to_owned())
+        } else {
+            self.path.last().unwrap().label.clone().unwrap()
+        }
+    }
+
+    pub fn full_name(&self) -> String {
+        if let Some(alias) = &self.alias {
+            alias.label.clone().unwrap_or_else(|| String::new())
+        } else {
+            self.path.iter().map(|p| p.label.clone().unwrap_or_else(|| "\\".to_owned())).collect::<String>()
+        }
+    }
+}
+
 /// Collect symbol imports underneath the current node
 pub fn collect_uses(node: &Node, prefix: &Vec<Token>) -> Vec<SymbolImport> {
     let mut collected_uses = Vec::new();
@@ -67,7 +85,7 @@ pub fn collect_uses(node: &Node, prefix: &Vec<Token>) -> Vec<SymbolImport> {
             ns.extend(tokens.clone());
             collected_uses.push(SymbolImport {
                 path: ns,
-                alias: None,
+                alias: None
             });
         }
         _ => {}
