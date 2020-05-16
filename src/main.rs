@@ -1,8 +1,8 @@
 #![allow(clippy::must_use_candidate)]
 
-use crate::environment::scope::{collect_symbols, Scope, ScopeType};
-use crate::environment::symbol::{document_symbol, Symbol};
-use crate::node::Node;
+use crate::environment::scope::{collect_symbols};
+use crate::environment::symbol::{Symbol};
+use crate::node::{Node, get_range};
 use crate::parser::Parser;
 use crate::scanner::Scanner;
 use async_recursion::async_recursion;
@@ -24,18 +24,11 @@ pub mod scanner;
 pub mod token;
 
 struct Backend {
-    /// Storage arena for all scopes
-    arena: Arc<Mutex<Arena<Scope>>>,
-
-    /// Global entry point
-    global_scope: Arc<Mutex<NodeId>>,
+    /// Storage arena for all symbols
+    arena: Arc<Mutex<Arena<Symbol>>>,
 
     /// NodeIds of entry points to files
-    root_scopes: Arc<Mutex<HashMap<String, NodeId>>>,
-
-    /// Global symbol table. Key is the full name of the symbol, including the namespace
-    /// Value is the NodeId of the symbols parent
-    global_symbols: Arc<Mutex<HashMap<String, Location>>>,
+    root_symbols: Arc<Mutex<HashMap<String, NodeId>>>,
 
     /// Global list of all diagnostics
     diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
@@ -49,15 +42,14 @@ impl Backend {
 
         let arena = self.arena.lock().await;
         let mut diagnostics = self.diagnostics.lock().await;
-        let global_symbols = self.global_symbols.lock().await;
 
-        for (file, node_id) in self.root_scopes.lock().await.iter() {
+        for (file, node_id) in self.root_symbols.lock().await.iter() {
             if file.ends_with("DeserializationServiceProvider.php") {
-                for scope in node_id.descendants(&arena) {
+                for symbol in node_id.descendants(&arena) {
                     for missing in
-                        arena[scope]
+                        arena[symbol]
                             .get()
-                            .get_unresolvable(&url, &arena, scope, &global_symbols)
+                            .get_unresolvable(&url, &arena, symbol)
                     {
                         diagnostics
                             .get_mut(file)
@@ -77,8 +69,8 @@ impl Backend {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.is_dir() {
-                    //} && !path.ends_with("vendor") {
+                if path.is_dir() //{
+                     && !path.ends_with("vendor") {
                     self.reindex_folder(&path).await?;
                 } else if let Some(ext) = path.extension() {
                     if ext == "php" {
@@ -100,7 +92,6 @@ impl Backend {
     }
 
     async fn reindex(&self, path: &str, content: &str) -> io::Result<()> {
-        let uri = Url::from_file_path(path).unwrap();
         let mut scanner = Scanner::new(&content);
 
         if let Err(msg) = scanner.scan() {
@@ -111,85 +102,72 @@ impl Backend {
 
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens.clone()) {
             let mut arena = self.arena.lock().await;
-            let scope = arena.new_node(Scope::new(ScopeType::File, scanner.document_range()));
-            let global_scope = self.global_scope.lock().await;
+            let range = get_range(scanner.document_range());
 
-            global_scope.append(scope, &mut arena);
+            let enclosing_file = arena.new_node(Symbol {
+                name: path.to_owned(),
+                kind: SymbolKind::File,
+                range,
+                selection_range: range,
+                detail: None,
+                deprecated: None,
+                inherits_from: Vec::new(),
+                parent: None,
+                references: None,
+                references_by: Vec::new(),
+                data_types: Vec::new(),
+                is_static: false,
+                imports: None
+            });
+            
+            // By default, put all symbols in the file scope
+            let mut current_parent = enclosing_file;
 
             let mut iter = ast.iter();
             while let Some(node) = iter.next() {
                 match node {
                     // Once we detect a namespace statement we consider all following definitions to be
-                    // within the namespaces scope
-                    Node::NamespaceStatement { .. } => {
-                        // Get the namespace symbol
-                        let symbol = document_symbol(&mut arena, &scope, &node).unwrap();
+                    // within the namespaces symbol
+                    Node::NamespaceStatement { type_ref, .. } => {
+                        let (name, selection_range)  = match &**type_ref {
+                            Node::TypeRef(tokens) => (tokens
+                                .iter()
+                                .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
+                                .collect::<Vec<String>>()
+                                .join(""),
+                                // Range from first part of name until the last one
+                                get_range((tokens.first().unwrap().range().0, tokens.last().unwrap().range().1)), 
+                            ),
+                            _ => panic!("This should not happen"),
+                        };
 
-                        // Create a new scope for the namespace and use the entire file range
-                        let range = arena[scope].get().range;
-                        let child = arena.new_node(Scope {
-                            scope_type: ScopeType::Namespace,
+                        current_parent = arena.new_node(Symbol {
+                            name,
+                            kind: SymbolKind::Namespace,
                             range,
-                            ..Default::default()
+                            selection_range,
+                            detail: None,
+                            deprecated: None,
+                            inherits_from: Vec::new(),
+                            parent: None,
+                            references: None,
+                            references_by: Vec::new(),
+                            data_types: Vec::new(),
+                            is_static: false,
+                            imports: None
                         });
 
-                        // Append the new namespace under the file scope
-                        scope.append(child, &mut arena);
-
-                        // Read all further nodes into the namespace scope
-                        while let Some(node) = iter.next() {
-                            collect_symbols(&mut arena, &child, &node).unwrap();
-                        }
-
-                        // Create a new symbol that also includes the children
-                        let symbol = Symbol {
-                            children: Some(arena[child].get().get_definitions()),
-                            range,
-                            ..symbol
-                        };
-                        arena[scope].get_mut().definition(symbol);
-
-                        continue;
+                        enclosing_file.append(current_parent, &mut arena);
                     }
-                    _ => {}
-                }
-
-                if let Err(e) = collect_symbols(&mut arena, &scope, &node) {
-                    eprintln!("Error collecting symbols in file {}: {}", path, e);
+                    _ => {
+                        if let Err(e) = collect_symbols(&mut arena, &current_parent, &node) {
+                            eprintln!("FUCK!: {} {}", path, e);
+                        }
+                    }
                 }
             }
-
-            let mut global_symbols = self.global_symbols.lock().await;
-
-            // Register globally available symbols
-            arena[scope]
-                .get()
-                .symbols
-                .iter()
-                .filter(|(_, symbol)| {
-                    symbol.kind == SymbolKind::Namespace && symbol.children.is_some()
-                })
-                .for_each(|(name, symbol)| {
-                    symbol
-                        .children
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .filter(|child| {
-                            child.kind == SymbolKind::Class || child.kind == SymbolKind::Interface
-                        })
-                        .for_each(|child| {
-                            global_symbols.insert(
-                                format!("{}\\{}", name.clone(), child.name),
-                                Location {
-                                    uri: uri.clone(),
-                                    range: child.range,
-                                },
-                            );
-                        });
-                });
-
-            self.root_scopes.lock().await.insert(path.to_owned(), scope);
+            
+            self.root_symbols.lock().await.insert(path.to_owned(), enclosing_file);
             self.diagnostics.lock().await.insert(
                 path.to_owned(),
                 errors
@@ -277,17 +255,17 @@ impl LanguageServer for Backend {
         let mut symbols = Vec::new();
         let arena = self.arena.lock().await;
 
-        for (file, node_id) in self.root_scopes.lock().await.iter() {
-            let scope = arena[*node_id].get();
+        for (file_name, node) in self.root_symbols.lock().await.iter() {           
+            for symbol in node.children(&arena) {
+                let symbol = arena[symbol].get();
 
-            for symbol in scope.get_definitions() {
                 if params.query != "" && symbol.name.starts_with(&params.query) {
                     symbols.push(SymbolInformation {
                         name: symbol.name.clone(),
                         deprecated: symbol.deprecated,
                         kind: symbol.kind,
                         location: Location {
-                            uri: Url::from_file_path(file).unwrap(),
+                            uri: Url::from_file_path(&file_name).unwrap(),
                             range: symbol.range,
                         },
                         container_name: None,
@@ -299,10 +277,6 @@ impl LanguageServer for Backend {
         Ok(Some(symbols))
     }
 
-    // TODO:
-    // * Add range to scope to quickly jump into the correct scope,
-    // ** Alternatively find a way to jump from a symbol to a scope
-    // * Read symbols from scope
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
@@ -310,21 +284,14 @@ impl LanguageServer for Backend {
         let path = params.text_document.uri.path();
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = self.root_scopes.lock().await.get(path) {
-            let scope = arena[*node_id].get();
-
-            //let top_level_symbols = scope.upgrade().unwrap();
-            let definitions = scope.get_definitions();
-            if !definitions.is_empty() {
-                return Ok(Some(DocumentSymbolResponse::Nested(
-                    definitions
-                        .iter()
-                        .map(|s| DocumentSymbol::from(s))
-                        .collect(),
-                )));
-            } else {
-                return Ok(None);
-            }
+        if let Some(node_id) = self.root_symbols.lock().await.get(path) {
+            return Ok(Some(DocumentSymbolResponse::Nested(
+                node_id.children(&arena)
+                    
+                    .map(|s| arena[s].get().to_doc_sym(&arena, &s))
+                    .collect(),
+            )));
+            
         }
 
         Ok(None)
@@ -341,10 +308,11 @@ impl LanguageServer for Backend {
             .path();
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = self.root_scopes.lock().await.get(file) {
+        if let Some(node_id) = self.root_symbols.lock().await.get(file) {
             return Ok(environment::document_highlights(
                 &params.text_document_position_params.position,
-                &arena[*node_id].get(),
+                &arena,
+                node_id
             ));
         }
 
@@ -354,9 +322,9 @@ impl LanguageServer for Backend {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let file = params.text_document_position.text_document.uri.path();
 
-        if let Some(_arena) = self.root_scopes.lock().await.get(file) {
+        if let Some(_arena) = self.root_symbols.lock().await.get(file) {
             /* if let Some(_symbol) =
-                environment::hover(&params.text_document_position.position, &file_scope)
+                environment::hover(&params.text_document_position.position, &file_symbol)
             {
             } else {
                 eprintln!("Symbol not found");
@@ -417,18 +385,14 @@ impl LanguageServer for Backend {
         let uri = params.text_document_position_params.text_document.uri;
         let file = uri.path();
         let arena = self.arena.lock().await;
-        let root_scopes = self.root_scopes.lock().await;
+        let root_symbols = self.root_symbols.lock().await;
 
-        if let Some(node_id) = root_scopes.get(file) {
-            let global_symbols = self.global_symbols.lock().await;
-
+        if let Some(node_id) = root_symbols.get(file) {
             if let Some(string) = environment::hover(
                 &uri,
                 &arena,
                 node_id,
-                &params.text_document_position_params.position,
-                &global_symbols,
-                &root_scopes,
+                &params.text_document_position_params.position
             ) {
                 return Ok(Some(Hover {
                     contents: HoverContents::Scalar(MarkedString::String(string)),
@@ -456,15 +420,10 @@ impl LanguageServer for Backend {
 async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-
-    let mut arena = Arena::new();
-    let global_scope = arena.new_node(Scope::default());
-
+    
     let backend = Backend {
-        arena: Arc::new(Mutex::new(arena)),
-        global_scope: Arc::new(Mutex::new(global_scope)),
-        global_symbols: Arc::new(Mutex::new(HashMap::new())),
-        root_scopes: Arc::new(Mutex::new(HashMap::new())),
+        arena: Arc::new(Mutex::new(Arena::new())),
+        root_symbols: Arc::new(Mutex::new(HashMap::new())),
         diagnostics: Arc::new(Mutex::new(HashMap::new())),
     };
 

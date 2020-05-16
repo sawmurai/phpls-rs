@@ -1,16 +1,14 @@
-use crate::environment::scope::Scope;
 use crate::environment::symbol::Symbol;
 use indextree::{Arena, NodeId};
-use std::collections::HashMap;
-use tower_lsp::lsp_types::{DocumentHighlight, Location, Position, Range, SymbolKind, Url};
+use tower_lsp::lsp_types::{DocumentHighlight, Position, Range, Url};
 
 pub mod import;
-pub mod scope;
 pub mod symbol;
+pub mod scope;
 
 /// Return all references to the symbol under the cursor at `position`
-pub fn document_highlights(position: &Position, scope: &Scope) -> Option<Vec<DocumentHighlight>> {
-    let all_symbols: Vec<Symbol> = scope.get_definitions();
+pub fn document_highlights(position: &Position, arena: &Arena<Symbol>, file: &NodeId) -> Option<Vec<DocumentHighlight>> {
+    //let all_symbols: Vec<Symbol> = symbol.get_definitions();
 
     //if let Some(_symbol) = symbol_under_cursor(&all_symbols, position) {}
 
@@ -19,95 +17,46 @@ pub fn document_highlights(position: &Position, scope: &Scope) -> Option<Vec<Doc
 
 /// Handle hover action triggered by the language server
 /// Use `global_symbols` to resolve references to symbols in other files to a location
-/// Use `root_scopes` to resolve a location to a scope
+/// Use `root_symbols` to resolve a location to a symbol
 pub fn hover(
     uri: &Url,
-    arena: &Arena<Scope>,
-    scope_node: &NodeId,
+    arena: &Arena<Symbol>,
+    symbol_node: &NodeId,
     position: &Position,
-    global_symbols: &HashMap<String, Location>,
-    root_scopes: &HashMap<String, NodeId>,
 ) -> Option<String> {
-    if let Some(scope_node) = scope_under_cursor(arena, scope_node, position) {
-        let scope = arena[scope_node].get();
+    if let Some(symbol_node) = symbol_under_cursor(arena, symbol_node, position) {
+        let symbol = arena[symbol_node].get();
 
-        // The easiest case is if the user hovered over a definition
-        if let Some(symbol) = scope.symbol_at_position(position) {
-            return Some(format!("Definition of {:?}", symbol));
-        }
-
-        // Otherwise he might have hovered over a reference?
-        if let Some(reference) = scope.reference_at_position(position) {
-            // Resolve the location of the references definition
-            if let Some(location) =
-                scope.resolve_reference(uri, reference, arena, scope_node, global_symbols)
-            {
-                // Get the root node of the definition of the reference
-                if let Some(root_node) =
-                    root_scopes.get(location.uri.to_file_path().unwrap().to_str().unwrap())
-                {
-                    // As position pick the first character and find the enclosing scope
-                    let position = location.range.start;
-                    if let Some(defining_scope) = scope_under_cursor(arena, root_node, &position) {
-                        // Get the defining symbol
-                        if let Some(symbol) =
-                            arena[defining_scope].get().symbol_at_position(&position)
-                        {
-                            return Some(format!("Reference to {:?}", symbol));
-                        } else {
-                            eprintln!("No defining symbol in target scope {:?}", location);
-                        }
-
-                        // Try to search in the symbols parent because the range of classes etc. includes
-                        // their own scope
-                        if let Some(parent) = arena[defining_scope].parent() {
-                            if let Some(symbol) = arena[parent].get().symbol_at_position(&position)
-                            {
-                                return Some(format!("Reference to {:?}", symbol));
-                            } else {
-                                eprintln!(
-                                    "No defining symbol in target scopes parent {:?}",
-                                    location
-                                );
-                            }
-                        }
-                    } else {
-                        eprintln!("Target scope not found");
-                    }
-                }
-            }
-
-            Some(format!("Unresolvable reference to {:?}", reference))
-        } else {
-            None
-        }
+        Some(symbol.hover_text(arena))
     } else {
         None
     }
 }
 
 /// Find the definition or reference under the cursor
-pub fn scope_under_cursor(
-    arena: &Arena<Scope>,
-    scope_node: &NodeId,
+pub fn symbol_under_cursor(
+    arena: &Arena<Symbol>,
+    symbol_node: &NodeId,
     position: &Position,
 ) -> Option<NodeId> {
-    for child_scope in scope_node.children(arena) {
-        let scope = arena[child_scope].get();
+    for child_symbol in symbol_node.children(arena) {
+        let symbol = arena[child_symbol].get();
 
-        // Either in this scope or in one of its children
-        if in_range(position, &scope.range) {
-            // Is it in one of the children of child_scope?
-            if let Some(child_scope) = scope_under_cursor(arena, &child_scope, position) {
-                return Some(child_scope);
+        // Either in this symbol or in one of its children
+        if in_range(position, &symbol.range) {
+            // Is it in one of the children of child_symbol?
+            if let Some(child_symbol) = symbol_under_cursor(arena, &child_symbol, position) {
+                return Some(child_symbol);
             }
 
-            // If not it must be child_scope itself
-            return Some(child_scope);
+            // If not it must be child_symbol itself
+            if in_range(position, &symbol.selection_range) {
+                return Some(child_symbol);
+            }
         }
     }
 
-    // Should not really happen as the most outer scope encloses the entire document
+    // Should not really happen as the most outer symbol encloses the entire document
     return None;
 }
 

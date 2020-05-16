@@ -1290,6 +1290,7 @@ impl Node {
                 tokens.first().unwrap().range().0,
                 tokens.last().unwrap().range().1,
             ),
+            Node::Literal(token) => token.range(),
             _ => ((1, 1), (1, 1)),
         }
     }

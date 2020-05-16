@@ -365,14 +365,19 @@ impl From<&Token> for Symbol {
         };
 
         Symbol {
-            data_type: None,
             name: token.clone().label.unwrap_or_else(|| "Unknown".to_owned()),
             kind,
-            range: range,
+            range,
             selection_range: range,
             detail: None,
-            children: None,
             deprecated: None,
+            inherits_from: Vec::new(),
+            parent: None,
+            references: None,
+            references_by: Vec::new(),
+            data_types: Vec::new(),
+            is_static: false,
+            imports: None
         }
     }
 }
