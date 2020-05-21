@@ -85,11 +85,6 @@ impl Scanner {
 
             // Ignore everything until the multiline comment is done
             if self.context == Context::InComment {
-                // TODO: Make the unwrap_or less hacky
-                if c == '*' && self.peek().unwrap_or(&' ') == &'/' {
-                    self.context = Context::InScript;
-                }
-
                 continue;
             }
 
@@ -178,7 +173,7 @@ impl Scanner {
                     Some('=') => {
                         self.advance();
 
-                        self.push_token(TokenType::SmallerOrEqual);
+                        self.push_token(TokenType::GreaterOrEqual);
                     }
                     _ => {
                         self.push_token(TokenType::Greater);
@@ -310,8 +305,6 @@ impl Scanner {
                         self.push_token(TokenType::ConcatAssignment);
                     }
                     Some('0'..='9') => {
-                        self.advance();
-
                         let decimal = self.collect_number();
 
                         self.push_named_token(TokenType::DecimalNumber, &format!("0.{}", decimal));
@@ -444,6 +437,7 @@ impl Scanner {
 
                     if let Some('x') = self.peek() {
                         if c == '0' {
+                            number.push_str("x");
                             self.advance();
                             number.push_str(&self.collect_hex_number());
                             self.push_named_token(TokenType::HexNumber, &number);
@@ -454,6 +448,7 @@ impl Scanner {
 
                     if let Some('b') = self.peek() {
                         if c == '0' {
+                            number.push_str("b");
                             self.advance();
                             number.push_str(&self.collect_binary_number());
                             self.push_named_token(TokenType::BinaryNumber, &number);
@@ -466,11 +461,11 @@ impl Scanner {
                     let mut number_type = TokenType::LongNumber;
 
                     if let Some(&'.') = self.peek() {
+                        number.push_str(".");
                         self.advance();
 
                         let decimal = self.collect_number();
 
-                        number.push(c);
                         number.push_str(&decimal);
 
                         number_type = TokenType::DecimalNumber;
@@ -512,13 +507,13 @@ impl Scanner {
                     } else if name == "from" {
                         // Combine yield from to one token ...
 
-                        if let Some(previous_token) = self.tokens.last() {
-                            if previous_token.t == TokenType::Yield {
-                                self.tokens.pop();
-                                self.push_token(TokenType::YieldFrom);
-                            } else {
-                                self.push_named_token(TokenType::Identifier, &name);
-                            }
+                        if let Some(Token {
+                            t: TokenType::Yield,
+                            ..
+                        }) = self.tokens.last()
+                        {
+                            self.tokens.pop();
+                            self.push_token(TokenType::YieldFrom);
                         } else {
                             self.push_named_token(TokenType::Identifier, &name);
                         }
@@ -534,18 +529,18 @@ impl Scanner {
                         // Is the last recorded token a type?
                         if let Some(cast_to) = self.map_cast(&previous_token.t) {
                             // It was! Was the one recorded before an open parenthesis?
-                            if let Some(last_token) = self.tokens.pop() {
+                            if let Some(Token {
+                                t: TokenType::OpenParenthesis,
+                                ..
+                            }) = self.tokens.last()
+                            {
                                 // It was! Replace that one with a type cast
-                                if last_token.t == TokenType::OpenParenthesis {
-                                    self.push_token(cast_to);
+                                self.tokens.pop();
+                                self.push_token(cast_to);
 
-                                    continue;
+                                continue;
 
-                                // It was not. Put it back on the stack
-                                } else {
-                                    self.tokens.push(last_token);
-                                    self.tokens.push(previous_token);
-                                }
+                            // It was not. Put it back on the stack
                             } else {
                                 // No token before that one ... so it can not be a cast either and we put it back
                                 // on the stack
@@ -668,6 +663,7 @@ impl Scanner {
 
             // If this is still true than we actually are done
             if potential_end {
+                line = partial_line_or_end_marker;
                 break;
             }
         }
@@ -987,8 +983,17 @@ impl Scanner {
 mod tests {
     use super::*;
 
+    macro_rules! token_list {
+        ($vec:expr) => {
+            $vec.iter()
+                .map(|token| token.to_string())
+                .collect::<Vec<String>>()
+                .join(" ");
+        };
+    }
+
     #[test]
-    fn test_parses_expressions() {
+    fn test_scans_expressions() {
         let mut scanner = Scanner::new("<?php\n$a = 1 + 2;\n$a++;$b +\n1\n + 2\n;");
         scanner.scan().unwrap();
 
@@ -1029,10 +1034,14 @@ mod tests {
             Token::named(TokenType::LongNumber, 4, 3, "2")
         );
         assert_eq!(scanner.tokens[15], Token::new(TokenType::Semicolon, 5, 0));
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $a = 1 + 2 ; $a ++ ; $b + 1 + 2 ; "
+        );
     }
 
     #[test]
-    fn test_parses_multibyte_string() {
+    fn test_scans_multibyte_string() {
         let mut scanner = Scanner::new(
             "<?php
 $object->{'東京'} = 2020;
@@ -1058,7 +1067,7 @@ $object->{'東京'} = 2020;
     }
 
     #[test]
-    fn test_parses_empty_string_and_not_empty_string() {
+    fn test_scans_empty_string_and_not_empty_string() {
         let mut scanner = Scanner::new(
             "<?php
 'abc' . '' . 'def';
@@ -1084,7 +1093,7 @@ $object->{'東京'} = 2020;
     }
 
     #[test]
-    fn test_parses_array() {
+    fn test_scans_array() {
         let mut scanner = Scanner::new(
             "<?php
 ['rofl' => 'copter'];",
@@ -1108,7 +1117,7 @@ $object->{'東京'} = 2020;
     }
 
     #[test]
-    fn test_parses_string_argument() {
+    fn test_scans_string_argument() {
         let mut scanner = Scanner::new(
             "<?php
 func('rofl');",
@@ -1135,7 +1144,7 @@ func('rofl');",
     }
 
     #[test]
-    fn test_parses_keywords() {
+    fn test_scans_keywords() {
         let mut scanner = Scanner::new(
             "<?php
 while (true) {}",
@@ -1158,7 +1167,7 @@ while (true) {}",
     }
 
     #[test]
-    fn test_parses_for_loop() {
+    fn test_scans_for_loop() {
         let mut scanner = Scanner::new(
             "<?php
 for ($i = 0; $i < 100; $i++) {}",
@@ -1205,5 +1214,397 @@ for ($i = 0; $i < 100; $i++) {}",
 
         assert_eq!(scanner.tokens[14], Token::new(TokenType::OpenCurly, 1, 29));
         assert_eq!(scanner.tokens[15], Token::new(TokenType::CloseCurly, 1, 30));
+    }
+
+    #[test]
+    fn test_scans_boolean_operators() {
+        let mut scanner = Scanner::new(
+            "<?php
+            true ||
+            false &&
+            1 === 1 &&
+            $a <=> $b &&
+            2 !== 1;
+            2 <= 1;
+            2 >= 1;
+            2 ?? 1;
+            2 == 1;
+            2 != 1;
+            2 > 1;
+            2 < 1;
+            2 % 1 == 1;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php true || false && 1 === 1 && $a <=> $b && 2 !== 1 ; 2 <= 1 ; 2 >= 1 ; 2 ?? 1 ; 2 == 1 ; 2 != 1 ; \
+            2 > 1 ; 2 < 1 ; 2 % 1 == 1 ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_assignments() {
+        let mut scanner = Scanner::new(
+            "<?php
+            $a <<= 2;
+            $b >>= 2;
+            $c *= 2;
+            $d += 2;
+            $e -= 2;
+            $f /= 2;
+            $g %= 2;
+            $h **= 2;
+            $i ??= 2;
+            $j &= 2;
+            $k |= 2;
+            $l .= 2;
+            $m ^= 2;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $a <<= 2 ; $b >>= 2 ; $c *= 2 ; $d += 2 ; $e -= 2 ; $f /= 2 ; $g %= 2 ; $h **= 2 ; $i ??= 2 ; $j &= 2 ; $k |= 2 ; $l .= 2 ; $m ^= 2 ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_inline_html() {
+        let mut scanner = Scanner::new(
+            "<?php
+            $a = 1; ?>
+            Some html here
+            <?php $b = 2;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $a = 1 ; ?> <?php $b = 2 ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_unary_operators() {
+        let mut scanner = Scanner::new("<?php $i++; --$i; $a = !$a; @call();");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $i ++ ; -- $i ; $a = ! $a ; @ call ( ) ; "
+        );
+    }
+
+    #[test]
+    fn test_ignores_comments() {
+        let mut scanner = Scanner::new(
+            "<?php
+            // Line comment
+            echo 'blubb'; # alternative line comment
+            /** some multiline comment */
+            echo 'blabb';
+            // ?>
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php echo 'blubb' ; echo 'blabb' ; ?> "
+        );
+    }
+
+    #[test]
+    fn test_scans_arithmetic_expression() {
+        let mut scanner = Scanner::new("<?php 1 + 2 / 3 * (2 + 2 - 1 ** 2);");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php 1 + 2 / 3 * ( 2 + 2 - 1 ** 2 ) ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_dynamic_variable() {
+        let mut scanner = Scanner::new("<?php $$$$$$a = 1;");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(token_list!(scanner.tokens), "<?php $ $ $ $ $ $a = 1 ; ");
+    }
+
+    #[test]
+    fn test_scans_binary_operators() {
+        let mut scanner = Scanner::new(
+            "<?php
+            2 ^ 1;
+            2 ~ 1;
+            2 | 1;
+            2 & 1;
+            2 >> 1;
+            2 << 1;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php 2 ^ 1 ; 2 ~ 1 ; 2 | 1 ; 2 & 1 ; 2 >> 1 ; 2 << 1 ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_nested_array() {
+        let mut scanner = Scanner::new("<?php $a = [1, 2, 3, [1, 2,]];");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $a = [ 1 , 2 , 3 , [ 1 , 2 , ] ] ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_namespace_paths() {
+        let mut scanner = Scanner::new(
+            "<?php
+            namespace Rofl\\Copter;
+
+            use function \\Rofl;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php namespace Rofl \\ Copter ; use function \\ Rofl ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_functions() {
+        let mut scanner = Scanner::new(
+            "<?php
+            function some(?string $a, ...$rest): void {
+                echo 1;
+            }
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php function some ( ? string $a , ... $rest ) : void { echo 1 ; } "
+        );
+    }
+
+    #[test]
+    fn test_scans_yield_and_yield_from() {
+        let mut scanner = Scanner::new(
+            "<?php
+            yield 200;
+            yield from $rofl;
+            from;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php yield 200 ; yield from $rofl ; from ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_type_casts() {
+        let mut scanner =
+            Scanner::new("<?php $a = (string) (int) (bool) (array) (object) (float) (unset) $a;");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $a = (string) (int) (bool) (array) (object) (double) (unset) $a ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_numbers() {
+        let mut scanner = Scanner::new(
+            "<?php
+            $a = 1;
+            $b = 2.0;
+            $c = 1e10;
+            $d = -100;
+            $e = 0x1A;
+            $f = 0b101010;
+            $g = .2;
+            $h = +1E5;
+            $i = -2E2;
+            $j = 1e-1;
+            $k = 1e+1;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $a = 1 ; $b = 2.0 ; $c = 1e10 ; $d = - 100 ; $e = 0x1A ; $f = 0b101010 ; $g = 0.2 ; \
+            $h = + 1e5 ; $i = - 2e2 ; $j = 1e-1 ; $k = 1e+1 ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_strings() {
+        let mut scanner = Scanner::new(
+            "<?php
+            $a = 'aaa';
+            $b = \"ddd\";
+            $c = <<<  EOF
+                Some fancy value
+            EOF;
+            $d = `ls -al`;
+            $e = <<<\"EOF\"
+                LOL
+            EOF;
+            $e = <<<'EOF'
+                LOL
+            EOF;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $a = 'aaa' ; $b = \"ddd\" ; $c = <<<EOF \"\n                Some fancy value\n\" EOF ; $d = `ls -al` ; $e = <<<EOF \"\n                LOL\n\" EOF ; $e = <<<EOF \"\n                LOL\n\" EOF ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_escaped_strings() {
+        let mut scanner = Scanner::new(
+            "<?php
+            $a = 'aa\\'a';
+            $b = \"d\\\"dd\";
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $a = 'aa\\'a' ; $b = \"d\\\"dd\" ; "
+        );
+    }
+
+    #[test]
+    fn test_scans_even_invalid_sequences() {
+        let mut scanner = Scanner::new(
+            "<?php
+            $a = $x . $y .. ;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(token_list!(scanner.tokens), "<?php $a = $x . $y . . ; ");
+    }
+
+    #[test]
+    fn test_scans_short_script_start_tag() {
+        let mut scanner = Scanner::new(
+            "<?xml>I shall be ignored</xml><?
+            $a = 1;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(token_list!(scanner.tokens), "<?php $a = 1 ; ");
+    }
+
+    #[test]
+    fn test_scans_label_with_separate_colon() {
+        let mut scanner = Scanner::new(
+            "<?php
+            goto_this_one:
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(token_list!(scanner.tokens), "<?php goto_this_one : ");
+    }
+
+    #[test]
+    fn test_scans_static_access() {
+        let mut scanner = Scanner::new(
+            "<?php
+            $object::property;
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(token_list!(scanner.tokens), "<?php $object :: property ; ");
+    }
+
+    #[test]
+    fn test_scans_sematically_invalid_sequences() {
+        let mut scanner = Scanner::new("<?php $a = (string int) $2; ");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $a = ( string int ) $2 ; "
+        );
+
+        let mut scanner = Scanner::new("<?php string) ");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(token_list!(scanner.tokens), "<?php string ) ");
+    }
+
+    #[test]
+    fn test_handles_unterminated_here_doc() {
+        let mut scanner = Scanner::new("<?php $a = <<<EOF ");
+
+        assert_eq!(true, scanner.scan().is_err())
+    }
+
+    #[test]
+    fn test_handles_unexpected_char() {
+        let mut scanner = Scanner::new("<?php ć");
+
+        assert_eq!(true, scanner.scan().is_err())
+    }
+
+    #[test]
+    fn test_calculates_document_range() {
+        let mut scanner = Scanner::new("<?php ; \n; \n;");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(((0, 0), (2, 1)), scanner.document_range());
     }
 }

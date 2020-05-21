@@ -414,7 +414,8 @@ impl Display for Token {
             TokenType::QuestionMark => "?".to_owned(),
             TokenType::ExclamationMark => "!".to_owned(),
             TokenType::Assignment => "=".to_owned(),
-            TokenType::Variable => format!("${}", self.label.as_ref().unwrap()),
+            // Variables without a label are aliased variables like $$varname
+            TokenType::Variable => format!("${}", self.label.as_ref().unwrap_or(&String::from(""))),
             TokenType::Identifier => format!("{}", self.label.as_ref().unwrap()),
             TokenType::OpenParenthesis => "(".to_owned(),
             TokenType::CloseParenthesis => ")".to_owned(),
@@ -423,10 +424,10 @@ impl Display for Token {
             TokenType::OpenBrackets => "[".to_owned(),
             TokenType::CloseBrackets => "]".to_owned(),
             TokenType::Semicolon => ";".to_owned(),
-            TokenType::LogicOr => "or".to_owned(),
-            TokenType::LogicAnd => "and".to_owned(),
-            TokenType::BinaryOr => "||".to_owned(),
-            TokenType::BinaryAnd => "&&".to_owned(),
+            TokenType::LogicOr => "||".to_owned(),
+            TokenType::LogicAnd => "&&".to_owned(),
+            TokenType::BinaryOr => "|".to_owned(),
+            TokenType::BinaryAnd => "&".to_owned(),
             TokenType::Negation => "!".to_owned(),
             TokenType::Colon => ":".to_owned(),
             TokenType::Comma => ",".to_owned(),
@@ -473,14 +474,16 @@ impl Display for Token {
             TokenType::ConstNan => "Nan".to_owned(),
             TokenType::ConstInf => "Inf".to_owned(),
             TokenType::ScriptStart => "<?php".to_owned(),
-            TokenType::DecimalNumber => "".to_owned(),
-            TokenType::ExponentialNumber => "".to_owned(),
-            TokenType::LongNumber => "".to_owned(),
-            TokenType::HexNumber => "".to_owned(),
-            TokenType::BinaryNumber => "".to_owned(),
-            TokenType::ConstantEncapsedString => "".to_owned(),
-            TokenType::EncapsedAndWhitespaceString => "".to_owned(),
-            TokenType::ShellEscape => "``".to_owned(),
+            TokenType::DecimalNumber
+            | TokenType::ExponentialNumber
+            | TokenType::LongNumber
+            | TokenType::HexNumber
+            | TokenType::BinaryNumber => format!("{}", self.label.as_ref().unwrap()),
+            TokenType::ConstantEncapsedString => format!("'{}'", self.label.as_ref().unwrap()),
+            TokenType::EncapsedAndWhitespaceString => {
+                format!("\"{}\"", self.label.as_ref().unwrap())
+            }
+            TokenType::ShellEscape => format!("`{}`", self.label.as_ref().unwrap()),
             TokenType::HereDocStart => format!("<<<{}", self.label.as_ref().unwrap()),
             TokenType::HereDocEnd => format!("{}", self.label.as_ref().unwrap()),
             TokenType::BoolCast => "(bool)".to_owned(),
