@@ -1,5 +1,6 @@
 use crate::environment::symbol::Symbol;
 use tower_lsp::lsp_types::{Position, Range, SymbolKind};
+use std::fmt::{Formatter, Display, Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
@@ -162,7 +163,6 @@ pub enum TokenType {
     Extends,
     Implements,
     List,
-    Array,
     Callable,
     ConstLine,
     ConstFile,
@@ -180,6 +180,7 @@ pub enum TokenType {
     Void,
     Yield,
     YieldFrom,
+    Parent,
 
     // Types
     TypeBool,
@@ -276,7 +277,6 @@ impl Token {
             | TokenType::Extends
             | TokenType::Implements
             | TokenType::List
-            | TokenType::Array
             | TokenType::Callable
             | TokenType::ConstLine
             | TokenType::ConstFile
@@ -341,6 +341,20 @@ impl Token {
         return col >= self.col
             && col <= (self.col + self.label.clone().unwrap_or_default().len() as u16);
     }
+
+    pub fn is_string(&self) -> bool {
+        match self.t {
+            TokenType::ConstantEncapsedString | TokenType::EncapsedAndWhitespaceString => true,
+            _ => false
+        }
+    }
+
+    pub fn is_number(&self) -> bool {
+        match self.t {
+            TokenType::BinaryNumber | TokenType::DecimalNumber | TokenType::ExponentialNumber | TokenType::HexNumber | TokenType::LongNumber => true,
+            _ => false
+        }
+    }
 }
 
 impl From<&Token> for Symbol {
@@ -379,5 +393,184 @@ impl From<&Token> for Symbol {
             is_static: false,
             imports: None
         }
+    }
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let dis = match self.t {
+            TokenType::Class => "class".to_owned(),
+            TokenType::Eof => "".to_owned(),
+            TokenType::Plus => "+".to_owned(),
+            TokenType::Minus => "-".to_owned(),
+            TokenType::Multiplication => "*".to_owned(),
+            TokenType::Division => "/".to_owned(),
+            TokenType::Greater => ">".to_owned(),
+            TokenType::Smaller => "<".to_owned(),
+            TokenType::QuestionMark => "?".to_owned(),
+            TokenType::ExclamationMark => "!".to_owned(),
+            TokenType::Assignment => "=".to_owned(),
+            TokenType::Variable => format!("${}", self.label.as_ref().unwrap()),
+            TokenType::Identifier => format!("{}", self.label.as_ref().unwrap()),
+            TokenType::OpenParenthesis => "(".to_owned(),
+            TokenType::CloseParenthesis => ")".to_owned(),
+            TokenType::OpenCurly => "{".to_owned(),
+            TokenType::CloseCurly => "}".to_owned(),
+            TokenType::OpenBrackets => "[".to_owned(),
+            TokenType::CloseBrackets => "]".to_owned(),
+            TokenType::Semicolon => ";".to_owned(),
+            TokenType::LogicOr => "or".to_owned(),
+            TokenType::LogicAnd => "and".to_owned(),
+            TokenType::BinaryOr => "||".to_owned(),
+            TokenType::BinaryAnd => "&&".to_owned(),
+            TokenType::Negation => "!".to_owned(),
+            TokenType::Colon => ":".to_owned(),
+            TokenType::Comma => ",".to_owned(),
+            TokenType::NamespaceSeparator => "\\".to_owned(),
+            TokenType::Concat => ".".to_owned(),
+            TokenType::Silencer => "@".to_owned(),
+            TokenType::BitwiseNegation => "~".to_owned(),
+            TokenType::Modulo => "%".to_owned(),
+            TokenType::BinaryXor => "^".to_owned(),
+            TokenType::Increment => "++".to_owned(),
+            TokenType::Decrement => "--".to_owned(),
+            TokenType::Power => "**".to_owned(),
+            TokenType::PlusAssign => "+=".to_owned(),
+            TokenType::MinusAssign => "-=".to_owned(),
+            TokenType::MulAssign => "*=".to_owned(),
+            TokenType::DivAssign => "/=".to_owned(),
+            TokenType::LineComment => "//".to_owned(),
+            TokenType::MultilineComment => "/*".to_owned(),
+            TokenType::RightShift => ">>".to_owned(),
+            TokenType::LeftShift => "<<".to_owned(),
+            TokenType::ScriptEnd => "?>".to_owned(),
+            TokenType::IsNotEqual => "!=".to_owned(),
+            TokenType::IsEqual => "==".to_owned(),
+            TokenType::GreaterOrEqual => ">=".to_owned(),
+            TokenType::SmallerOrEqual => "<=".to_owned(),
+            TokenType::Coalesce => "??".to_owned(),
+            TokenType::BinaryAndAssignment => "&=".to_owned(),
+            TokenType::BinaryOrAssignment => "|=".to_owned(),
+            TokenType::ObjectOperator => "->".to_owned(),
+            TokenType::ModuloAssignment => "%=".to_owned(),
+            TokenType::ConcatAssignment => ".=".to_owned(),
+            TokenType::XorAssignment => "^=".to_owned(),
+            TokenType::PaamayimNekudayim => "::".to_owned(),
+            TokenType::DoubleArrow => "=>".to_owned(),
+            TokenType::RightShiftAssignment => ">>=".to_owned(),
+            TokenType::LeftShiftAssignment => "<<=".to_owned(),
+            TokenType::IsNotIdentical => "!==".to_owned(),
+            TokenType::IsIdentical => "===".to_owned(),
+            TokenType::PowerAssignment => "**=".to_owned(),
+            TokenType::SpaceShip => "<=>".to_owned(),
+            TokenType::CoalesceAssignment => "??=".to_owned(),
+            TokenType::Elipsis => "...".to_owned(),
+            TokenType::LogicXor => "xor".to_owned(),
+            TokenType::ConstNan => "Nan".to_owned(),
+            TokenType::ConstInf => "Inf".to_owned(),
+            TokenType::ScriptStart => "<?php".to_owned(),
+            TokenType::DecimalNumber => "".to_owned(),
+            TokenType::ExponentialNumber => "".to_owned(),
+            TokenType::LongNumber => "".to_owned(),
+            TokenType::HexNumber => "".to_owned(),
+            TokenType::BinaryNumber => "".to_owned(),
+            TokenType::ConstantEncapsedString => "".to_owned(),
+            TokenType::EncapsedAndWhitespaceString => "".to_owned(),
+            TokenType::ShellEscape => "``".to_owned(),
+            TokenType::HereDocStart => format!("<<<{}", self.label.as_ref().unwrap()),
+            TokenType::HereDocEnd => format!("{}", self.label.as_ref().unwrap()),
+            TokenType::BoolCast => "(bool)".to_owned(),
+            TokenType::BadCast => "".to_owned(),
+            TokenType::IntCast => "(int)".to_owned(),
+            TokenType::StringCast => "(string)".to_owned(),
+            TokenType::ArrayCast => "(array)".to_owned(),
+            TokenType::ObjectCast => "(object)".to_owned(),
+            TokenType::DoubleCast => "(double)".to_owned(),
+            TokenType::UnsetCast => "(unset)".to_owned(),
+            TokenType::Exit => "exit".to_owned(),
+            TokenType::If => "if".to_owned(),
+            TokenType::Die => "die".to_owned(),
+            TokenType::ElseIf => "elseif".to_owned(),
+            TokenType::Else => "else".to_owned(),
+            TokenType::EndIf => "endif".to_owned(),
+            TokenType::Echo => "echo".to_owned(),
+            TokenType::Print => "print".to_owned(),
+            TokenType::Include => "include".to_owned(),
+            TokenType::IncludeOnce => "include_once".to_owned(),
+            TokenType::Require => "require".to_owned(),
+            TokenType::RequireOnce => "require_once".to_owned(),
+            TokenType::Do => "do".to_owned(),
+            TokenType::While => "while".to_owned(),
+            TokenType::EndWhile => "endwhile".to_owned(),
+            TokenType::For => "for".to_owned(),
+            TokenType::EndFor => "endfor".to_owned(),
+            TokenType::Foreach => "foreach".to_owned(),
+            TokenType::EndForeach => "endforeach".to_owned(),
+            TokenType::Declare => "declare".to_owned(),
+            TokenType::EndDeclare => "enddeclare".to_owned(),
+            TokenType::As => "as".to_owned(),
+            TokenType::Switch => "switch".to_owned(),
+            TokenType::EndSwitch => "endswitch".to_owned(),
+            TokenType::Case => "case".to_owned(),
+            TokenType::Default => "default".to_owned(),
+            TokenType::Break => "break".to_owned(),
+            TokenType::Continue => "continue".to_owned(),
+            TokenType::Goto => "goto".to_owned(),
+            TokenType::Function => "function".to_owned(),
+            TokenType::Fn => "fn".to_owned(),
+            TokenType::Const => "const".to_owned(),
+            TokenType::Return => "return".to_owned(),
+            TokenType::Try => "try".to_owned(),
+            TokenType::Catch => "catch".to_owned(),
+            TokenType::Finally => "finally".to_owned(),
+            TokenType::Throw => "throw".to_owned(),
+            TokenType::Use => "use".to_owned(),
+            TokenType::Insteadof => "insteadof".to_owned(),
+            TokenType::InstanceOf => "instanceof".to_owned(),
+            TokenType::Global => "global".to_owned(),
+            TokenType::Static => "static".to_owned(),
+            TokenType::Abstract => "abstract".to_owned(),
+            TokenType::Final => "final".to_owned(),
+            TokenType::Private => "private".to_owned(),
+            TokenType::Protected => "protected".to_owned(),
+            TokenType::Public => "public".to_owned(),
+            TokenType::Var => "var".to_owned(),
+            TokenType::Unset => "unset".to_owned(),
+            TokenType::Isset => "isset".to_owned(),
+            TokenType::Empty => "empty".to_owned(),
+            TokenType::HaltCompiler => "__halt_compiler".to_owned(),
+            TokenType::Trait => "trait".to_owned(),
+            TokenType::Interface => "interface".to_owned(),
+            TokenType::Extends => "extends".to_owned(),
+            TokenType::Implements => "implements".to_owned(),
+            TokenType::List => "list".to_owned(),
+            TokenType::Callable => "callable".to_owned(),
+            TokenType::ConstLine => "__LINE__".to_owned(),
+            TokenType::ConstFile => "__FILE__".to_owned(),
+            TokenType::ConstDir => "__DIR__".to_owned(),
+            TokenType::ConstClass => "__CLASS__".to_owned(),
+            TokenType::ConstTrait => "__TRAIT__".to_owned(),
+            TokenType::ConstMethod => "__METHOD__".to_owned(),
+            TokenType::ConstFunction => "__FUNCTION__".to_owned(),
+            TokenType::New => "new".to_owned(),
+            TokenType::Clone => "clone".to_owned(),
+            TokenType::True => "true".to_owned(),
+            TokenType::False => "false".to_owned(),
+            TokenType::Null => "null".to_owned(),
+            TokenType::Namespace => "namespace".to_owned(),
+            TokenType::Void => "void".to_owned(),
+            TokenType::Yield => "yield".to_owned(),
+            TokenType::YieldFrom => "yield from".to_owned(),
+            TokenType::TypeBool => "bool".to_owned(),
+            TokenType::TypeInt => "int".to_owned(),
+            TokenType::TypeString => "string".to_owned(),
+            TokenType::TypeArray => "array".to_owned(),
+            TokenType::TypeObject => "object".to_owned(),
+            TokenType::TypeFloat => "float".to_owned(),
+            TokenType::TypeSelf => "self".to_owned(),
+            TokenType::Parent => "parent".to_owned()
+        };
+
+        write!(f, "{}", dis)
     }
 }
