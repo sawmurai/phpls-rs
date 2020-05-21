@@ -32,6 +32,15 @@ pub(crate) fn namespace_statement(parser: &mut Parser) -> ExpressionResult {
     }
 }
 
+/// Parse a single import
+///
+/// # Details
+/// ```php
+/// use Some\Other\ {
+///    Namespace1,
+///    Namespace2 as Alias,
+/// }
+/// ```
 fn symbol_import(parser: &mut Parser) -> ExpressionResult {
     if parser.consume_or_ignore(TokenType::Function).is_some() {
         let name = types::non_empty_type_ref(parser)?;
@@ -92,6 +101,12 @@ fn symbol_import(parser: &mut Parser) -> ExpressionResult {
     }
 }
 
+/// Parse comma separated list of imports
+///
+/// # Details
+/// ```php
+/// use Some\Other, Some\Else, What\Ever
+/// ```
 fn symbol_imports(parser: &mut Parser) -> ExpressionListResult {
     let mut imports = Vec::new();
 
@@ -232,4 +247,170 @@ pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResu
     }
 
     Ok(Node::UseStatement { token, imports })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::node::Node;
+    use crate::scanner::Scanner;
+    use crate::token::Token;
+
+    #[test]
+    fn test_parses_namespace_declaration() {
+        let mut scanner = Scanner::new(
+            "<?php
+        namespace Rofl\\Copter;
+        ",
+        );
+        scanner.scan().unwrap();
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+
+        assert_eq!(true, errors.is_empty());
+        assert_eq!(1, ast.len());
+        assert_eq!(
+            Node::NamespaceStatement {
+                token: Token::new(TokenType::Namespace, 1, 8),
+                type_ref: Box::new(Node::TypeRef(vec![
+                    Token::named(TokenType::Identifier, 1, 18, "Rofl"),
+                    Token::new(TokenType::NamespaceSeparator, 1, 22),
+                    Token::named(TokenType::Identifier, 1, 23, "Copter")
+                ]))
+            },
+            ast[0]
+        );
+    }
+
+    #[test]
+    fn test_parses_use_statements() {
+        let mut scanner = Scanner::new(
+            "<?php
+        use Rofl\\Copter, Copter\\Rofl as Something, Some\\{
+            NamespaceOne,
+            NamespaceTwo as Alias
+        };
+        ",
+        );
+        scanner.scan().unwrap();
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+
+        assert_eq!(true, errors.is_empty());
+        assert_eq!(1, ast.len());
+        assert_eq!(
+            Node::UseStatement {
+                token: Token::new(TokenType::Use, 1, 8),
+                imports: vec![
+                    Node::UseDeclaration {
+                        token: Some(Token {
+                            col: 8,
+                            line: 1,
+                            t: TokenType::Use,
+                            label: None
+                        }),
+                        declaration: Box::new(Node::TypeRef(vec![
+                            Token::named(TokenType::Identifier, 1, 12, "Rofl"),
+                            Token::new(TokenType::NamespaceSeparator, 1, 16),
+                            Token::named(TokenType::Identifier, 1, 17, "Copter")
+                        ])),
+                        alias: None,
+                        aliased: None
+                    },
+                    Node::UseDeclaration {
+                        token: Some(Token {
+                            col: 8,
+                            line: 1,
+                            t: TokenType::Use,
+                            label: None
+                        }),
+                        declaration: Box::new(Node::TypeRef(vec![
+                            Token::named(TokenType::Identifier, 1, 25, "Copter"),
+                            Token::new(TokenType::NamespaceSeparator, 1, 31),
+                            Token::named(TokenType::Identifier, 1, 32, "Rofl")
+                        ])),
+                        alias: Some(Token {
+                            col: 40,
+                            line: 1,
+                            t: TokenType::Identifier,
+                            label: Some("Something".to_owned())
+                        }),
+                        aliased: Some(Token {
+                            col: 37,
+                            line: 1,
+                            t: TokenType::As,
+                            label: None
+                        })
+                    },
+                    Node::GroupedUse {
+                        token: Token {
+                            col: 8,
+                            line: 1,
+                            t: TokenType::Use,
+                            label: None
+                        },
+                        parent: Box::new(Node::TypeRef(vec![
+                            Token {
+                                col: 51,
+                                line: 1,
+                                t: TokenType::Identifier,
+                                label: Some("Some".to_owned())
+                            },
+                            Token {
+                                col: 55,
+                                line: 1,
+                                t: TokenType::NamespaceSeparator,
+                                label: None
+                            }
+                        ])),
+                        oc: Token {
+                            col: 56,
+                            line: 1,
+                            t: TokenType::OpenCurly,
+                            label: None
+                        },
+                        uses: vec![
+                            Node::UseDeclaration {
+                                token: None,
+                                declaration: Box::new(Node::TypeRef(vec![Token {
+                                    col: 12,
+                                    line: 2,
+                                    t: TokenType::Identifier,
+                                    label: Some("NamespaceOne".to_owned())
+                                }])),
+                                aliased: None,
+                                alias: None
+                            },
+                            Node::UseDeclaration {
+                                token: None,
+                                declaration: Box::new(Node::TypeRef(vec![Token {
+                                    col: 12,
+                                    line: 3,
+                                    t: TokenType::Identifier,
+                                    label: Some("NamespaceTwo".to_owned())
+                                }])),
+                                aliased: Some(Token {
+                                    col: 25,
+                                    line: 3,
+                                    t: TokenType::As,
+                                    label: None
+                                }),
+                                alias: Some(Token {
+                                    col: 28,
+                                    line: 3,
+                                    t: TokenType::Identifier,
+                                    label: Some("Alias".to_owned())
+                                })
+                            }
+                        ],
+                        cc: Token {
+                            col: 8,
+                            line: 4,
+                            t: TokenType::CloseCurly,
+                            label: None
+                        }
+                    }
+                ]
+            },
+            ast[0]
+        );
+    }
 }

@@ -44,7 +44,6 @@ impl Scanner {
             line: 0,
             pos: 0,
             context: Context::OutScript,
-
             tokens: Vec::new(),
             chars,
         }
