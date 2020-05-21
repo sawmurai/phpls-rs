@@ -975,6 +975,7 @@ impl Scanner {
             "instanceof" => TokenType::InstanceOf,
             "yield" => TokenType::Yield,
             "self" => TokenType::TypeSelf,
+            "parent" => TokenType::Parent,
             _ => {
                 return None;
             }
