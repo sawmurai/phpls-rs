@@ -68,20 +68,18 @@ impl Backend {
         }
 
         for (file, node_id) in root_symbols.iter() {
-            if true || file.ends_with("DeserializationServiceProvider.php") {
-                for symbol_node in node_id.descendants(&arena) {
-                    let symbol = arena[symbol_node].get();
+            for symbol_node in node_id.descendants(&arena) {
+                let symbol = arena[symbol_node].get();
 
-                    if symbol.kind == SymbolKind::Unknown
-                        && symbol
-                            .resolve(&arena, &symbol_node, &global_table)
-                            .is_none()
-                    {
-                        diagnostics
-                            .get_mut(file)
-                            .unwrap()
-                            .push(Diagnostic::from(symbol));
-                    }
+                if symbol.kind == SymbolKind::Unknown
+                    && symbol
+                        .resolve(&arena, &symbol_node, &global_table)
+                        .is_none()
+                {
+                    diagnostics
+                        .get_mut(file)
+                        .unwrap()
+                        .push(Diagnostic::from(symbol));
                 }
             }
         }
