@@ -9,9 +9,9 @@ pub mod symbol;
 
 /// Return all references to the symbol under the cursor at `position`
 pub fn document_highlights(
-    position: &Position,
-    arena: &Arena<Symbol>,
-    file: &NodeId,
+    _position: &Position,
+    _arena: &Arena<Symbol>,
+    _file: &NodeId,
 ) -> Option<Vec<DocumentHighlight>> {
     //let all_symbols: Vec<Symbol> = symbol.get_definitions();
 
@@ -106,7 +106,8 @@ pub fn definition_of_symbol_under_cursor(
     return None;
 }
 
-pub fn in_range(position: &Position, range: &Range) -> bool {
+/// Checks if a given `position` is within a given `range`.
+fn in_range(position: &Position, range: &Range) -> bool {
     // Before the start or behind the end
     if position.line > range.end.line || position.line < range.start.line {
         return false;
