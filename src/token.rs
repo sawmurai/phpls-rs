@@ -1,6 +1,6 @@
 use crate::environment::symbol::Symbol;
+use std::fmt::{Display, Formatter, Result};
 use tower_lsp::lsp_types::{Position, Range, SymbolKind};
-use std::fmt::{Formatter, Display, Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
@@ -345,14 +345,18 @@ impl Token {
     pub fn is_string(&self) -> bool {
         match self.t {
             TokenType::ConstantEncapsedString | TokenType::EncapsedAndWhitespaceString => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_number(&self) -> bool {
         match self.t {
-            TokenType::BinaryNumber | TokenType::DecimalNumber | TokenType::ExponentialNumber | TokenType::HexNumber | TokenType::LongNumber => true,
-            _ => false
+            TokenType::BinaryNumber
+            | TokenType::DecimalNumber
+            | TokenType::ExponentialNumber
+            | TokenType::HexNumber
+            | TokenType::LongNumber => true,
+            _ => false,
         }
     }
 }
@@ -391,7 +395,7 @@ impl From<&Token> for Symbol {
             references_by: Vec::new(),
             data_types: Vec::new(),
             is_static: false,
-            imports: None
+            imports: None,
         }
     }
 }
@@ -568,7 +572,7 @@ impl Display for Token {
             TokenType::TypeObject => "object".to_owned(),
             TokenType::TypeFloat => "float".to_owned(),
             TokenType::TypeSelf => "self".to_owned(),
-            TokenType::Parent => "parent".to_owned()
+            TokenType::Parent => "parent".to_owned(),
         };
 
         write!(f, "{}", dis)

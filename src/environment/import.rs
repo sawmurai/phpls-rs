@@ -10,10 +10,8 @@ pub struct SymbolImport {
 impl SymbolImport {
     pub fn name(&self) -> String {
         if let Some(alias) = &self.alias {
-            eprintln!("aliased");
             alias.label.clone().unwrap()
         } else {
-            eprintln!("Not aliased");
             self.path.last().unwrap().label.clone().unwrap()
         }
     }

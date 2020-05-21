@@ -1,8 +1,8 @@
 #![allow(clippy::must_use_candidate)]
 
-use crate::environment::scope::{collect_symbols};
-use crate::environment::symbol::{Symbol};
-use crate::node::{Node, get_range};
+use crate::environment::scope::collect_symbols;
+use crate::environment::symbol::Symbol;
+use crate::node::{get_range, Node};
 use crate::parser::Parser;
 use crate::scanner::Scanner;
 use async_recursion::async_recursion;
@@ -56,7 +56,10 @@ impl Backend {
                     let base_name = symbol.name.clone();
 
                     for symbol_id in symbol_id.children(&arena) {
-                        global_table.insert(format!("{}\\{}", base_name, arena[symbol_id].get().name), symbol_id);
+                        global_table.insert(
+                            format!("{}\\{}", base_name, arena[symbol_id].get().name),
+                            symbol_id,
+                        );
                     }
                 } else {
                     global_table.insert(symbol.name.clone(), symbol_id);
@@ -69,7 +72,11 @@ impl Backend {
                 for symbol_node in node_id.descendants(&arena) {
                     let symbol = arena[symbol_node].get();
 
-                    if symbol.kind == SymbolKind::Unknown && symbol.resolve(&arena, &symbol_node, &global_table).is_none() {
+                    if symbol.kind == SymbolKind::Unknown
+                        && symbol
+                            .resolve(&arena, &symbol_node, &global_table)
+                            .is_none()
+                    {
                         diagnostics
                             .get_mut(file)
                             .unwrap()
@@ -138,7 +145,7 @@ impl Backend {
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
-                imports: None
+                imports: None,
             });
 
             // By default, put all symbols in the file scope
@@ -150,14 +157,18 @@ impl Backend {
                     // Once we detect a namespace statement we consider all following definitions to be
                     // within the namespaces symbol
                     Node::NamespaceStatement { type_ref, .. } => {
-                        let (name, selection_range)  = match &**type_ref {
-                            Node::TypeRef(tokens) => (tokens
-                                .iter()
-                                .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
-                                .collect::<Vec<String>>()
-                                .join(""),
+                        let (name, selection_range) = match &**type_ref {
+                            Node::TypeRef(tokens) => (
+                                tokens
+                                    .iter()
+                                    .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
+                                    .collect::<Vec<String>>()
+                                    .join(""),
                                 // Range from first part of name until the last one
-                                get_range((tokens.first().unwrap().range().0, tokens.last().unwrap().range().1)),
+                                get_range((
+                                    tokens.first().unwrap().range().0,
+                                    tokens.last().unwrap().range().1,
+                                )),
                             ),
                             _ => panic!("This should not happen"),
                         };
@@ -175,7 +186,7 @@ impl Backend {
                             references_by: Vec::new(),
                             data_types: Vec::new(),
                             is_static: false,
-                            imports: None
+                            imports: None,
                         });
 
                         enclosing_file.append(current_parent, &mut arena);
@@ -188,7 +199,10 @@ impl Backend {
                 }
             }
 
-            self.root_symbols.lock().await.insert(path.to_owned(), enclosing_file);
+            self.root_symbols
+                .lock()
+                .await
+                .insert(path.to_owned(), enclosing_file);
             self.diagnostics.lock().await.insert(
                 path.to_owned(),
                 errors
@@ -308,12 +322,11 @@ impl LanguageServer for Backend {
 
         if let Some(node_id) = self.root_symbols.lock().await.get(path) {
             return Ok(Some(DocumentSymbolResponse::Nested(
-                node_id.children(&arena)
-
+                node_id
+                    .children(&arena)
                     .map(|s| arena[s].get().to_doc_sym(&arena, &s))
                     .collect(),
             )));
-
         }
 
         Ok(None)
@@ -334,7 +347,7 @@ impl LanguageServer for Backend {
             return Ok(environment::document_highlights(
                 &params.text_document_position_params.position,
                 &arena,
-                node_id
+                node_id,
             ));
         }
 
@@ -345,7 +358,6 @@ impl LanguageServer for Backend {
         let file = params.text_document_position.text_document.uri.path();
 
         if let Some(_arena) = self.root_symbols.lock().await.get(file) {
-
         } else {
             eprintln!("File not found");
         }
@@ -368,9 +380,8 @@ impl LanguageServer for Backend {
                 &arena,
                 node_id,
                 &params.text_document_position_params.position,
-                &global_symbols
+                &global_symbols,
             ) {
-
                 return Ok(Some(GotoDefinitionResponse::Scalar(location)));
             }
         }
@@ -435,7 +446,7 @@ impl LanguageServer for Backend {
                 &arena,
                 node_id,
                 &params.text_document_position_params.position,
-                &global_symbols
+                &global_symbols,
             ) {
                 return Ok(Some(Hover {
                     contents: HoverContents::Scalar(MarkedString::String(string)),
