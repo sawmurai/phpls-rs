@@ -65,13 +65,15 @@ impl Backend {
         }
 
         for (file, node_id) in root_symbols.iter() {
-            if file.ends_with("DeserializationServiceProvider.php") {
-                for symbol in node_id.descendants(&arena) {
-                    if arena[symbol].get().resolve(&arena, &symbol, &global_table).is_none() {
+            if true || file.ends_with("DeserializationServiceProvider.php") {
+                for symbol_node in node_id.descendants(&arena) {
+                    let symbol = arena[symbol_node].get();
+
+                    if symbol.kind == SymbolKind::Unknown && symbol.resolve(&arena, &symbol_node, &global_table).is_none() {
                         diagnostics
                             .get_mut(file)
                             .unwrap()
-                            .push(Diagnostic::from(arena[symbol].get()));
+                            .push(Diagnostic::from(symbol));
                     }
                 }
             }
@@ -88,8 +90,8 @@ impl Backend {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.is_dir() //{
-                     && !path.ends_with("vendor") {
+                if path.is_dir() {
+                    // && !path.ends_with("vendor") {
                     self.reindex_folder(&path).await?;
                 } else if let Some(ext) = path.extension() {
                     if ext == "php" {
@@ -233,6 +235,7 @@ impl LanguageServer for Backend {
                     work_done_progress_options: Default::default(),
                 }),*/
                 references_provider: Some(true),
+                definition_provider: Some(true),
                 document_highlight_provider: Some(true),
                 document_symbol_provider: Some(true),
                 workspace_symbol_provider: Some(true),
@@ -342,14 +345,34 @@ impl LanguageServer for Backend {
         let file = params.text_document_position.text_document.uri.path();
 
         if let Some(_arena) = self.root_symbols.lock().await.get(file) {
-            /* if let Some(_symbol) =
-                environment::hover(&params.text_document_position.position, &file_symbol)
-            {
-            } else {
-                eprintln!("Symbol not found");
-            }*/
+
         } else {
             eprintln!("File not found");
+        }
+
+        Ok(None)
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let file = uri.path();
+        let arena = self.arena.lock().await;
+        let root_symbols = self.root_symbols.lock().await;
+        let global_symbols = self.global_symbols.lock().await;
+
+        if let Some(node_id) = root_symbols.get(file) {
+            if let Some(location) = environment::definition_of_symbol_under_cursor(
+                &arena,
+                node_id,
+                &params.text_document_position_params.position,
+                &global_symbols
+            ) {
+
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
         }
 
         Ok(None)
@@ -409,7 +432,6 @@ impl LanguageServer for Backend {
 
         if let Some(node_id) = root_symbols.get(file) {
             if let Some(string) = environment::hover(
-                &uri,
                 &arena,
                 node_id,
                 &params.text_document_position_params.position,

@@ -1,10 +1,10 @@
-use crate::environment::scope::{collect_symbols, Reference};
 use crate::environment::import::SymbolImport;
+use crate::environment::scope::{collect_symbols, Reference};
 use crate::node::{get_range, Node};
 use crate::token::Token;
 use indextree::{Arena, NodeId};
-use tower_lsp::lsp_types::{DocumentSymbol, Range, SymbolKind, Diagnostic};
 use std::collections::HashMap;
+use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Range, SymbolKind};
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
@@ -39,16 +39,17 @@ pub struct Symbol {
     pub data_types: Vec<Reference>,
 
     /// True if this value was declared static
-    pub is_static: bool
+    pub is_static: bool,
 }
 
 /// Basically a 1:1 mapping that omits the data type
 impl Symbol {
     pub fn to_doc_sym(&self, arena: &Arena<Symbol>, node: &NodeId) -> DocumentSymbol {
         let children = node
-        .children(arena)
-        .filter(|s| arena[*s].get().kind != SymbolKind::Unknown)
-        .map(|s| arena[s].get().to_doc_sym(arena, &s)).collect::<Vec<DocumentSymbol>>();
+            .children(arena)
+            .filter(|s| arena[*s].get().kind != SymbolKind::Unknown)
+            .map(|s| arena[s].get().to_doc_sym(arena, &s))
+            .collect::<Vec<DocumentSymbol>>();
 
         let children = if children.is_empty() {
             None
@@ -71,37 +72,67 @@ impl Symbol {
 
     pub fn hover_text(&self, arena: &Arena<Symbol>, me: &NodeId) -> String {
         if let Some(parent) = self.parent {
-            format!("{}, child of {}", self.name, arena[parent].get().hover_text(&arena, me))
+            format!(
+                "{}, child of {}",
+                self.name,
+                arena[parent].get().hover_text(&arena, me)
+            )
         } else {
-            format!("{} ({:?}) < {:?}", self.name, self.kind, arena[arena[*me].parent().unwrap()].get().kind)
+            format!(
+                "{} ({:?}) < {:?}",
+                self.name,
+                self.kind,
+                arena[arena[*me].parent().unwrap()].get().kind
+            )
         }
     }
 
     /// Resolve this symbol to the defining symbol (can also be itself)
-    pub fn resolve(&self, arena: &Arena<Symbol>, node: &NodeId, global_symbols: &HashMap<String, NodeId>) -> Option<NodeId> {
+    /// Bugs
+    /// - absolute pathes like \Rofl\Copter do not work
+    pub fn resolve(
+        &self,
+        arena: &Arena<Symbol>,
+        node: &NodeId,
+        global_symbols: &HashMap<String, NodeId>,
+    ) -> Option<NodeId> {
         match self.kind {
             SymbolKind::Variable => {
                 // Find first instance this one was named and return it
                 // But for now, just resolve to itself
                 Some(*node)
-            },
+            }
             SymbolKind::Unknown => {
                 // Resolve reference
 
                 if let Some(reference) = self.references.as_ref() {
                     let symbol_name = if let Some(token) = reference.token.as_ref() {
-                        token.label.clone().unwrap_or_else(|| "empty 123".to_owned())
+                        token
+                            .label
+                            .clone()
+                            .unwrap_or_else(|| "empty 123".to_owned())
                     } else if let Some(type_ref) = reference.type_ref.as_ref() {
-                        type_ref.last().unwrap().label.clone().unwrap_or_else(|| "le fuck".to_owned())
+                        type_ref
+                            .last()
+                            .unwrap()
+                            .label
+                            .clone()
+                            .unwrap_or_else(|| "le fuck".to_owned())
                     } else {
                         return None;
                     };
 
                     let mut node = *node;
-                    while let Some(parent) = arena[node].parent() {
+
+                    loop {
                         // Check symbols on this level
-                        for symbol in parent.children(arena) {
-                            if arena[symbol].get().name == symbol_name {
+                        for symbol in node.children(arena) {
+                            let found_symbol = arena[symbol].get();
+
+                            // TODO: Make sure not false positives with strings etc.
+                            if found_symbol.kind != SymbolKind::Unknown
+                                && found_symbol.name == symbol_name
+                            {
                                 return Some(symbol);
                             }
                         }
@@ -110,9 +141,9 @@ impl Symbol {
                         if let Some(imports) = &arena[node].get().imports {
                             for import in imports {
                                 if import.name() == symbol_name {
-                                    // TODO: Return the imported symbol instead of just something
                                     let full_name = import.full_name();
 
+                                    eprintln!("{}, {}", import.name(), full_name);
                                     if let Some(node) = global_symbols.get(&full_name) {
                                         return Some(*node);
                                     }
@@ -120,15 +151,19 @@ impl Symbol {
                             }
                         }
 
-                        // Up we go
-                        node = parent;
+                        if let Some(parent) = arena[node].parent() {
+                            // Up we go
+                            node = parent;
+                        } else {
+                            break;
+                        }
                     }
                 }
 
                 None
-            },
+            }
             // All else is a definition
-            _ => Some(*node)
+            _ => Some(*node),
         }
     }
 }
@@ -157,12 +192,12 @@ pub fn document_symbol(
     arena: &mut Arena<Symbol>,
     enclosing: &NodeId,
     node: &Node,
-    parent: Option<NodeId>
+    parent: Option<NodeId>,
 ) -> Result<NodeId, String> {
     match node {
-        Node::Call { callee, .. } => {
-            document_symbol(arena, enclosing, callee, parent)
-        }
+        Node::Call { callee, .. } => document_symbol(arena, enclosing, callee, parent),
+        Node::Grouping(node) => document_symbol(arena, enclosing, node, parent),
+        Node::New { class, .. } => document_symbol(arena, enclosing, class, parent),
         // Not working yet for some reason
         Node::StaticMember { class, member, .. } => {
             // Resolve the object (which can also be a callee)
@@ -200,17 +235,27 @@ pub fn document_symbol(
                 enclosing.append(array_node, arena);
 
                 Ok(index_node)
-
             } else {
                 Ok(array_node)
             }
         }
         Node::Literal(token) => {
+            let kind = if token.is_string() {
+                SymbolKind::String
+            } else if token.is_number() {
+                SymbolKind::Number
+            } else {
+                SymbolKind::Unknown
+            };
+
             let reference = Reference::identifier(token);
 
             let child = arena.new_node(Symbol {
-                name: token.label.clone().unwrap_or_else(|| format!("{:?}", token)),
-                kind: SymbolKind::Unknown,
+                name: token
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| format!("{:?}", token)),
+                kind,
                 range: get_range(node.range()),
                 selection_range: get_range(node.range()),
                 detail: None,
@@ -221,7 +266,7 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
-                imports: None
+                imports: None,
             });
 
             enclosing.append(child, arena);
@@ -250,13 +295,13 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
-                imports: None
+                imports: None,
             });
 
             enclosing.append(child, arena);
 
             Ok(child)
-        },
+        }
 
         Node::Const { name, .. } => {
             let child = arena.new_node(Symbol {
@@ -272,13 +317,13 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
-                imports: None
+                imports: None,
             });
 
             enclosing.append(child, arena);
 
             Ok(child)
-        },
+        }
 
         Node::LexicalVariable { variable, .. } | Node::StaticVariable { variable, .. } => {
             let child = arena.new_node(Symbol::from(variable));
@@ -286,7 +331,7 @@ pub fn document_symbol(
             enclosing.append(child, arena);
 
             Ok(child)
-        },
+        }
 
         Node::Function {
             token, return_type, ..
@@ -314,7 +359,7 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types,
                 is_static: false,
-                imports: None
+                imports: None,
             });
 
             enclosing.append(child, arena);
@@ -333,11 +378,10 @@ pub fn document_symbol(
             let data_types = if let Some(argument_type) = argument_type {
                 if let Some(type_ref) = get_type_ref(argument_type) {
                     // Register node for the type_ref as well
-                    let child = arena.new_node(
-                        Symbol {
-                            references: Some(Reference::type_ref(type_ref.clone())),
-                            ..Symbol::from(type_ref.last().unwrap())
-                        });
+                    let child = arena.new_node(Symbol {
+                        references: Some(Reference::type_ref(type_ref.clone())),
+                        ..Symbol::from(type_ref.last().unwrap())
+                    });
                     enclosing.append(child, arena);
 
                     vec![Reference::type_ref(type_ref)]
@@ -361,11 +405,11 @@ pub fn document_symbol(
         Node::Class { token, extends, .. } => {
             let inherits_from = if let Some(extends) = extends {
                 extends
-                .iter()
-                .map(|parent| get_type_ref(parent))
-                .filter(|mapped| mapped.is_some())
-                .map(|filtered| Reference::type_ref(filtered.unwrap()))
-                .collect()
+                    .iter()
+                    .map(|parent| get_type_ref(parent))
+                    .filter(|mapped| mapped.is_some())
+                    .map(|filtered| Reference::type_ref(filtered.unwrap()))
+                    .collect()
             } else {
                 Vec::new()
             };
@@ -383,7 +427,7 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
-                imports: None
+                imports: None,
             });
 
             enclosing.append(child, arena);
@@ -423,7 +467,7 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
-                imports: None
+                imports: None,
             });
             enclosing.append(child, arena);
 
@@ -451,7 +495,7 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
-                imports: None
+                imports: None,
             });
             enclosing.append(child, arena);
 
@@ -467,11 +511,11 @@ pub fn document_symbol(
             let range = get_range(node.range());
             let inherits_from = if let Some(extends) = extends {
                 extends
-                .iter()
-                .map(|parent| get_type_ref(parent))
-                .filter(|mapped| mapped.is_some())
-                .map(|filtered| Reference::type_ref(filtered.unwrap()))
-                .collect()
+                    .iter()
+                    .map(|parent| get_type_ref(parent))
+                    .filter(|mapped| mapped.is_some())
+                    .map(|filtered| Reference::type_ref(filtered.unwrap()))
+                    .collect()
             } else {
                 Vec::new()
             };
@@ -488,7 +532,7 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
-                imports: None
+                imports: None,
             });
             enclosing.append(child, arena);
 
@@ -514,7 +558,7 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
-                imports: None
+                imports: None,
             });
             enclosing.append(child, arena);
 
@@ -547,17 +591,23 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types,
                 is_static: false,
-                imports: None
+                imports: None,
             });
 
             Ok(child)
         }
-        Node::MethodDefinitionStatement { name, function, is_static, .. } => {
-            let return_type = if let Node::FunctionDefinitionStatement { return_type, .. } = function.as_ref() {
-                return_type
-            } else {
-                return Err("Invalid function".to_owned());
-            };
+        Node::MethodDefinitionStatement {
+            name,
+            function,
+            is_static,
+            ..
+        } => {
+            let return_type =
+                if let Node::FunctionDefinitionStatement { return_type, .. } = function.as_ref() {
+                    return_type
+                } else {
+                    return Err("Invalid function".to_owned());
+                };
 
             let data_types = if let Some(data_type) = return_type {
                 if let Some(type_ref) = get_type_ref(&*data_type) {
@@ -582,7 +632,7 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types,
                 is_static: is_static.is_some(),
-                imports: None
+                imports: None,
             });
 
             enclosing.append(child, arena);
@@ -619,7 +669,7 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types,
                 is_static: false,
-                imports: None
+                imports: None,
             });
 
             enclosing.append(child, arena);
@@ -631,11 +681,12 @@ pub fn document_symbol(
             Ok(child)
         }
         Node::NamedFunctionDefinitionStatement { name, function, .. } => {
-            let return_type = if let Node::FunctionDefinitionStatement { return_type, .. } = function.as_ref() {
-                return_type
-            } else {
-                return Err(format!("Invalid function {:?}", function));
-            };
+            let return_type =
+                if let Node::FunctionDefinitionStatement { return_type, .. } = function.as_ref() {
+                    return_type
+                } else {
+                    return Err(format!("Invalid function {:?}", function));
+                };
 
             let data_types = if let Some(data_type) = return_type {
                 if let Some(type_ref) = get_type_ref(&*data_type) {
@@ -660,7 +711,7 @@ pub fn document_symbol(
                 references_by: Vec::new(),
                 data_types,
                 is_static: false,
-                imports: None
+                imports: None,
             });
 
             enclosing.append(child, arena);
@@ -677,7 +728,7 @@ pub fn document_symbol(
             enclosing.append(child, arena);
 
             Ok(child)
-        },
+        }
         _ => Err(format!("Unexpected {:?}", node)),
     }
 }

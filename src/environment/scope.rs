@@ -1,9 +1,9 @@
-use crate::environment::import::{collect_uses};
+use crate::environment::import::collect_uses;
 use crate::environment::symbol::{document_symbol, Symbol};
 use crate::node::{get_range, Node};
 use crate::token::Token;
 use indextree::{Arena, NodeId};
-use tower_lsp::lsp_types::{Range};
+use tower_lsp::lsp_types::Range;
 
 #[derive(Clone, Debug)]
 pub struct Reference {
@@ -57,7 +57,6 @@ impl Reference {
     }
 }
 
-
 pub fn collect_symbols(
     arena: &mut Arena<Symbol>,
     symbol: &NodeId,
@@ -78,14 +77,14 @@ pub fn collect_symbols(
         | Node::NamedFunctionDefinitionStatement { .. }
         | Node::Const { .. }
         | Node::Interface { .. }
-        | Node::Identifier( .. )
+        | Node::Identifier(..)
         | Node::TypeRef { .. }
-        | Node::LexicalVariable {  .. }
+        | Node::LexicalVariable { .. }
         | Node::Variable(..)
-        | Node::StaticVariable {  .. }
+        | Node::StaticVariable { .. }
         | Node::Literal(..) => {
             //if !token.is_identifier() {
-                document_symbol(arena, symbol, node, None)?;
+            document_symbol(arena, symbol, node, None)?;
             //}
         }
         Node::GroupedUse { .. }
@@ -100,7 +99,9 @@ pub fn collect_symbols(
                 symbol.imports = Some(collect_uses(node, &Vec::new()));
             }
         }
-        Node::Call { callee, parameters, ..} => {
+        Node::Call {
+            callee, parameters, ..
+        } => {
             document_symbol(arena, symbol, callee, None)?;
 
             for child in parameters {

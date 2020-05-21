@@ -1,14 +1,18 @@
 use crate::environment::symbol::Symbol;
 use indextree::{Arena, NodeId};
-use tower_lsp::lsp_types::{DocumentHighlight, Position, Range, Url};
 use std::collections::HashMap;
+use tower_lsp::lsp_types::{DocumentHighlight, Location, Position, Range, Url};
 
 pub mod import;
-pub mod symbol;
 pub mod scope;
+pub mod symbol;
 
 /// Return all references to the symbol under the cursor at `position`
-pub fn document_highlights(position: &Position, arena: &Arena<Symbol>, file: &NodeId) -> Option<Vec<DocumentHighlight>> {
+pub fn document_highlights(
+    position: &Position,
+    arena: &Arena<Symbol>,
+    file: &NodeId,
+) -> Option<Vec<DocumentHighlight>> {
     //let all_symbols: Vec<Symbol> = symbol.get_definitions();
 
     //if let Some(_symbol) = symbol_under_cursor(&all_symbols, position) {}
@@ -20,21 +24,22 @@ pub fn document_highlights(position: &Position, arena: &Arena<Symbol>, file: &No
 /// Use `global_symbols` to resolve references to symbols in other files to a location
 /// Use `root_symbols` to resolve a location to a symbol
 pub fn hover(
-    uri: &Url,
     arena: &Arena<Symbol>,
     symbol_node: &NodeId,
     position: &Position,
-    global_symbols: &HashMap<String, NodeId>
+    global_symbols: &HashMap<String, NodeId>,
 ) -> Option<String> {
     if let Some(symbol_node) = symbol_under_cursor(arena, symbol_node, position) {
         let symbol = arena[symbol_node].get();
 
         if let Some(resolved) = symbol.resolve(arena, &symbol_node, global_symbols) {
-            Some(format!("{} resolved", arena[resolved].get().hover_text(arena, &resolved)))
+            Some(format!(
+                "{} resolved",
+                arena[resolved].get().hover_text(arena, &resolved)
+            ))
         } else {
             Some(symbol.hover_text(arena, &symbol_node))
         }
-
     } else {
         Some(String::from("Nothing found :("))
     }
@@ -64,6 +69,40 @@ pub fn symbol_under_cursor(
     }
 
     // Should not really happen as the most outer symbol encloses the entire document
+    return None;
+}
+
+/// Find the definition or reference under the cursor
+pub fn definition_of_symbol_under_cursor(
+    arena: &Arena<Symbol>,
+    symbol_node: &NodeId,
+    position: &Position,
+    global_symbols: &HashMap<String, NodeId>,
+) -> Option<Location> {
+    if let Some(symbol_node) = symbol_under_cursor(arena, symbol_node, position) {
+        let symbol = arena[symbol_node].get();
+
+        // Improvement: Already get the file here to avoid another climb up the tree
+        if let Some(mut resolved) = symbol.resolve(arena, &symbol_node, global_symbols) {
+            let range = arena[resolved].get().selection_range;
+
+            while arena[resolved].parent().is_some() {
+                resolved = arena[resolved].parent().unwrap();
+            }
+
+            let file = arena[resolved].get();
+
+            return Some(Location {
+                uri: Url::from_file_path(file.name.clone()).unwrap(),
+                range,
+            });
+        } else {
+            eprintln!("Symbol under the cursor is not resolvable");
+        }
+    } else {
+        eprintln!("Could not find a symbol under the cursor");
+    }
+
     return None;
 }
 
