@@ -81,7 +81,7 @@ pub(crate) fn anonymous_class(parser: &mut Parser) -> ExpressionResult {
 
 /// Parses a class block, so basically the body that contains all the method definitions etc.
 /// It expects to be past the `{` and will read until it encounters a `}`
-///  
+///
 /// # Details
 /// ```php
 /// abstract class Whatever {

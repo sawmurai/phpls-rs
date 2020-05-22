@@ -1,7 +1,7 @@
 use crate::environment::import::SymbolImport;
 use crate::environment::scope::{collect_symbols, Reference};
 use crate::node::{get_range, Node};
-use crate::token::Token;
+use crate::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Range, SymbolKind};
@@ -99,71 +99,169 @@ impl Symbol {
         match self.kind {
             SymbolKind::Variable => {
                 // Find first instance this one was named and return it
-                // But for now, just resolve to itself
-                Some(*node)
+                // If nothing can be found, this is the definition
+                let node = arena[*node].parent().unwrap();
+
+                for symbol in node.children(arena) {
+                    let found_symbol = arena[symbol].get();
+
+                    if found_symbol.kind == SymbolKind::Variable && found_symbol.name == self.name {
+                        return Some(symbol);
+                    }
+                }
+
+                Some(node)
             }
             SymbolKind::Unknown => {
                 // Resolve reference
 
-                if let Some(reference) = self.references.as_ref() {
-                    let symbol_name = if let Some(token) = reference.token.as_ref() {
-                        token
-                            .label
-                            .clone()
-                            .unwrap_or_else(|| "empty 123".to_owned())
-                    } else if let Some(type_ref) = reference.type_ref.as_ref() {
-                        type_ref
-                            .last()
-                            .unwrap()
-                            .label
-                            .clone()
-                            .unwrap_or_else(|| "le fuck".to_owned())
-                    } else {
-                        return None;
-                    };
+                // This is the case if we are dealing with a method / property of another class
+                if let Some(&parent_node) = self.parent.as_ref() {
+                    if let Some(parent_definition) =
+                        arena[parent_node]
+                            .get()
+                            .resolve(arena, &parent_node, global_symbols)
+                    {
+                        let object_definition = arena[parent_definition].get();
 
-                    let mut node = *node;
-
-                    loop {
-                        // Check symbols on this level
-                        for symbol in node.children(arena) {
-                            let found_symbol = arena[symbol].get();
-
-                            // TODO: Make sure not false positives with strings etc.
-                            if found_symbol.kind != SymbolKind::Unknown
-                                && found_symbol.name == symbol_name
+                        // Get all possible data types
+                        for data_type in object_definition.data_types.iter() {
+                            // Try to resolve the data type, revealing the defining class for example
+                            if let Some(mut data_type_symbol) =
+                                resolve_reference(data_type, arena, node, global_symbols)
                             {
-                                return Some(symbol);
-                            }
-                        }
-
-                        // Check imports if they exist
-                        if let Some(imports) = &arena[node].get().imports {
-                            for import in imports {
-                                if import.name() == symbol_name {
-                                    let full_name = import.full_name();
-
-                                    eprintln!("{}, {}", import.name(), full_name);
-                                    if let Some(node) = global_symbols.get(&full_name) {
-                                        return Some(*node);
+                                // Lookup loop that goes through the data_type class and its parents
+                                'check_next_parent: loop {
+                                    // Go through this symbols children and try to find a match
+                                    for child in data_type_symbol.children(arena) {
+                                        if arena[child].get().name == self.name {
+                                            return Some(child);
+                                        }
                                     }
+
+                                    // Next change: inheritance! Maybe the parent defines the symbol
+                                    // Note again: Multi inheritance is invalid in PHP, but we want to understand
+                                    // what the user intended as much as possible
+                                    for inherits_from in
+                                        arena[data_type_symbol].get().inherits_from.iter()
+                                    {
+                                        // Try to resolve the class this class inherits from
+                                        if let Some(resolved_inheritance_parent) = resolve_reference(
+                                            inherits_from,
+                                            arena,
+                                            &data_type_symbol,
+                                            global_symbols,
+                                        ) {
+                                            data_type_symbol = resolved_inheritance_parent;
+
+                                            continue 'check_next_parent;
+                                        }
+                                    }
+
+                                    break;
                                 }
                             }
                         }
 
-                        if let Some(parent) = arena[node].parent() {
-                            // Up we go
-                            node = parent;
-                        } else {
-                            break;
-                        }
+                        return None;
                     }
+                }
+
+                if let Some(reference) = self.references.as_ref() {
+                    return resolve_reference(reference, arena, node, global_symbols);
                 }
 
                 None
             }
             // All else is a definition
             _ => Some(*node),
+        }
+    }
+}
+
+fn resolve_reference(
+    reference: &Reference,
+    arena: &Arena<Symbol>,
+    node: &NodeId,
+    global_symbols: &HashMap<String, NodeId>,
+) -> Option<NodeId> {
+    let symbol_name = if let Some(token) = reference.token.as_ref() {
+        token
+            .label
+            .clone()
+            .unwrap_or_else(|| "empty 123".to_owned())
+    } else if let Some(type_ref) = reference.type_ref.as_ref() {
+        // If we are dealing with an absolute path, we can quickly check the global table and return
+        if let Some(Token {
+            t: TokenType::NamespaceSeparator,
+            ..
+        }) = type_ref.first().as_ref()
+        {
+            if let Some(node) = global_symbols.get(
+                &type_ref
+                    .iter()
+                    .filter(|tok| tok.label.is_some())
+                    .map(|tok| tok.label.clone().unwrap())
+                    .collect::<Vec<String>>()
+                    .join("\\"),
+            ) {
+                return Some(*node);
+            } else {
+                return None;
+            }
+        }
+
+        type_ref
+            .last()
+            .unwrap()
+            .label
+            .clone()
+            .unwrap_or_else(|| "le fuck".to_owned())
+    } else {
+        return None;
+    };
+
+    let mut node = arena[*node].parent().unwrap();
+
+    loop {
+        // Check symbols on this level
+        for symbol in node.children(arena) {
+            let found_symbol = arena[symbol].get();
+
+            // TODO: Make sure not false positives with strings etc.
+            if found_symbol.kind != SymbolKind::Unknown && found_symbol.name == symbol_name {
+                return Some(symbol);
+            }
+        }
+
+        // Check imports if they exist
+        let current_node = arena[node].get();
+        if let Some(imports) = &current_node.imports {
+            for import in imports {
+                if import.name() == symbol_name {
+                    let full_name = import.full_name();
+                    if let Some(node) = global_symbols.get(&full_name) {
+                        return Some(*node);
+                    }
+                }
+            }
+        }
+
+        // If the current node is a namespace then the symbol could also be on the same level, it could
+        // be a sibbling in the same namespace
+        if current_node.kind == SymbolKind::Namespace {
+            if let Some(node) =
+                global_symbols.get(&format!("{}\\{}", current_node.name, symbol_name))
+            {
+                return Some(*node);
+            }
+        }
+
+        if let Some(parent) = arena[node].parent() {
+            // Up we go
+            node = parent;
+        } else {
+            return None;
         }
     }
 }
@@ -184,6 +282,7 @@ fn get_type_ref(node: &Node) -> Option<Vec<Token>> {
             Node::TypeRef(items) => Some(items.clone()),
             _ => None,
         },
+        Node::TypeRef(items) => Some(items.clone()),
         _ => None,
     }
 }
@@ -277,7 +376,7 @@ pub fn document_symbol(
             let reference = Reference::type_ref(
                 parts
                     .iter()
-                    .filter(|t| t.label.is_some())
+                    //.filter(|t| t.label.is_some())
                     .map(|t| t.clone())
                     .collect(),
             );
@@ -519,6 +618,7 @@ pub fn document_symbol(
             } else {
                 Vec::new()
             };
+
             let child = arena.new_node(Symbol {
                 name,
                 kind: SymbolKind::Interface,

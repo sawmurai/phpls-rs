@@ -396,11 +396,29 @@ impl LanguageServer for Backend {
             return;
         }
 
-        if let Some(diagnostics) = self.diagnostics.lock().await.get(path) {
-            if diagnostics.is_empty() {
-                return;
-            }
+        let root_symbols = self.root_symbols.lock().await;
+        let global_table = self.global_symbols.lock().await;
+        let mut diagnostics = self.diagnostics.lock().await;
+        let arena = self.arena.lock().await;
 
+        if let Some(node_id) = root_symbols.get(path) {
+            for symbol_node in node_id.descendants(&arena) {
+                let symbol = arena[symbol_node].get();
+
+                if symbol.kind == SymbolKind::Unknown
+                    && symbol
+                        .resolve(&arena, &symbol_node, &global_table)
+                        .is_none()
+                {
+                    diagnostics
+                        .get_mut(path)
+                        .unwrap()
+                        .push(Diagnostic::from(symbol));
+                }
+            }
+        }
+
+        if let Some(diagnostics) = diagnostics.get(path) {
             client.publish_diagnostics(
                 params.text_document.uri,
                 diagnostics.clone(),
