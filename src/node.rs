@@ -871,7 +871,7 @@ impl Node {
     }
 }
 
-pub type NodeRange = ((u16, u16), (u16, u16));
+pub type NodeRange = ((u32, u32), (u32, u32));
 
 impl Node {
     pub fn end(&self) -> Token {

@@ -1,6 +1,6 @@
-use crate::environment::symbol::Symbol;
+use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use std::fmt::{Display, Formatter, Result};
-use tower_lsp::lsp_types::{Position, Range, SymbolKind};
+use tower_lsp::lsp_types::{Position, Range};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
@@ -194,14 +194,14 @@ pub enum TokenType {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token {
-    pub col: u16,
-    pub line: u16,
+    pub col: u32,
+    pub line: u32,
     pub t: TokenType,
     pub label: Option<String>,
 }
 
 impl Token {
-    pub fn new(t: TokenType, line: u16, col: u16) -> Self {
+    pub fn new(t: TokenType, line: u32, col: u32) -> Self {
         Token {
             t,
             col,
@@ -210,7 +210,7 @@ impl Token {
         }
     }
 
-    pub fn named(t: TokenType, line: u16, col: u16, label: &str) -> Self {
+    pub fn named(t: TokenType, line: u32, col: u32, label: &str) -> Self {
         Token {
             t,
             col,
@@ -310,21 +310,21 @@ impl Token {
         }
     }
 
-    pub fn start(&self) -> (u16, u16) {
+    pub fn start(&self) -> (u32, u32) {
         (self.line, self.col)
     }
 
-    pub fn end(&self) -> (u16, u16) {
+    pub fn end(&self) -> (u32, u32) {
         (self.line, self.col + self.len())
     }
 
-    pub fn range(&self) -> ((u16, u16), (u16, u16)) {
+    pub fn range(&self) -> ((u32, u32), (u32, u32)) {
         (self.start(), self.end())
     }
 
-    pub fn len(&self) -> u16 {
+    pub fn len(&self) -> u32 {
         if let Some(label) = self.label.as_ref() {
-            return (label.len() + 1) as u16;
+            return (label.len() + 1) as u32;
         }
 
         match self.t {
@@ -333,13 +333,13 @@ impl Token {
         }
     }
 
-    pub fn is_on(&self, line: u16, col: u16) -> bool {
+    pub fn is_on(&self, line: u32, col: u32) -> bool {
         if self.line != line {
             return false;
         }
 
         return col >= self.col
-            && col <= (self.col + self.label.clone().unwrap_or_default().len() as u16);
+            && col <= (self.col + self.label.clone().unwrap_or_default().len() as u32);
     }
 
     pub fn is_string(&self) -> bool {
@@ -378,8 +378,8 @@ impl From<&Token> for Symbol {
         };
 
         let kind = match token.t {
-            TokenType::Variable => SymbolKind::Variable,
-            _ => SymbolKind::Unknown,
+            TokenType::Variable => PhpSymbolKind::Variable,
+            _ => PhpSymbolKind::Unknown,
         };
 
         Symbol {

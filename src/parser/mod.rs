@@ -512,14 +512,11 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::scanner::Scanner;
 
     #[test]
     fn test_creates_ast_for_addition() {
         let mut scanner = Scanner::new("<?php\n1 + 2 == 3;");
         scanner.scan().unwrap();
-
-        println!("{:?}", Parser::ast(scanner.tokens));
     }
 }

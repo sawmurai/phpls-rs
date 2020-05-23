@@ -1,7 +1,7 @@
 use crate::environment::import::collect_uses;
 use crate::environment::symbol::{document_symbol, Symbol};
 use crate::node::{get_range, Node};
-use crate::token::Token;
+use crate::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
 use tower_lsp::lsp_types::Range;
 
@@ -13,19 +13,32 @@ pub struct Reference {
     /// The type_ref if applicable
     pub type_ref: Option<Vec<Token>>,
 
-    /// The definition of the symbol that is used
-    pub defining_symbol: Option<NodeId>,
-
     /// Selection range of the usage
     pub range: Range,
 }
 
 impl Reference {
+    pub fn is_builtin(&self) -> bool {
+        if let Some(type_ref) = self.type_ref.as_ref() {
+            if type_ref.len() == 1 {
+                match type_ref[0].t {
+                    TokenType::TypeString
+                    | TokenType::TypeArray
+                    | TokenType::TypeBool
+                    | TokenType::TypeSelf
+                    | TokenType::TypeInt => return true,
+                    _ => return false,
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// Reference to a variable
     pub fn variable(token: &Token) -> Self {
         Self {
             token: Some(token.clone()),
-            defining_symbol: None,
             type_ref: None,
             range: get_range(token.range()),
         }
@@ -35,7 +48,6 @@ impl Reference {
     pub fn identifier(token: &Token) -> Self {
         Self {
             token: Some(token.clone()),
-            defining_symbol: None,
             type_ref: None,
             range: get_range(token.range()),
         }
@@ -50,7 +62,6 @@ impl Reference {
 
         Self {
             token: None,
-            defining_symbol: None,
             type_ref: Some(type_ref),
             range,
         }
@@ -82,7 +93,9 @@ pub fn collect_symbols(
         | Node::LexicalVariable { .. }
         | Node::Variable(..)
         | Node::StaticVariable { .. }
-        | Node::Literal(..) => {
+        | Node::Literal(..)
+        | Node::StaticMember { .. }
+        | Node::Member { .. } => {
             //if !token.is_identifier() {
             document_symbol(arena, symbol, node, None)?;
             //}

@@ -6,13 +6,44 @@ use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Range, SymbolKind};
 
+/// An extension if the LSP-type "SymbolKind"
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[repr(u8)]
+pub enum PhpSymbolKind {
+    File = 1,
+    Namespace = 3,
+    Class = 5,
+    Method = 6,
+    Property = 7,
+    Field = 8,
+    Constructor = 9,
+    Interface = 11,
+    Function = 12,
+    Variable = 13,
+    Constant = 14,
+    String = 15,
+    Number = 16,
+    Boolean = 17,
+    Array = 18,
+    Object = 19,
+    Key = 20,
+    Null = 21,
+    Operator = 25,
+
+    // Custom types
+    BuiltInType = 100,
+
+    // Capturing all unknown enums by this lib.
+    Unknown = 255,
+}
+
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
 #[derive(Clone, Debug)]
 pub struct Symbol {
     /// The data type of this symbol. Of course not all symbols have data types (Namespaces for example do not), so
     /// this remains an `Option`
-    pub kind: SymbolKind,
+    pub kind: PhpSymbolKind,
     pub name: String,
     pub range: Range,
     pub selection_range: Range,
@@ -42,13 +73,45 @@ pub struct Symbol {
     pub is_static: bool,
 }
 
+impl PhpSymbolKind {
+    pub fn to_symbol_kind(&self) -> Option<SymbolKind> {
+        let kind = match self {
+            PhpSymbolKind::File => SymbolKind::File,
+            PhpSymbolKind::Namespace => SymbolKind::Namespace,
+            PhpSymbolKind::Class => SymbolKind::Class,
+            PhpSymbolKind::Method => SymbolKind::Method,
+            PhpSymbolKind::Property => SymbolKind::Property,
+            PhpSymbolKind::Field => SymbolKind::Field,
+            PhpSymbolKind::Constructor => SymbolKind::Constructor,
+            PhpSymbolKind::Interface => SymbolKind::Interface,
+            PhpSymbolKind::Function => SymbolKind::Function,
+            PhpSymbolKind::Variable => SymbolKind::Variable,
+            PhpSymbolKind::Constant => SymbolKind::Constant,
+            PhpSymbolKind::String => SymbolKind::String,
+            PhpSymbolKind::Number => SymbolKind::Number,
+            PhpSymbolKind::Boolean => SymbolKind::Boolean,
+            PhpSymbolKind::Array => SymbolKind::Array,
+            PhpSymbolKind::Object => SymbolKind::Object,
+            PhpSymbolKind::Key => SymbolKind::Key,
+            PhpSymbolKind::Null => SymbolKind::Null,
+            PhpSymbolKind::Operator => SymbolKind::Operator,
+            PhpSymbolKind::BuiltInType => return None,
+            PhpSymbolKind::Unknown => SymbolKind::Unknown,
+        };
+
+        Some(kind)
+    }
+}
+
 /// Basically a 1:1 mapping that omits the data type
 impl Symbol {
-    pub fn to_doc_sym(&self, arena: &Arena<Symbol>, node: &NodeId) -> DocumentSymbol {
+    pub fn to_doc_sym(&self, arena: &Arena<Symbol>, node: &NodeId) -> Option<DocumentSymbol> {
         let children = node
             .children(arena)
-            .filter(|s| arena[*s].get().kind != SymbolKind::Unknown)
+            .filter(|s| arena[*s].get().kind != PhpSymbolKind::Unknown)
             .map(|s| arena[s].get().to_doc_sym(arena, &s))
+            .filter(|s| s.is_some())
+            .map(|s| s.unwrap())
             .collect::<Vec<DocumentSymbol>>();
 
         let children = if children.is_empty() {
@@ -57,8 +120,14 @@ impl Symbol {
             Some(children)
         };
 
-        DocumentSymbol {
-            kind: self.kind,
+        let kind = if let Some(kind) = self.kind.to_symbol_kind() {
+            kind
+        } else {
+            return None;
+        };
+
+        Some(DocumentSymbol {
+            kind,
             name: self.name.clone(),
             range: self.range,
             selection_range: self.selection_range,
@@ -67,7 +136,7 @@ impl Symbol {
 
             // Needs to be added from outside of this
             children,
-        }
+        })
     }
 
     pub fn hover_text(&self, arena: &Arena<Symbol>, me: &NodeId) -> String {
@@ -97,22 +166,36 @@ impl Symbol {
         global_symbols: &HashMap<String, NodeId>,
     ) -> Option<NodeId> {
         match self.kind {
-            SymbolKind::Variable => {
+            PhpSymbolKind::Variable => {
                 // Find first instance this one was named and return it
                 // If nothing can be found, this is the definition
-                let node = arena[*node].parent().unwrap();
+                let parent_node = arena[*node].parent().unwrap();
 
-                for symbol in node.children(arena) {
+                // $this resolves to the parent class, which is the grant parent if $this (as there
+                // is a method in between)
+                // TODO Make sure only classes support $this
+                if self.name == "this" {
+                    return Some(arena[parent_node].parent().unwrap());
+                }
+
+                for symbol in parent_node.children(arena) {
+                    // Do not compare to itself
+                    if symbol == *node {
+                        continue;
+                    }
+
                     let found_symbol = arena[symbol].get();
 
-                    if found_symbol.kind == SymbolKind::Variable && found_symbol.name == self.name {
+                    if found_symbol.kind == PhpSymbolKind::Variable
+                        && found_symbol.name == self.name
+                    {
                         return Some(symbol);
                     }
                 }
 
-                Some(node)
+                Some(*node)
             }
-            SymbolKind::Unknown => {
+            PhpSymbolKind::Unknown => {
                 // Resolve reference
 
                 // This is the case if we are dealing with a method / property of another class
@@ -122,42 +205,68 @@ impl Symbol {
                             .get()
                             .resolve(arena, &parent_node, global_symbols)
                     {
-                        let object_definition = arena[parent_definition].get();
+                        // For example the $object in $object->method() (when trying to resolve
+                        // method)
+                        let parent_symbol = arena[parent_definition].get();
 
-                        // Get all possible data types
-                        for data_type in object_definition.data_types.iter() {
+                        if parent_symbol.kind == PhpSymbolKind::Class {
+                            // TODO: Also check parents of this class if necessary
+                            for child in parent_definition.children(arena) {
+                                if arena[child].get().name == self.name {
+                                    return Some(child);
+                                }
+                            }
+                        }
+
+                        // Get all possible data types. Thanks to union types and php docs with
+                        // mulitple annotated types we need to check multiple data types.
+                        for data_type in parent_symbol.data_types.iter() {
                             // Try to resolve the data type, revealing the defining class for example
-                            if let Some(mut data_type_symbol) =
+                            if let Some(mut data_type_symbol_node) =
                                 resolve_reference(data_type, arena, node, global_symbols)
                             {
                                 // Lookup loop that goes through the data_type class and its parents
                                 'check_next_parent: loop {
                                     // Go through this symbols children and try to find a match
-                                    for child in data_type_symbol.children(arena) {
+                                    for child in data_type_symbol_node.children(arena) {
                                         if arena[child].get().name == self.name {
                                             return Some(child);
                                         }
                                     }
 
-                                    // Next change: inheritance! Maybe the parent defines the symbol
+                                    let data_type_symbol = arena[data_type_symbol_node].get();
+
+                                    // Maybe the data_type_symbol imports a trait that defines the
+                                    // symbol?
+                                    /*for import in data_type_symbol.imports.iter() {
+                                        // let resolved_import =
+                                        for child in data_type_symbol_node.children(arena) {
+                                            if arena[child].get().name == self.name {
+                                                return Some(child);
+                                            }
+                                        }
+                                    }*/
+
+                                    // Next chance: inheritance! Maybe the parent defines the method or property
+                                    // we are looking for
                                     // Note again: Multi inheritance is invalid in PHP, but we want to understand
-                                    // what the user intended as much as possible
-                                    for inherits_from in
-                                        arena[data_type_symbol].get().inherits_from.iter()
-                                    {
-                                        // Try to resolve the class this class inherits from
+                                    // what the user intended as much as possible, so we let this
+                                    // be a vec and only check the first entry that is resolvable
+                                    for inherits_from in data_type_symbol.inherits_from.iter() {
+                                        // Try to resolve the class which this class inherits from
                                         if let Some(resolved_inheritance_parent) = resolve_reference(
                                             inherits_from,
                                             arena,
-                                            &data_type_symbol,
+                                            &data_type_symbol_node,
                                             global_symbols,
                                         ) {
-                                            data_type_symbol = resolved_inheritance_parent;
+                                            data_type_symbol_node = resolved_inheritance_parent;
 
                                             continue 'check_next_parent;
                                         }
                                     }
 
+                                    // Either no parents or no parent was resolvable
                                     break;
                                 }
                             }
@@ -165,6 +274,12 @@ impl Symbol {
 
                         return None;
                     }
+                }
+
+                // TODO Make sure only classes support $this
+                if self.name == "self" {
+                    let parent_node = arena[*node].parent().unwrap();
+                    return Some(arena[parent_node].parent().unwrap());
                 }
 
                 if let Some(reference) = self.references.as_ref() {
@@ -229,7 +344,7 @@ fn resolve_reference(
             let found_symbol = arena[symbol].get();
 
             // TODO: Make sure not false positives with strings etc.
-            if found_symbol.kind != SymbolKind::Unknown && found_symbol.name == symbol_name {
+            if found_symbol.kind != PhpSymbolKind::Unknown && found_symbol.name == symbol_name {
                 return Some(symbol);
             }
         }
@@ -249,11 +364,17 @@ fn resolve_reference(
 
         // If the current node is a namespace then the symbol could also be on the same level, it could
         // be a sibbling in the same namespace
-        if current_node.kind == SymbolKind::Namespace {
+        if current_node.kind == PhpSymbolKind::Namespace {
             if let Some(node) =
                 global_symbols.get(&format!("{}\\{}", current_node.name, symbol_name))
             {
                 return Some(*node);
+            }
+        // If the current node is the file then the last chance would be if the symbol is a global symbol from
+        // the stdlib
+        } else if current_node.kind == PhpSymbolKind::File {
+            if let Some(global_symbol_node) = global_symbols.get(&symbol_name) {
+                return Some(*global_symbol_node);
             }
         }
 
@@ -278,10 +399,13 @@ impl From<&Symbol> for Diagnostic {
 
 fn get_type_ref(node: &Node) -> Option<Vec<Token>> {
     match node {
-        Node::ArgumentType { type_ref, .. } => match &**type_ref {
-            Node::TypeRef(items) => Some(items.clone()),
-            _ => None,
-        },
+        Node::ReturnType { data_type, .. } => get_type_ref(data_type),
+        Node::ArgumentType { type_ref, .. } | Node::DataType { type_ref, .. } => {
+            match &**type_ref {
+                Node::TypeRef(items) => Some(items.clone()),
+                _ => None,
+            }
+        }
         Node::TypeRef(items) => Some(items.clone()),
         _ => None,
     }
@@ -340,20 +464,15 @@ pub fn document_symbol(
         }
         Node::Literal(token) => {
             let kind = if token.is_string() {
-                SymbolKind::String
+                PhpSymbolKind::String
             } else if token.is_number() {
-                SymbolKind::Number
+                PhpSymbolKind::Number
             } else {
-                SymbolKind::Unknown
+                PhpSymbolKind::Unknown
             };
 
-            let reference = Reference::identifier(token);
-
             let child = arena.new_node(Symbol {
-                name: token
-                    .label
-                    .clone()
-                    .unwrap_or_else(|| format!("{:?}", token)),
+                name: token.label.clone().unwrap_or_else(|| token.to_string()),
                 kind,
                 range: get_range(node.range()),
                 selection_range: get_range(node.range()),
@@ -361,7 +480,7 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
-                references: Some(reference),
+                references: None,
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
@@ -383,7 +502,7 @@ pub fn document_symbol(
 
             let child = arena.new_node(Symbol {
                 name: parts.last().unwrap().label.clone().unwrap(),
-                kind: SymbolKind::Unknown,
+                kind: PhpSymbolKind::Unknown,
                 range: get_range(node.range()),
                 selection_range: get_range(node.range()),
                 detail: None,
@@ -405,7 +524,7 @@ pub fn document_symbol(
         Node::Const { name, .. } => {
             let child = arena.new_node(Symbol {
                 name: name.clone().label.unwrap(),
-                kind: SymbolKind::Constant,
+                kind: PhpSymbolKind::Constant,
                 range: get_range(node.range()),
                 selection_range: get_range(node.range()),
                 detail: None,
@@ -447,7 +566,7 @@ pub fn document_symbol(
 
             let child = arena.new_node(Symbol {
                 name: String::from("Anonymous function"),
-                kind: SymbolKind::Function,
+                kind: PhpSymbolKind::Function,
                 range: get_range(node.range()),
                 selection_range: get_range(token.range()),
                 detail: None,
@@ -476,14 +595,26 @@ pub fn document_symbol(
         } => {
             let data_types = if let Some(argument_type) = argument_type {
                 if let Some(type_ref) = get_type_ref(argument_type) {
+                    let type_ref_ref = Reference::type_ref(type_ref.clone());
+
+                    let new_symbol = if type_ref_ref.is_builtin() {
+                        Symbol {
+                            references: Some(type_ref_ref.clone()),
+                            kind: PhpSymbolKind::BuiltInType,
+                            ..Symbol::from(type_ref.last().unwrap())
+                        }
+                    } else {
+                        Symbol {
+                            references: Some(type_ref_ref.clone()),
+                            ..Symbol::from(type_ref.last().unwrap())
+                        }
+                    };
+
                     // Register node for the type_ref as well
-                    let child = arena.new_node(Symbol {
-                        references: Some(Reference::type_ref(type_ref.clone())),
-                        ..Symbol::from(type_ref.last().unwrap())
-                    });
+                    let child = arena.new_node(new_symbol);
                     enclosing.append(child, arena);
 
-                    vec![Reference::type_ref(type_ref)]
+                    vec![type_ref_ref]
                 } else {
                     Vec::new()
                 }
@@ -515,7 +646,7 @@ pub fn document_symbol(
 
             let child = arena.new_node(Symbol {
                 name: String::from("Anonymous class"),
-                kind: SymbolKind::Class,
+                kind: PhpSymbolKind::Class,
                 range: get_range(node.range()),
                 selection_range: get_range(token.range()),
                 detail: None,
@@ -555,7 +686,7 @@ pub fn document_symbol(
 
             let child = arena.new_node(Symbol {
                 name,
-                kind: SymbolKind::Namespace,
+                kind: PhpSymbolKind::Namespace,
                 range: get_range(node.range()),
                 selection_range: get_range(token.range()),
                 detail: None,
@@ -583,7 +714,7 @@ pub fn document_symbol(
 
             let child = arena.new_node(Symbol {
                 name,
-                kind: SymbolKind::Class,
+                kind: PhpSymbolKind::Class,
                 range,
                 selection_range,
                 detail: None,
@@ -621,7 +752,7 @@ pub fn document_symbol(
 
             let child = arena.new_node(Symbol {
                 name,
-                kind: SymbolKind::Interface,
+                kind: PhpSymbolKind::Interface,
                 range,
                 selection_range,
                 detail: None,
@@ -646,7 +777,7 @@ pub fn document_symbol(
             let range = get_range(node.range());
             let child = arena.new_node(Symbol {
                 name: name.clone().label.unwrap(),
-                kind: SymbolKind::Constant,
+                kind: PhpSymbolKind::Constant,
                 range,
                 selection_range: range,
                 detail: None,
@@ -680,7 +811,7 @@ pub fn document_symbol(
             };
             let child = arena.new_node(Symbol {
                 name: name.clone().label.unwrap(),
-                kind: SymbolKind::Property,
+                kind: PhpSymbolKind::Property,
                 range,
                 selection_range: range,
                 detail: None,
@@ -694,6 +825,7 @@ pub fn document_symbol(
                 imports: None,
             });
 
+            enclosing.append(child, arena);
             Ok(child)
         }
         Node::MethodDefinitionStatement {
@@ -721,7 +853,7 @@ pub fn document_symbol(
 
             let child = arena.new_node(Symbol {
                 name: name.clone().label.unwrap(),
-                kind: SymbolKind::Method,
+                kind: PhpSymbolKind::Method,
                 range: get_range(node.range()),
                 selection_range: get_range(name.range()),
                 detail: None,
@@ -758,7 +890,7 @@ pub fn document_symbol(
 
             let child = arena.new_node(Symbol {
                 name,
-                kind: SymbolKind::Function,
+                kind: PhpSymbolKind::Function,
                 range,
                 selection_range: range,
                 detail: None,
@@ -800,7 +932,7 @@ pub fn document_symbol(
 
             let child = arena.new_node(Symbol {
                 name: name.clone().label.unwrap(),
-                kind: SymbolKind::Function,
+                kind: PhpSymbolKind::Function,
                 range: get_range(node.range()),
                 selection_range: get_range(name.range()),
                 detail: None,
