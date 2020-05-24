@@ -418,9 +418,40 @@ pub fn document_symbol(
     parent: Option<NodeId>,
 ) -> Result<NodeId, String> {
     match node {
+        Node::Unary { expr, .. } => document_symbol(arena, enclosing, expr, parent),
+        Node::Binary { left, right, .. } => {
+            let left = document_symbol(arena, enclosing, left, parent)?;
+            enclosing.append(left, arena);
+            enclosing.append(document_symbol(arena, enclosing, right, parent)?, arena);
+
+            Ok(left)
+        }
+        Node::Ternary {
+            check,
+            true_arm,
+            false_arm,
+            ..
+        } => {
+            let check = document_symbol(arena, enclosing, check, parent)?;
+            enclosing.append(check, arena);
+            if let Some(true_arm) = true_arm {
+                let true_arm = document_symbol(arena, enclosing, true_arm, parent)?;
+
+                enclosing.append(true_arm, arena);
+                enclosing.append(document_symbol(arena, enclosing, false_arm, parent)?, arena);
+
+                return Ok(true_arm);
+            }
+            let false_arm = document_symbol(arena, enclosing, false_arm, parent)?;
+
+            enclosing.append(false_arm, arena);
+
+            return Ok(false_arm);
+        }
         Node::Call { callee, .. } => document_symbol(arena, enclosing, callee, parent),
         Node::Grouping(node) => document_symbol(arena, enclosing, node, parent),
         Node::New { class, .. } => document_symbol(arena, enclosing, class, parent),
+        Node::Clone { object, .. } => document_symbol(arena, enclosing, object, parent),
         // Not working yet for some reason
         Node::StaticMember { class, member, .. } => {
             // Resolve the object (which can also be a callee)
@@ -441,9 +472,34 @@ pub fn document_symbol(
 
             Ok(member_node)
         }
+        // Remember: We see the members in reverse order! $a->b()->c() starts at c!
         Node::Member { object, member, .. } => {
-            // Resolve the object (which can also be a callee)
-            let object_node = document_symbol(arena, enclosing, object, parent)?;
+            let mut stack = Vec::new();
+
+            let mut current_object = object;
+            let mut object_node = loop {
+                match current_object.as_ref() {
+                    Node::Call { callee, .. } => {
+                        current_object = callee;
+                    }
+                    Node::Member { object, member, .. } => {
+                        current_object = object;
+                        stack.push(member);
+                    }
+                    _ => break document_symbol(arena, enclosing, current_object, parent)?,
+                }
+            };
+
+            enclosing.append(object_node, arena);
+
+            // Connect the stack items as parents to each other, but in reverse order to start with the second one (the first one was already
+            // done in the loop before)
+            for stack_member in stack.iter().rev() {
+                object_node = document_symbol(arena, enclosing, stack_member, Some(object_node))?;
+
+                enclosing.append(object_node, arena);
+            }
+
             let member_node = document_symbol(arena, enclosing, member, Some(object_node))?;
 
             enclosing.append(member_node, arena);
@@ -543,7 +599,10 @@ pub fn document_symbol(
             Ok(child)
         }
 
-        Node::LexicalVariable { variable, .. } | Node::StaticVariable { variable, .. } => {
+        Node::LexicalVariable { variable, .. }
+        | Node::StaticVariable { variable, .. }
+        | Node::AliasedVariable { variable, .. }
+        | Node::DynamicVariable { variable, .. } => {
             let child = arena.new_node(Symbol::from(variable));
 
             enclosing.append(child, arena);
