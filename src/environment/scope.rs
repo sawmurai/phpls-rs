@@ -95,6 +95,7 @@ pub fn collect_symbols(
         | Node::StaticVariable { .. }
         | Node::Literal(..)
         | Node::StaticMember { .. }
+        | Node::Binary { .. }
         | Node::Member { .. } => {
             //if !token.is_identifier() {
             document_symbol(arena, symbol, node, None)?;

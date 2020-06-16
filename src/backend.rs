@@ -43,10 +43,10 @@ impl Backend {
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-        self.reindex_folder(&PathBuf::from(
-            "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
-        ))
-        .await?;
+        //self.reindex_folder(&PathBuf::from(
+        //    "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
+        //))
+        //.await?;
 
         if let Ok(root_path) = url.to_file_path() {
             self.reindex_folder(&root_path).await?;
@@ -118,6 +118,7 @@ impl Backend {
                             Ok(content) => content,
                             Err(error) => {
                                 eprintln!("{}", error);
+
                                 continue;
                             }
                         };
@@ -140,6 +141,7 @@ impl Backend {
         }
 
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens.clone()) {
+            //eprintln!("{:#?}", ast);
             let mut arena = self.arena.lock().await;
             let range = get_range(scanner.document_range());
 
@@ -280,9 +282,9 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, client: &Client, _params: InitializedParams) {
-        let mut diagnostics = self.diagnostics.lock().await;
+        let diagnostics = self.diagnostics.lock().await;
 
-        for (file, diagnostics) in diagnostics.drain() {
+        for (file, diagnostics) in diagnostics.iter() {
             if diagnostics.is_empty() {
                 continue;
             }
@@ -509,29 +511,78 @@ mod tests {
 
     #[tokio::test]
     async fn test_initialized_workspace() {
-        const VALID_PROJECT: &'static str =
-            "/home/sawmurai/develop/rust/phpls-rs/fixtures/projects/valid";
-        const VALID_BASE_CLASS: &'static str =
-            "/home/sawmurai/develop/rust/phpls-rs/fixtures/projects/valid/base.php";
+        let base_dir = std::env::current_dir().unwrap();
+        let root = format!("{}/fixtures/projects/valid", base_dir.display());
+        let file = format!("{}/fixtures/projects/valid/base.php", base_dir.display());
+
         let backend = Backend::new();
-        let uri = Url::from_file_path(VALID_PROJECT).unwrap();
+        let uri = Url::from_file_path(root).unwrap();
         backend.init_workspace(&uri).await.unwrap();
 
         let diagnostics = backend.diagnostics.lock().await;
-        assert_eq!(true, diagnostics.get(VALID_BASE_CLASS).unwrap().is_empty());
+        assert_eq!(true, diagnostics.get(&file).unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn test_knows_stdlib() {
-        const VALID_PROJECT: &'static str =
-            "/home/sawmurai/develop/rust/phpls-rs/fixtures/projects/stdlib";
-        const VALID_BASE_CLASS: &'static str =
-            "/home/sawmurai/develop/rust/phpls-rs/fixtures/projects/stdlib/index.php";
+        let base_dir = std::env::current_dir().unwrap();
+        let root = format!("{}/fixtures/projects/stdlib", base_dir.display());
+        let file = format!("{}/fixtures/projects/stdlib/index.php", base_dir.display());
+
         let backend = Backend::new();
-        let uri = Url::from_file_path(VALID_PROJECT).unwrap();
+        let uri = Url::from_file_path(root).unwrap();
         backend.init_workspace(&uri).await.unwrap();
 
         let diagnostics = backend.diagnostics.lock().await;
-        assert_eq!(true, diagnostics.get(VALID_BASE_CLASS).unwrap().is_empty());
+        assert_eq!(true, diagnostics.get(&file).unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_handles_fluent_interfaces() {
+        let base_dir = std::env::current_dir().unwrap();
+        let root = format!("{}/fixtures/small", base_dir.display());
+        let file = format!("{}/fixtures/small/fluent-interface.php", base_dir.display());
+
+        let backend = Backend::new();
+        let uri = Url::from_file_path(root).unwrap();
+        backend.init_workspace(&uri).await.unwrap();
+
+        let diagnostics = backend.diagnostics.lock().await;
+        let diagnostics = diagnostics.get(&file).unwrap();
+        assert_eq!(true, diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_detects_class_within_grouping() {
+        let base_dir = std::env::current_dir().unwrap();
+        let root = format!("{}/fixtures/small", base_dir.display());
+        let file = format!("{}/fixtures/small/grouping.php", base_dir.display());
+
+        let backend = Backend::new();
+        let uri = Url::from_file_path(root).unwrap();
+        backend.init_workspace(&uri).await.unwrap();
+
+        let diagnostics = backend.diagnostics.lock().await;
+        let diagnostics = diagnostics.get(&file).unwrap();
+        assert_eq!(true, diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_detects_class_of_assigned_variable() {
+        let base_dir = std::env::current_dir().unwrap();
+        let root = format!("{}/fixtures/small/assignment", base_dir.display());
+        let file = format!(
+            "{}/fixtures/small/assignment/assigned-object.php",
+            base_dir.display()
+        );
+
+        let backend = Backend::new();
+        let uri = Url::from_file_path(root).unwrap();
+        backend.init_workspace(&uri).await.unwrap();
+
+        let diagnostics = backend.diagnostics.lock().await;
+        let diagnostics = diagnostics.get(&file).unwrap();
+        eprintln!("{:#?}", diagnostics);
+        assert_eq!(true, diagnostics.is_empty());
     }
 }

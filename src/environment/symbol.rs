@@ -419,10 +419,22 @@ pub fn document_symbol(
 ) -> Result<NodeId, String> {
     match node {
         Node::Unary { expr, .. } => document_symbol(arena, enclosing, expr, parent),
-        Node::Binary { left, right, .. } => {
+        Node::Binary { left, right, token } => {
+            // TODO: Check if left arm is a variable and the token is an assignment operator.
+            // If so, get the type of the right arm and assign it as type to the variable
+            let right = document_symbol(arena, enclosing, right, parent)?;
             let left = document_symbol(arena, enclosing, left, parent)?;
+
+            if token.t == TokenType::Assignment {
+                let references = { arena[right].get().references.clone() };
+                if let Some(references) = references.as_ref() {
+                    let left_symbol = arena[left].get_mut();
+                    left_symbol.data_types.push(references.clone());
+                }
+            }
+
             enclosing.append(left, arena);
-            enclosing.append(document_symbol(arena, enclosing, right, parent)?, arena);
+            enclosing.append(right, arena);
 
             Ok(left)
         }
@@ -1017,6 +1029,31 @@ pub fn document_symbol(
             let child = arena.new_node(Symbol::from(token));
 
             enclosing.append(child, arena);
+
+            Ok(child)
+        }
+        Node::Array { .. } | Node::OldArray { .. } => {
+            let child = arena.new_node(Symbol {
+                name: "".to_string(),
+                kind: PhpSymbolKind::Array,
+                range: get_range(node.range()),
+                selection_range: get_range(node.range()),
+                detail: None,
+                deprecated: None,
+                inherits_from: Vec::new(),
+                parent,
+                references: None,
+                references_by: Vec::new(),
+                data_types: Vec::new(),
+                is_static: false,
+                imports: None,
+            });
+
+            enclosing.append(child, arena);
+
+            for c in node.children() {
+                collect_symbols(arena, &child, c)?;
+            }
 
             Ok(child)
         }
