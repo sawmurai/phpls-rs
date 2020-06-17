@@ -394,8 +394,10 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         return Ok(Node::Literal(static_token));
     }
 
-    // parser is like static but less mighty
-    if let Some(parser_token) = parser.consume_or_ignore(TokenType::TypeSelf) {
+    // self is like static but less mighty
+    if let Some(parser_token) =
+        parser.consume_one_of_or_ignore(&[TokenType::TypeSelf, TokenType::Parent])
+    {
         // Followed by ::? Probably a member access
         if parser.next_token_one_of(&[TokenType::PaamayimNekudayim]) {
             return Ok(Node::Literal(parser_token));

@@ -12,7 +12,16 @@ impl SymbolImport {
         if let Some(alias) = &self.alias {
             alias.label.clone().unwrap()
         } else {
-            self.path.last().unwrap().label.clone().unwrap()
+            if self.path.is_empty() {
+                return "".to_string();
+            }
+
+            self.path
+                .last()
+                .unwrap()
+                .label
+                .clone()
+                .unwrap_or_else(|| "".to_string())
         }
     }
 

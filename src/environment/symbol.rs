@@ -282,6 +282,20 @@ impl Symbol {
                     return Some(arena[parent_node].parent().unwrap());
                 }
 
+                // TODO Make sure only classes support $this
+                if self.name == "parent" {
+                    let parent_node = arena[*node].parent().unwrap();
+                    let parent_class = arena[arena[parent_node].parent().unwrap()].get();
+
+                    for ancestor in parent_class.inherits_from.iter() {
+                        if let Some(node) =
+                            resolve_reference(&ancestor, arena, node, global_symbols)
+                        {
+                            return Some(node);
+                        }
+                    }
+                }
+
                 if let Some(reference) = self.references.as_ref() {
                     return resolve_reference(reference, arena, node, global_symbols);
                 }
@@ -420,8 +434,6 @@ pub fn document_symbol(
     match node {
         Node::Unary { expr, .. } => document_symbol(arena, enclosing, expr, parent),
         Node::Binary { left, right, token } => {
-            // TODO: Check if left arm is a variable and the token is an assignment operator.
-            // If so, get the type of the right arm and assign it as type to the variable
             let right = document_symbol(arena, enclosing, right, parent)?;
             let left = document_symbol(arena, enclosing, left, parent)?;
 
@@ -778,7 +790,45 @@ pub fn document_symbol(
 
             Ok(child)
         }
-        Node::ClassStatement { name, .. } | Node::TraitStatement { name, .. } => {
+        Node::ClassStatement { name, extends, .. } => {
+            let inherits_from = if let Some(extends) = extends {
+                extends
+                    .iter()
+                    .map(|parent| get_type_ref(parent))
+                    .filter(|mapped| mapped.is_some())
+                    .map(|filtered| Reference::type_ref(filtered.unwrap()))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let selection_range = get_range(name.range());
+            let name = name.clone().label.unwrap();
+            let range = get_range(node.range());
+
+            let child = arena.new_node(Symbol {
+                name,
+                kind: PhpSymbolKind::Class,
+                range,
+                selection_range,
+                detail: None,
+                deprecated: None,
+                inherits_from,
+                parent,
+                references: None,
+                references_by: Vec::new(),
+                data_types: Vec::new(),
+                is_static: false,
+                imports: None,
+            });
+            enclosing.append(child, arena);
+
+            for c in node.children() {
+                collect_symbols(arena, &child, c)?;
+            }
+
+            Ok(child)
+        }
+        Node::TraitStatement { name, .. } => {
             let selection_range = get_range(name.range());
             let name = name.clone().label.unwrap();
             let range = get_range(node.range());

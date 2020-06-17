@@ -95,11 +95,37 @@ pub fn collect_symbols(
         | Node::StaticVariable { .. }
         | Node::Literal(..)
         | Node::StaticMember { .. }
-        | Node::Binary { .. }
         | Node::Member { .. } => {
             //if !token.is_identifier() {
             document_symbol(arena, symbol, node, None)?;
             //}
+        }
+        Node::Binary { left, right, token } => {
+            if token.t == TokenType::Assignment {
+                let left = document_symbol(arena, symbol, left, None);
+                let right = document_symbol(arena, symbol, right, None);
+
+                // Try to parse the r-value symbol. If we get an error we go and collect its children
+                if left.is_ok() && right.is_ok() {
+                    let left = left.unwrap();
+                    let right = right.unwrap();
+
+                    let references = { arena[right].get().references.clone() };
+                    if let Some(references) = references.as_ref() {
+                        let left_symbol = arena[left].get_mut();
+                        left_symbol.data_types.push(references.clone());
+                    }
+
+                    symbol.append(left, arena);
+                    symbol.append(right, arena);
+
+                    return Ok(());
+                }
+            }
+
+            for child in node.children() {
+                collect_symbols(arena, symbol, child)?;
+            }
         }
         Node::GroupedUse { .. }
         | Node::UseDeclaration { .. }
