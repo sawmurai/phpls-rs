@@ -296,6 +296,7 @@ impl Token {
             | TokenType::Namespace
             | TokenType::Void
             | TokenType::Yield
+            | TokenType::Parent
                 // Types
             | TokenType::TypeBool
             | TokenType::TypeString

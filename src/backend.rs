@@ -43,13 +43,15 @@ impl Backend {
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-        //self.reindex_folder(&PathBuf::from(
-        //    "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
-        //))
-        //.await?;
+        self.reindex_folder(&PathBuf::from(
+            "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
+        ))
+        .await?;
 
         if let Ok(root_path) = url.to_file_path() {
             self.reindex_folder(&root_path).await?;
+        } else {
+            eprintln!("Error converting url to file path");
         }
 
         let arena = self.arena.lock().await;
@@ -67,36 +69,36 @@ impl Backend {
                     for symbol_id in symbol_id.children(&arena) {
                         let symbol = arena[symbol_id].get();
 
-                        if symbol.kind != PhpSymbolKind::Unknown {
+                        if symbol.kind.register_global() {
                             global_table
                                 .insert(format!("{}\\{}", base_name, symbol.name), symbol_id);
                         }
                     }
                 } else {
-                    if symbol.kind != PhpSymbolKind::Unknown {
+                    if symbol.kind.register_global() {
                         global_table.insert(symbol.name.clone(), symbol_id);
                     }
                 }
             }
         }
+        /*
+                for (file, node_id) in root_symbols.iter() {
+                    for symbol_node in node_id.descendants(&arena) {
+                        let symbol = arena[symbol_node].get();
 
-        for (file, node_id) in root_symbols.iter() {
-            for symbol_node in node_id.descendants(&arena) {
-                let symbol = arena[symbol_node].get();
-
-                if symbol.kind == PhpSymbolKind::Unknown
-                    && symbol
-                        .resolve(&arena, &symbol_node, &global_table)
-                        .is_none()
-                {
-                    diagnostics
-                        .get_mut(file)
-                        .unwrap()
-                        .push(Diagnostic::from(symbol));
+                        if symbol.kind == PhpSymbolKind::Unknown
+                            && symbol
+                                .resolve(&arena, &symbol_node, &global_table)
+                                .is_none()
+                        {
+                            diagnostics
+                                .get_mut(file)
+                                .unwrap()
+                                .push(Diagnostic::from(symbol));
+                        }
+                    }
                 }
-            }
-        }
-
+        */
         *self.global_symbols.lock().await = global_table;
 
         Ok(())
@@ -105,8 +107,24 @@ impl Backend {
     #[async_recursion]
     async fn reindex_folder(&self, dir: &PathBuf) -> io::Result<()> {
         if dir.is_dir() {
-            for entry in fs::read_dir(dir)? {
-                let entry = entry?;
+            let entries = match fs::read_dir(dir) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    eprintln!("Error reading folder {:?}: {}", dir, e);
+
+                    return Ok(());
+                }
+            };
+
+            for entry in entries {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(e) => {
+                        eprintln!("- Error reading folder {:?}: {}", dir, e);
+
+                        return Ok(());
+                    }
+                };
                 let path = entry.path();
                 if path.is_dir() {
                     // && !path.ends_with("vendor") {
@@ -237,9 +255,15 @@ impl LanguageServer for Backend {
         params: InitializeParams,
     ) -> Result<InitializeResult> {
         if let Some(url) = params.root_uri {
-            if let Ok(()) = self.init_workspace(&url).await {
-                eprintln!("Indexed root");
-            }
+            eprintln!("{:?}", url);
+            match self.init_workspace(&url).await {
+                Ok(()) => {
+                    eprintln!("Indexed root");
+                }
+                Err(e) => {
+                    eprintln!("Something broke: {}", e);
+                }
+            };
         }
 
         Ok(InitializeResult {
@@ -285,7 +309,11 @@ impl LanguageServer for Backend {
         let diagnostics = self.diagnostics.lock().await;
 
         for (file, diagnostics) in diagnostics.iter() {
-            if diagnostics.is_empty() {
+            if
+            /*file.contains("/vendor/")
+            || file.contains("/phpstorm-stubs/")
+            || */
+            diagnostics.is_empty() {
                 continue;
             }
 

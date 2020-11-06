@@ -435,7 +435,7 @@ impl Parser {
             if token.is_identifier() {
                 if token.label.is_none() {
                     // Make sure to put the correct label into the ... label
-                    token.label = Some("Unnamed".to_owned());
+                    token.label = Some(format!("{}", token));
                 }
                 return Ok(token);
             }

@@ -29,6 +29,7 @@ pub enum PhpSymbolKind {
     Key = 20,
     Null = 21,
     Operator = 25,
+    Import = 26,
 
     // Custom types
     BuiltInType = 100,
@@ -96,10 +97,27 @@ impl PhpSymbolKind {
             PhpSymbolKind::Null => SymbolKind::Null,
             PhpSymbolKind::Operator => SymbolKind::Operator,
             PhpSymbolKind::BuiltInType => return None,
-            PhpSymbolKind::Unknown => SymbolKind::Unknown,
+            _ => SymbolKind::Unknown,
         };
 
         Some(kind)
+    }
+
+    pub fn is_internal(&self) -> bool {
+        match self {
+            PhpSymbolKind::Unknown | PhpSymbolKind::Import => true,
+            _ => false,
+        }
+    }
+
+    pub fn register_global(&self) -> bool {
+        match self {
+            PhpSymbolKind::Class
+            | PhpSymbolKind::Interface
+            | PhpSymbolKind::Function
+            | PhpSymbolKind::Constant => true,
+            _ => false,
+        }
     }
 }
 
@@ -108,7 +126,7 @@ impl Symbol {
     pub fn to_doc_sym(&self, arena: &Arena<Symbol>, node: &NodeId) -> Option<DocumentSymbol> {
         let children = node
             .children(arena)
-            .filter(|s| arena[*s].get().kind != PhpSymbolKind::Unknown)
+            .filter(|s| !arena[*s].get().kind.is_internal())
             .map(|s| arena[s].get().to_doc_sym(arena, &s))
             .filter(|s| s.is_some())
             .map(|s| s.unwrap())
@@ -166,6 +184,16 @@ impl Symbol {
         global_symbols: &HashMap<String, NodeId>,
     ) -> Option<NodeId> {
         match self.kind {
+            PhpSymbolKind::Import => {
+                // Resolve a global import
+                if let Some(node_id) = global_symbols.get(&self.name) {
+                    return Some(node_id.clone());
+                } else {
+                    eprintln!("Failed to resolve import {} in global symbols", self.name);
+                    return None;
+                }
+            }
+
             PhpSymbolKind::Variable => {
                 // Find first instance this one was named and return it
                 // If nothing can be found, this is the definition
@@ -175,7 +203,7 @@ impl Symbol {
                 // is a method in between)
                 // TODO Make sure only classes support $this
                 if self.name == "this" {
-                    return Some(arena[parent_node].parent().unwrap());
+                    return arena[parent_node].parent();
                 }
 
                 for symbol in parent_node.children(arena) {

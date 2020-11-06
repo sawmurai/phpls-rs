@@ -1,5 +1,7 @@
+use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use crate::node::Node;
 use crate::token::Token;
+use tower_lsp::lsp_types::{Position, Range};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SymbolImport {
@@ -30,6 +32,44 @@ impl SymbolImport {
             .iter()
             .map(|p| p.label.clone().unwrap_or_else(|| "\\".to_owned()))
             .collect::<String>()
+    }
+}
+
+impl From<&SymbolImport> for Symbol {
+    fn from(symbol_import: &SymbolImport) -> Symbol {
+        let start = symbol_import.path.first().unwrap().start();
+        let end = if let Some(alias) = symbol_import.alias.as_ref() {
+            alias.end()
+        } else {
+            symbol_import.path.last().unwrap().end()
+        };
+
+        let range = Range {
+            start: Position {
+                line: start.0 as u64,
+                character: start.1 as u64,
+            },
+            end: Position {
+                line: end.0 as u64,
+                character: end.1 as u64,
+            },
+        };
+
+        Symbol {
+            name: symbol_import.full_name(),
+            kind: PhpSymbolKind::Import,
+            range,
+            selection_range: range,
+            detail: None,
+            deprecated: None,
+            inherits_from: Vec::new(),
+            parent: None,
+            references: None,
+            references_by: Vec::new(),
+            data_types: Vec::new(),
+            is_static: false,
+            imports: None,
+        }
     }
 }
 
