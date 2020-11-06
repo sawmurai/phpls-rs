@@ -202,7 +202,7 @@ impl Symbol {
                 // $this resolves to the parent class, which is the grant parent if $this (as there
                 // is a method in between)
                 // TODO Make sure only classes support $this
-                if self.name == "this" {
+                if self.name == "this" || self.name == "self" || self.name == "static" {
                     return arena[parent_node].parent();
                 }
 
@@ -305,7 +305,7 @@ impl Symbol {
                 }
 
                 // TODO Make sure only classes support $this
-                if self.name == "self" {
+                if self.name == "self" || self.name == "static" {
                     let parent_node = arena[*node].parent().unwrap();
                     return Some(arena[parent_node].parent().unwrap());
                 }
