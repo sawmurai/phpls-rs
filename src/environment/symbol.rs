@@ -449,6 +449,16 @@ fn get_type_ref(node: &Node) -> Option<Vec<Token>> {
             }
         }
         Node::TypeRef(items) => Some(items.clone()),
+        Node::DocCommentReturn { types, .. } => {
+            if let Some(types) = types {
+                match &**types {
+                    Node::TypeRef(items) => Some(items.clone()),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
@@ -991,7 +1001,7 @@ pub fn document_symbol(
                     return Err("Invalid function".to_owned());
                 };
 
-            let data_types = if let Some(data_type) = return_type {
+            let mut data_types = if let Some(data_type) = return_type {
                 if let Some(type_ref) = get_type_ref(&*data_type) {
                     vec![Reference::type_ref(type_ref)]
                 } else {
@@ -1000,6 +1010,17 @@ pub fn document_symbol(
             } else {
                 Vec::new()
             };
+
+            // Is there a doc comment?
+            if let Some(doc_comment) = doc_comment {
+                if let Node::DocComment { return_type, .. } = doc_comment.as_ref() {
+                    for rt in return_type {
+                        if let Some(type_ref) = get_type_ref(rt) {
+                            data_types.push(Reference::type_ref(type_ref));
+                        }
+                    }
+                }
+            }
 
             let child = arena.new_node(Symbol {
                 name: name.clone().label.unwrap(),
