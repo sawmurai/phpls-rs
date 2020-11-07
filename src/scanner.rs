@@ -15,7 +15,7 @@ enum Context {
 /// input string is the content of a PHP source file.
 pub struct Scanner {
     col: u32,
-    start_of_token: u32,
+    start_of_token: (u32, u32),
     line: u32,
     pos: u32,
 
@@ -40,7 +40,7 @@ impl Scanner {
 
         Scanner {
             col: 0,
-            start_of_token: 0,
+            start_of_token: (0, 0),
             line: 0,
             pos: 0,
             context: Context::OutScript,
@@ -71,7 +71,7 @@ impl Scanner {
     /// ```
     pub fn scan(&mut self) -> Result<&Vec<Token>, String> {
         loop {
-            self.start_of_token = self.col;
+            self.start_of_token = (self.line, self.col);
 
             let c = match self.advance() {
                 Some(c) => c,
@@ -387,8 +387,8 @@ impl Scanner {
                         //self.push_token(TokenType::LineComment);
                     }
                     Some('*') => {
-                        self.advance_until_after_multiline_comment();
-                        //self.push_token(TokenType::MultilineComment);
+                        self.advance();
+                        self.collect_doc_comment_information();
                     }
                     Some('=') => {
                         self.advance();
@@ -810,24 +810,32 @@ impl Scanner {
         None
     }
 
-    /// Advance until end of the file or until a specific character is seen
-    fn advance_until_after(&mut self, until: char) {
+    /// Collect doc comment information like @return and @param
+    fn collect_doc_comment_information(&mut self) {
+        let mut comment = String::new();
+
         while let Some(c) = self.advance() {
-            if c == until {
+            // Detects the end of the doc comment
+            if c == '*' && self.peek() == Some(&'/') {
+                self.advance();
+
                 break;
             }
-        }
-    }
 
-    fn advance_until_after_multiline_comment(&mut self) {
-        loop {
-            self.advance_until_after('*');
+            comment.push(c);
 
-            if let Some('/') = self.peek() {
-                break;
+            // Detects the end of the current line. Add and clear current_line.
+            // Then skip until the leading * of the next line passed
+            if c == '\n' {
+                //self.advance_until_after('*');
+
+                // Also skip spaces
+                //self.advance_until_after(' ');
             }
         }
-        self.advance();
+
+        // TODO: Fix start of the comment
+        self.push_named_token(TokenType::MultilineComment, &comment);
     }
 
     /// Advances until after the end of the line comment, which can either be the script end or
@@ -852,15 +860,18 @@ impl Scanner {
         if self.context != Context::InScript {
             return;
         }
-        self.tokens
-            .push(Token::new(t, self.line as u32, self.start_of_token as u32));
+        self.tokens.push(Token::new(
+            t,
+            self.start_of_token.0 as u32,
+            self.start_of_token.1 as u32,
+        ));
     }
 
     fn push_named_token(&mut self, t: TokenType, name: &str) {
         self.tokens.push(Token::named(
             t,
-            self.line as u32,
-            self.start_of_token as u32,
+            self.start_of_token.0 as u32,
+            self.start_of_token.1 as u32,
             name,
         ));
     }
@@ -1303,7 +1314,7 @@ for ($i = 0; $i < 100; $i++) {}",
     }
 
     #[test]
-    fn test_ignores_comments() {
+    fn test_parses_doc_comments_and_ignores_line_comments() {
         let mut scanner = Scanner::new(
             "<?php
             // Line comment
@@ -1318,7 +1329,7 @@ for ($i = 0; $i < 100; $i++) {}",
 
         assert_eq!(
             token_list!(scanner.tokens),
-            "<?php echo 'blubb' ; echo 'blabb' ; ?> "
+            "<?php echo 'blubb' ; /** some multiline comment */ echo 'blabb' ; ?> "
         );
     }
 

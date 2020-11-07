@@ -100,6 +100,7 @@ mod tests {
         tokens.reverse();
 
         let mut parser = Parser {
+            doc_comments: Vec::new(),
             errors: Vec::new(),
             tokens,
         };

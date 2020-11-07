@@ -59,6 +59,7 @@ type AstResult = Result<(Vec<Node>, Vec<Error>)>;
 pub mod arrays;
 pub mod calls;
 pub mod classes;
+pub mod comments;
 pub mod conditionals;
 pub mod exception_handling;
 pub mod expressions;
@@ -74,6 +75,7 @@ pub mod variables;
 /// Parses a token stream of a `Scanner` and generates an Abstract Syntax Tree
 #[derive(Debug)]
 pub struct Parser {
+    doc_comments: Vec<Token>,
     tokens: Vec<Token>,
     errors: Vec<Error>,
 }
@@ -97,6 +99,7 @@ impl Parser {
         tokens.reverse();
 
         let mut parser = Parser {
+            doc_comments: Vec::new(),
             tokens,
             errors: Vec::new(),
         };
@@ -342,18 +345,31 @@ impl Parser {
         panic!("Read too far!");
     }
 
-    /// Pop and return the next token
+    /// Pop and return the next token, pushing doc comments on the comment stack
     fn next(&mut self) -> Option<Token> {
-        self.tokens.pop()
+        while let Some(next) = self.tokens.pop() {
+            match next.t {
+                TokenType::MultilineComment => {
+                    self.doc_comments.push(next);
+                }
+                _ => return Some(next),
+            }
+        }
+
+        None
     }
 
-    /// Return the next token without popping it off the stream
-    fn peek(&self) -> Option<&Token> {
-        if let Some(last) = self.tokens.last() {
+    /// Return the next token without popping it off the stream, pushing doc comments on the comment stack
+    fn peek(&mut self) -> Option<&Token> {
+        while let Some(last) = self.tokens.pop() {
             if last.t == TokenType::Eof {
                 return None;
+            } else if last.t == TokenType::MultilineComment {
+                self.doc_comments.push(last);
             } else {
-                return Some(last);
+                self.tokens.push(last);
+
+                return self.tokens.last();
             }
         }
 
@@ -512,11 +528,44 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
+    use crate::parser::Parser;
     use crate::scanner::Scanner;
 
     #[test]
     fn test_creates_ast_for_addition() {
         let mut scanner = Scanner::new("<?php\n1 + 2 == 3;");
         scanner.scan().unwrap();
+    }
+
+    #[test]
+    fn test_creates_ast_with_doc_comments() {
+        let code = "<?php
+        $a = new class extends AbstractDatabaseStatisticProvider
+        {
+
+            private string $namespace, $rofl;
+
+            /**
+             * Hello !
+             * or not?
+             * @param string|null $rofl The best variable in the world
+             * @return string
+             * @deprecated
+             */
+            static public function getIdentifier(string $rofl): string
+            {
+                /** @var string $x */
+                $x = rofl();
+                return '';
+            }
+        };
+        ";
+
+        let mut scanner = Scanner::new(code);
+        let tokens = scanner.scan().unwrap();
+
+        let parser = Parser::ast(tokens.clone());
+
+        println!("{:#?}", parser.unwrap().0);
     }
 }

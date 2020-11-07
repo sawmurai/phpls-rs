@@ -981,6 +981,7 @@ pub fn document_symbol(
             name,
             function,
             is_static,
+            doc_comment,
             ..
         } => {
             let return_type =

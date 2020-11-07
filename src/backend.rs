@@ -158,10 +158,11 @@ impl Backend {
             return Ok(());
         }
 
-        if let Ok((ast, errors)) = Parser::ast(scanner.tokens.clone()) {
+        let range = get_range(scanner.document_range());
+
+        if let Ok((ast, errors)) = Parser::ast(scanner.tokens) {
             //eprintln!("{:#?}", ast);
             let mut arena = self.arena.lock().await;
-            let range = get_range(scanner.document_range());
 
             let enclosing_file = arena.new_node(Symbol {
                 name: path.to_owned(),
@@ -306,7 +307,7 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, client: &Client, _params: InitializedParams) {
-        let diagnostics = self.diagnostics.lock().await;
+        let mut diagnostics = self.diagnostics.lock().await;
 
         for (file, diagnostics) in diagnostics.iter() {
             if
@@ -324,7 +325,7 @@ impl LanguageServer for Backend {
             );
         }
 
-        //diagnostics.clear();
+        diagnostics.clear();
     }
 
     async fn symbol(

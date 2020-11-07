@@ -446,7 +446,9 @@ impl Display for Token {
             TokenType::MulAssign => "*=".to_owned(),
             TokenType::DivAssign => "/=".to_owned(),
             TokenType::LineComment => "//".to_owned(),
-            TokenType::MultilineComment => "/*".to_owned(),
+            TokenType::MultilineComment => {
+                format!("/*{}*/", self.label.as_ref().unwrap_or(&String::from("")))
+            }
             TokenType::RightShift => ">>".to_owned(),
             TokenType::LeftShift => "<<".to_owned(),
             TokenType::ScriptEnd => "?>".to_owned(),

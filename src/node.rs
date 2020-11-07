@@ -4,6 +4,35 @@ use tower_lsp::lsp_types::{Position, Range};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Node {
+    DocComment {
+        return_type: Vec<Node>,
+        description: String,
+        is_deprecated: bool,
+        params: Vec<Node>,
+        var_docs: Vec<Node>,
+    },
+    DocCommentParam {
+        name: Token,
+
+        // Node::TypeRef
+        types: Option<Box<Node>>,
+
+        description: String,
+    },
+    DocCommentVar {
+        name: Token,
+
+        // Node::TypeRef
+        types: Option<Box<Node>>,
+
+        description: String,
+    },
+    DocCommentReturn {
+        // Node::TypeRef
+        types: Option<Box<Node>>,
+
+        description: String,
+    },
     // LexicalVariable -> Unary(Variable, &?)
     Unary {
         expr: Box<Node>,
@@ -341,22 +370,26 @@ pub enum Node {
         implements: Option<Vec<Node>>,
         extends: Option<Vec<Node>>,
         body: Box<Node>,
+        doc_comment: Option<Box<Node>>,
     },
     TraitStatement {
         token: Token,
         name: Token,
         body: Box<Node>,
+        doc_comment: Option<Box<Node>>,
     },
     Interface {
         token: Token,
         name: Token,
         extends: Option<Vec<Node>>,
         body: Box<Node>,
+        doc_comment: Option<Box<Node>>,
     },
     ClassConstantDefinitionStatement {
         name: Token,
         visibility: Option<Token>,
         value: Box<Node>,
+        doc_comment: Option<Box<Node>>,
     },
     PropertyDefinitionStatement {
         name: Token,
@@ -365,6 +398,7 @@ pub enum Node {
         is_abstract: Option<Token>,
         value: Option<Box<Node>>,
         is_static: Option<Token>,
+        doc_comment: Option<Box<Node>>,
     },
     MethodDefinitionStatement {
         token: Token,
@@ -375,6 +409,7 @@ pub enum Node {
         is_abstract: Option<Token>,
         function: Box<Node>,
         is_static: Option<Token>,
+        doc_comment: Option<Box<Node>>,
     },
     FunctionDefinitionStatement {
         op: Token,

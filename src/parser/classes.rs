@@ -1,4 +1,5 @@
 use crate::node::Node;
+use crate::parser::comments;
 use crate::parser::{expressions, functions, types};
 use crate::parser::{ExpressionListResult, ExpressionResult, Parser};
 use crate::token::{Token, TokenType};
@@ -23,6 +24,7 @@ pub(crate) fn class_statement(
     is_abstract: Option<Token>,
     is_final: Option<Token>,
 ) -> ExpressionResult {
+    let doc_comment = comments::consume_optional_doc_comment(parser)?;
     let token = parser.consume(TokenType::Class)?;
     let name = parser.consume_identifier()?;
 
@@ -44,6 +46,7 @@ pub(crate) fn class_statement(
         extends,
         implements,
         body: Box::new(class_block(parser)?),
+        doc_comment,
     })
 }
 
@@ -99,6 +102,8 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
             continue;
         }
 
+        let doc_comment = comments::consume_optional_doc_comment(parser)?;
+
         let mut is_abstract = None;
         let mut is_final = None;
         let mut visibility = None;
@@ -134,6 +139,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
                 name,
                 visibility,
                 value: Box::new(expressions::expression(parser)?),
+                doc_comment: doc_comment.clone(),
             });
 
             parser.consume_end_of_statement()?;
@@ -154,6 +160,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
                 is_abstract,
                 function: Box::new(functions::anonymous_function_statement(parser)?),
                 is_static,
+                doc_comment,
             });
         } else {
             let data_type = if !parser.next_token_one_of(&[TokenType::Variable]) {
@@ -181,6 +188,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
                     is_abstract: is_abstract.clone(),
                     value: assignment,
                     is_static: is_static.clone(),
+                    doc_comment: doc_comment.clone(),
                 });
 
                 if !parser.next_token_one_of(&[TokenType::Comma]) {
@@ -202,6 +210,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
 
 /// Parses an interface definition
 pub(crate) fn interface(parser: &mut Parser) -> ExpressionResult {
+    let doc_comment = comments::consume_optional_doc_comment(parser)?;
     let token = parser.consume(TokenType::Interface)?;
     let name = parser.consume(TokenType::Identifier)?;
 
@@ -217,6 +226,7 @@ pub(crate) fn interface(parser: &mut Parser) -> ExpressionResult {
         name,
         extends,
         body: Box::new(body),
+        doc_comment,
     })
 }
 
@@ -239,10 +249,12 @@ fn identifier_list(parser: &mut Parser) -> ExpressionListResult {
 
 /// Parses a trait
 pub(crate) fn trait_statement(parser: &mut Parser) -> ExpressionResult {
+    let doc_comment = comments::consume_optional_doc_comment(parser)?;
     Ok(Node::TraitStatement {
         token: parser.consume(TokenType::Trait)?,
         name: parser.consume(TokenType::Identifier)?,
         body: Box::new(class_block(parser)?),
+        doc_comment,
     })
 }
 
@@ -360,6 +372,7 @@ mod tests {
         tokens.reverse();
 
         let mut parser = Parser {
+            doc_comments: Vec::new(),
             errors: Vec::new(),
             tokens,
         };
