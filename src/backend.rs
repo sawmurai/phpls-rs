@@ -81,24 +81,24 @@ impl Backend {
                 }
             }
         }
-        /*
-                for (file, node_id) in root_symbols.iter() {
-                    for symbol_node in node_id.descendants(&arena) {
-                        let symbol = arena[symbol_node].get();
 
-                        if symbol.kind == PhpSymbolKind::Unknown
-                            && symbol
-                                .resolve(&arena, &symbol_node, &global_table)
-                                .is_none()
-                        {
-                            diagnostics
-                                .get_mut(file)
-                                .unwrap()
-                                .push(Diagnostic::from(symbol));
-                        }
-                    }
+        for (file, node_id) in root_symbols.iter() {
+            for symbol_node in node_id.descendants(&arena) {
+                let symbol = arena[symbol_node].get();
+
+                if symbol.kind == PhpSymbolKind::Unknown
+                    && symbol
+                        .resolve(&arena, &symbol_node, &global_table)
+                        .is_none()
+                {
+                    diagnostics
+                        .get_mut(file)
+                        .unwrap()
+                        .push(Diagnostic::from(symbol));
                 }
-        */
+            }
+        }
+
         *self.global_symbols.lock().await = global_table;
 
         Ok(())
@@ -620,6 +620,25 @@ mod tests {
         let base_dir = std::env::current_dir().unwrap();
         let root = format!("{}/fixtures/small/parent", base_dir.display());
         let file = format!("{}/fixtures/small/parent/parent.php", base_dir.display());
+
+        let backend = Backend::new();
+        let uri = Url::from_file_path(root).unwrap();
+        backend.init_workspace(&uri).await.unwrap();
+
+        let diagnostics = backend.diagnostics.lock().await;
+        let diagnostics = diagnostics.get(&file).unwrap();
+        eprintln!("{:#?}", diagnostics);
+        assert_eq!(true, diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_resolves_named_constructor() {
+        let base_dir = std::env::current_dir().unwrap();
+        let root = format!("{}/fixtures/small/oop", base_dir.display());
+        let file = format!(
+            "{}/fixtures/small/oop/named_constructor.php",
+            base_dir.display()
+        );
 
         let backend = Backend::new();
         let uri = Url::from_file_path(root).unwrap();

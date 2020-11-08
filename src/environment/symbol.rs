@@ -174,6 +174,24 @@ impl Symbol {
         }
     }
 
+    /// Find a direct descendant of node by its name
+    pub fn find_child_by_name(
+        &self,
+        arena: &Arena<Symbol>,
+        node: &NodeId,
+        name: &str,
+    ) -> Option<NodeId> {
+        for child in node.children(arena) {
+            if arena[child].get().name == name {
+                return Some(child);
+            } else {
+                eprintln!("{} != {}", arena[child].get().name, name);
+            }
+        }
+
+        None
+    }
+
     /// Resolve this symbol to the defining symbol (can also be itself)
     /// Bugs
     /// - absolute pathes like \Rofl\Copter do not work
@@ -202,7 +220,7 @@ impl Symbol {
                 // $this resolves to the parent class, which is the grant parent if $this (as there
                 // is a method in between)
                 // TODO Make sure only classes support $this
-                if self.name == "this" || self.name == "self" || self.name == "static" {
+                if self.name == "this" {
                     return arena[parent_node].parent();
                 }
 
@@ -249,54 +267,36 @@ impl Symbol {
                         // Get all possible data types. Thanks to union types and php docs with
                         // mulitple annotated types we need to check multiple data types.
                         for data_type in parent_symbol.data_types.iter() {
-                            // Try to resolve the data type, revealing the defining class for example
-                            if let Some(mut data_type_symbol_node) =
-                                resolve_reference(data_type, arena, node, global_symbols)
-                            {
-                                // Lookup loop that goes through the data_type class and its parents
-                                'check_next_parent: loop {
-                                    // Go through this symbols children and try to find a match
-                                    for child in data_type_symbol_node.children(arena) {
-                                        if arena[child].get().name == self.name {
-                                            return Some(child);
-                                        }
-                                    }
-
-                                    let data_type_symbol = arena[data_type_symbol_node].get();
-
-                                    // Maybe the data_type_symbol imports a trait that defines the
-                                    // symbol?
-                                    /*for import in data_type_symbol.imports.iter() {
-                                        // let resolved_import =
-                                        for child in data_type_symbol_node.children(arena) {
-                                            if arena[child].get().name == self.name {
-                                                return Some(child);
+                            // The node itself is just a reference to another nodes data-type, usually that
+                            // is done in scenarios like this:
+                            // $o = Rofl::getInstance();
+                            // $o->namexxx;
+                            // In that scenario the type of $o is the response type of Rofl::getInstance()
+                            if let Some(node) = data_type.node {
+                                if let Some(parent) = arena[node].get().parent {
+                                    if let Some(resolved_data_type) =
+                                        arena[node].get().resolve(arena, &parent, global_symbols)
+                                    {
+                                        for data_type in
+                                            arena[resolved_data_type].get().data_types.iter()
+                                        {
+                                            if let Some(result) = self.resolve_types(
+                                                arena,
+                                                &resolved_data_type,
+                                                data_type,
+                                                global_symbols,
+                                            ) {
+                                                return Some(result);
                                             }
                                         }
-                                    }*/
-
-                                    // Next chance: inheritance! Maybe the parent defines the method or property
-                                    // we are looking for
-                                    // Note again: Multi inheritance is invalid in PHP, but we want to understand
-                                    // what the user intended as much as possible, so we let this
-                                    // be a vec and only check the first entry that is resolvable
-                                    for inherits_from in data_type_symbol.inherits_from.iter() {
-                                        // Try to resolve the class which this class inherits from
-                                        if let Some(resolved_inheritance_parent) = resolve_reference(
-                                            inherits_from,
-                                            arena,
-                                            &data_type_symbol_node,
-                                            global_symbols,
-                                        ) {
-                                            data_type_symbol_node = resolved_inheritance_parent;
-
-                                            continue 'check_next_parent;
-                                        }
                                     }
-
-                                    // Either no parents or no parent was resolvable
-                                    break;
                                 }
+                            }
+
+                            if let Some(result) =
+                                self.resolve_types(arena, node, data_type, global_symbols)
+                            {
+                                return Some(result);
                             }
                         }
 
@@ -333,6 +333,66 @@ impl Symbol {
             // All else is a definition
             _ => Some(*node),
         }
+    }
+
+    fn resolve_types(
+        &self,
+        arena: &Arena<Symbol>,
+        node: &NodeId,
+        data_type: &Reference,
+        global_symbols: &HashMap<String, NodeId>,
+    ) -> Option<NodeId> {
+        // Try to resolve the data type, revealing the defining class for example
+        if let Some(mut data_type_symbol_node) =
+            resolve_reference(data_type, arena, node, global_symbols)
+        {
+            // Lookup loop that goes through the data_type class and its parents
+            'check_next_parent: loop {
+                // Go through this symbols children and try to find a match
+                for child in data_type_symbol_node.children(arena) {
+                    if arena[child].get().name == self.name {
+                        return Some(child);
+                    }
+                }
+
+                let data_type_symbol = arena[data_type_symbol_node].get();
+
+                // Maybe the data_type_symbol imports a trait that defines the
+                // symbol?
+                /*for import in data_type_symbol.imports.iter() {
+                    // let resolved_import =
+                    for child in data_type_symbol_node.children(arena) {
+                        if arena[child].get().name == self.name {
+                            return Some(child);
+                        }
+                    }
+                }*/
+
+                // Next chance: inheritance! Maybe the parent defines the method or property
+                // we are looking for
+                // Note again: Multi inheritance is invalid in PHP, but we want to understand
+                // what the user intended as much as possible, so we let this
+                // be a vec and only check the first entry that is resolvable
+                for inherits_from in data_type_symbol.inherits_from.iter() {
+                    // Try to resolve the class which this class inherits from
+                    if let Some(resolved_inheritance_parent) = resolve_reference(
+                        inherits_from,
+                        arena,
+                        &data_type_symbol_node,
+                        global_symbols,
+                    ) {
+                        data_type_symbol_node = resolved_inheritance_parent;
+
+                        continue 'check_next_parent;
+                    }
+                }
+
+                // Either no parents or no parent was resolvable
+                break;
+            }
+        }
+
+        None
     }
 }
 
@@ -520,6 +580,11 @@ pub fn document_symbol(
             let object_node = document_symbol(arena, enclosing, class, parent)?;
             let member_node = document_symbol(arena, enclosing, member, Some(object_node))?;
 
+            // Add a reference to the type of the method
+            if let Node::Literal(token) = member.as_ref() {
+                arena[member_node].get_mut().references = Some(Reference::node(token, member_node));
+            }
+
             enclosing.append(member_node, arena);
 
             Ok(member_node)
@@ -589,8 +654,10 @@ pub fn document_symbol(
                 PhpSymbolKind::Unknown
             };
 
+            let name = token.label.clone().unwrap_or_else(|| token.to_string());
+
             let child = arena.new_node(Symbol {
-                name: token.label.clone().unwrap_or_else(|| token.to_string()),
+                name,
                 kind,
                 range: get_range(node.range()),
                 selection_range: get_range(node.range()),

@@ -15,6 +15,8 @@ pub struct Reference {
 
     /// Selection range of the usage
     pub range: Range,
+
+    pub node: Option<NodeId>,
 }
 
 impl Reference {
@@ -41,15 +43,17 @@ impl Reference {
             token: Some(token.clone()),
             type_ref: None,
             range: get_range(token.range()),
+            node: None,
         }
     }
 
     /// Reference to an identifier, for example a function or a member
-    pub fn identifier(token: &Token) -> Self {
+    pub fn node(token: &Token, node: NodeId) -> Self {
         Self {
             token: Some(token.clone()),
             type_ref: None,
             range: get_range(token.range()),
+            node: Some(node),
         }
     }
 
@@ -64,6 +68,7 @@ impl Reference {
             token: None,
             type_ref: Some(type_ref),
             range,
+            node: None,
         }
     }
 }
