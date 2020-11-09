@@ -646,7 +646,24 @@ mod tests {
 
         let diagnostics = backend.diagnostics.lock().await;
         let diagnostics = diagnostics.get(&file).unwrap();
-        eprintln!("{:#?}", diagnostics);
         assert_eq!(true, diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_handles_unresolvable() {
+        let base_dir = std::env::current_dir().unwrap();
+        let root = format!("{}/fixtures/projects/invalid", base_dir.display());
+        let file = format!(
+            "{}/fixtures/projects/invalid/unresolvable.php",
+            base_dir.display()
+        );
+
+        let backend = Backend::new();
+        let uri = Url::from_file_path(root).unwrap();
+        backend.init_workspace(&uri).await.unwrap();
+
+        let diagnostics = backend.diagnostics.lock().await;
+        let diagnostics = diagnostics.get(&file).unwrap();
+        assert_eq!(false, diagnostics.is_empty());
     }
 }

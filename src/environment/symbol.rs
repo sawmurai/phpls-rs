@@ -199,7 +199,7 @@ impl Symbol {
         &self,
         arena: &Arena<Symbol>,
         node: &NodeId,
-        global_symbols: &HashMap<String, NodeId>,
+        global_symbols: &HashMap<String, NodeId>
     ) -> Option<NodeId> {
         match self.kind {
             PhpSymbolKind::Import => {
@@ -242,19 +242,25 @@ impl Symbol {
                 Some(*node)
             }
             PhpSymbolKind::Unknown => {
-                // Resolve reference
+                // node is a reference
 
-                // This is the case if we are dealing with a method / property of another class
+                // There is a parent, so node has a parent like $object->node()
+                // parent_node is $object
                 if let Some(&parent_node) = self.parent.as_ref() {
+
+                    // To determine the type of node, we must first know what $object is an instance of, so we
+                    // try to resolve it to get its definition
                     if let Some(parent_definition) =
                         arena[parent_node]
                             .get()
                             .resolve(arena, &parent_node, global_symbols)
                     {
-                        // For example the $object in $object->method() (when trying to resolve
-                        // method)
+
+                        // We successfully resolved it to its definition. Now, get the associated symbol. This is a method
+                        // definition or the initialization of a variable
                         let parent_symbol = arena[parent_definition].get();
 
+                        // This is the case when a static method or property was accessed
                         if parent_symbol.kind == PhpSymbolKind::Class {
                             // TODO: Also check parents of this class if necessary
                             for child in parent_definition.children(arena) {
@@ -264,25 +270,40 @@ impl Symbol {
                             }
                         }
 
-                        // Get all possible data types. Thanks to union types and php docs with
-                        // mulitple annotated types we need to check multiple data types.
+                        // Go through all possible data types of the symbol. Variables get the data type of the expression that
+                        // initialized them. That data_type can be a reference itself, for example if the variable was initialized
+                        // with the return value of a method call
                         for data_type in parent_symbol.data_types.iter() {
                             // The node itself is just a reference to another nodes data-type, usually that
                             // is done in scenarios like this:
                             // $o = Rofl::getInstance();
                             // $o->namexxx;
                             // In that scenario the type of $o is the response type of Rofl::getInstance()
-                            if let Some(node) = data_type.node {
-                                if let Some(parent) = arena[node].get().parent {
-                                    if let Some(resolved_data_type) =
-                                        arena[node].get().resolve(arena, &parent, global_symbols)
+                            if let Some(data_type_node) = data_type.node {
+                                // The type is a reference itself:
+                                // The data_type of $o is the type of getInstance
+                                if let Some(parent) = arena[data_type_node].get().parent {
+
+                                    // This little if prevents loop in that case:
+                                    // $x = $x->getSelf()
+                                    // where $x was not defined before
+                                    if node == &parent {
+                                        continue;
+                                    }
+
+                                    // The parent of getInstance is Rofl, so resolve myself in Rofl
+                                    // Or, the parent of node is $object
+                                    if let Some(definition_data_type) =
+                                        arena[data_type_node].get().resolve(arena, &parent, global_symbols)
                                     {
+                                        // getInstance was found in Rofl
                                         for data_type in
-                                            arena[resolved_data_type].get().data_types.iter()
+                                            arena[definition_data_type].get().data_types.iter()
                                         {
-                                            if let Some(result) = self.resolve_types(
+                                            // Go through all the data_types of getInstance in Rofl
+                                            if let Some(result) = self.resolve_type(
                                                 arena,
-                                                &resolved_data_type,
+                                                &definition_data_type,
                                                 data_type,
                                                 global_symbols,
                                             ) {
@@ -291,10 +312,8 @@ impl Symbol {
                                         }
                                     }
                                 }
-                            }
-
-                            if let Some(result) =
-                                self.resolve_types(arena, node, data_type, global_symbols)
+                            } else if let Some(result) =
+                                self.resolve_type(arena, node, data_type, global_symbols)
                             {
                                 return Some(result);
                             }
@@ -335,7 +354,7 @@ impl Symbol {
         }
     }
 
-    fn resolve_types(
+    fn resolve_type(
         &self,
         arena: &Arena<Symbol>,
         node: &NodeId,
@@ -343,19 +362,20 @@ impl Symbol {
         global_symbols: &HashMap<String, NodeId>,
     ) -> Option<NodeId> {
         // Try to resolve the data type, revealing the defining class for example
-        if let Some(mut data_type_symbol_node) =
+        if let Some(mut current_parent_scope) =
             resolve_reference(data_type, arena, node, global_symbols)
         {
+            // The reference was successfully resolved
             // Lookup loop that goes through the data_type class and its parents
             'check_next_parent: loop {
                 // Go through this symbols children and try to find a match
-                for child in data_type_symbol_node.children(arena) {
+                for child in current_parent_scope.children(arena) {
                     if arena[child].get().name == self.name {
                         return Some(child);
                     }
                 }
 
-                let data_type_symbol = arena[data_type_symbol_node].get();
+                let data_type_symbol = arena[current_parent_scope].get();
 
                 // Maybe the data_type_symbol imports a trait that defines the
                 // symbol?
@@ -378,10 +398,10 @@ impl Symbol {
                     if let Some(resolved_inheritance_parent) = resolve_reference(
                         inherits_from,
                         arena,
-                        &data_type_symbol_node,
+                        &current_parent_scope,
                         global_symbols,
                     ) {
-                        data_type_symbol_node = resolved_inheritance_parent;
+                        current_parent_scope = resolved_inheritance_parent;
 
                         continue 'check_next_parent;
                     }
@@ -601,6 +621,7 @@ pub fn document_symbol(
         }
         // Remember: We see the members in reverse order! $a->b()->c() starts at c!
         Node::Member { object, member, .. } => {
+            //eprintln!("{}", lvl);
             let mut stack = Vec::new();
 
             let mut current_object = object;

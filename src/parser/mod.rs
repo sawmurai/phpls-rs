@@ -564,7 +564,7 @@ mod tests {
         let mut scanner = Scanner::new(code);
         let tokens = scanner.scan().unwrap();
 
-        let parser = Parser::ast(tokens.clone());
+        assert_eq!(true, Parser::ast(tokens.clone()).is_ok());
 
         //println!("{:#?}", parser.unwrap().0);
     }
