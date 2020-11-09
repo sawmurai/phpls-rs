@@ -527,7 +527,7 @@ pub fn document_symbol(
     arena: &mut Arena<Symbol>,
     enclosing: &NodeId,
     node: &Node,
-    parent: Option<NodeId>,
+    parent: Option<NodeId>
 ) -> Result<NodeId, String> {
     match node {
         Node::Unary { expr, .. } => document_symbol(arena, enclosing, expr, parent),
@@ -629,6 +629,10 @@ pub fn document_symbol(
 
             let member_node = document_symbol(arena, enclosing, member, Some(object_node))?;
 
+            // Add a reference to the type of the member
+            if let Node::Literal(token) = member.as_ref() {
+                arena[member_node].get_mut().references = Some(Reference::node(token, member_node));
+            }
             enclosing.append(member_node, arena);
 
             Ok(member_node)
