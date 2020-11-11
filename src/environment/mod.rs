@@ -32,7 +32,7 @@ pub fn hover(
     if let Some(symbol_node) = symbol_under_cursor(arena, symbol_node, position) {
         let symbol = arena[symbol_node].get();
 
-        if let Some(resolved) = symbol.resolve(arena, &symbol_node, global_symbols) {
+        if let Some(resolved) = symbol.resolve(arena, &symbol_node, global_symbols, Vec::new()) {
             Some(format!(
                 "{} resolved",
                 arena[resolved].get().hover_text(arena, &resolved)
@@ -83,7 +83,7 @@ pub fn definition_of_symbol_under_cursor(
         let symbol = arena[symbol_node].get();
 
         // Improvement: Already get the file here to avoid another climb up the tree
-        if let Some(mut resolved) = symbol.resolve(arena, &symbol_node, global_symbols) {
+        if let Some(mut resolved) = symbol.resolve(arena, &symbol_node, global_symbols, Vec::new()) {
             let range = arena[resolved].get().selection_range;
 
             while arena[resolved].parent().is_some() {

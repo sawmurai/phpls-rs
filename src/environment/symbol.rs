@@ -198,9 +198,17 @@ impl Symbol {
     pub fn resolve(
         &self,
         arena: &Arena<Symbol>,
-        node: &NodeId,
-        global_symbols: &HashMap<String, NodeId>
+        my_node_id: &NodeId,
+        global_symbols: &HashMap<String, NodeId>,
+        visited: Vec<&NodeId>
     ) -> Option<NodeId> {
+        if visited.contains(&my_node_id) {
+            return None;
+        }
+
+        let mut visited = visited;
+        visited.push(my_node_id);
+
         match self.kind {
             PhpSymbolKind::Import => {
                 // Resolve a global import
@@ -215,7 +223,7 @@ impl Symbol {
             PhpSymbolKind::Variable => {
                 // Find first instance this one was named and return it
                 // If nothing can be found, this is the definition
-                let parent_node = arena[*node].parent().unwrap();
+                let parent_node = arena[*my_node_id].parent().unwrap();
 
                 // $this resolves to the parent class, which is the grant parent if $this (as there
                 // is a method in between)
@@ -226,7 +234,7 @@ impl Symbol {
 
                 for symbol in parent_node.children(arena) {
                     // Do not compare to itself
-                    if symbol == *node {
+                    if symbol == *my_node_id {
                         continue;
                     }
 
@@ -239,7 +247,7 @@ impl Symbol {
                     }
                 }
 
-                Some(*node)
+                Some(*my_node_id)
             }
             PhpSymbolKind::Unknown => {
                 // node is a reference
@@ -253,7 +261,7 @@ impl Symbol {
                     if let Some(parent_definition) =
                         arena[parent_node]
                             .get()
-                            .resolve(arena, &parent_node, global_symbols)
+                            .resolve(arena, &parent_node, global_symbols, visited.clone())
                     {
 
                         // We successfully resolved it to its definition. Now, get the associated symbol. This is a method
@@ -282,38 +290,28 @@ impl Symbol {
                             if let Some(data_type_node) = data_type.node {
                                 // The type is a reference itself:
                                 // The data_type of $o is the type of getInstance
-                                if let Some(parent) = arena[data_type_node].get().parent {
-
-                                    // This little if prevents loop in that case:
-                                    // $x = $x->getSelf()
-                                    // where $x was not defined before
-                                    if node == &parent {
-                                        continue;
-                                    }
-
-                                    // The parent of getInstance is Rofl, so resolve myself in Rofl
-                                    // Or, the parent of node is $object
-                                    if let Some(definition_data_type) =
-                                        arena[data_type_node].get().resolve(arena, &parent, global_symbols)
+                                // The parent of getInstance is Rofl, so resolve myself in Rofl
+                                // Or, the parent of node is $object
+                                if let Some(definition_data_type) =
+                                    arena[data_type_node].get().resolve(arena, &data_type_node, global_symbols, visited.clone())
+                                {
+                                    // getInstance was found in Rofl
+                                    for data_type in
+                                        arena[definition_data_type].get().data_types.iter()
                                     {
-                                        // getInstance was found in Rofl
-                                        for data_type in
-                                            arena[definition_data_type].get().data_types.iter()
-                                        {
-                                            // Go through all the data_types of getInstance in Rofl
-                                            if let Some(result) = self.resolve_type(
-                                                arena,
-                                                &definition_data_type,
-                                                data_type,
-                                                global_symbols,
-                                            ) {
-                                                return Some(result);
-                                            }
+                                        // Go through all the data_types of getInstance in Rofl
+                                        if let Some(result) = self.resolve_type(
+                                            arena,
+                                            &definition_data_type,
+                                            data_type,
+                                            global_symbols,
+                                        ) {
+                                            return Some(result);
                                         }
                                     }
                                 }
                             } else if let Some(result) =
-                                self.resolve_type(arena, node, data_type, global_symbols)
+                                self.resolve_type(arena, my_node_id, data_type, global_symbols)
                             {
                                 return Some(result);
                             }
@@ -325,18 +323,18 @@ impl Symbol {
 
                 // TODO Make sure only classes support $this
                 if self.name == "self" || self.name == "static" {
-                    let parent_node = arena[*node].parent().unwrap();
+                    let parent_node = arena[*my_node_id].parent().unwrap();
                     return Some(arena[parent_node].parent().unwrap());
                 }
 
                 // TODO Make sure only classes support $this
                 if self.name == "parent" {
-                    let parent_node = arena[*node].parent().unwrap();
+                    let parent_node = arena[*my_node_id].parent().unwrap();
                     let parent_class = arena[arena[parent_node].parent().unwrap()].get();
 
                     for ancestor in parent_class.inherits_from.iter() {
                         if let Some(node) =
-                            resolve_reference(&ancestor, arena, node, global_symbols)
+                            resolve_reference(&ancestor, arena, my_node_id, global_symbols)
                         {
                             return Some(node);
                         }
@@ -344,13 +342,13 @@ impl Symbol {
                 }
 
                 if let Some(reference) = self.references.as_ref() {
-                    return resolve_reference(reference, arena, node, global_symbols);
+                    return resolve_reference(reference, arena, my_node_id, global_symbols);
                 }
 
                 None
             }
             // All else is a definition
-            _ => Some(*node),
+            _ => Some(*my_node_id),
         }
     }
 

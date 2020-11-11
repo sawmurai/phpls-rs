@@ -43,10 +43,10 @@ impl Backend {
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-        self.reindex_folder(&PathBuf::from(
-            "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
-        ))
-        .await?;
+       // self.reindex_folder(&PathBuf::from(
+        //    "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
+       // ))
+      //  .await?;
 
         if let Ok(root_path) = url.to_file_path() {
             self.reindex_folder(&root_path).await?;
@@ -88,7 +88,7 @@ impl Backend {
 
                 if symbol.kind == PhpSymbolKind::Unknown
                     && symbol
-                        .resolve(&arena, &symbol_node, &global_table)
+                        .resolve(&arena, &symbol_node, &global_table, Vec::new())
                         .is_none()
                 {
                     diagnostics
@@ -458,7 +458,7 @@ impl LanguageServer for Backend {
 
                 if symbol.kind == PhpSymbolKind::Unknown
                     && symbol
-                        .resolve(&arena, &symbol_node, &global_table)
+                        .resolve(&arena, &symbol_node, &global_table, Vec::new())
                         .is_none()
                 {
                     diagnostics.push(Diagnostic::from(symbol));
