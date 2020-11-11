@@ -258,7 +258,7 @@ impl Symbol {
 
                     // To determine the type of node, we must first know what $object is an instance of, so we
                     // try to resolve it to get its definition
-                    if let Some(parent_definition) =
+                    if let Some(parent_definition_node) =
                         arena[parent_node]
                             .get()
                             .resolve(arena, &parent_node, global_symbols, visited.clone())
@@ -266,16 +266,37 @@ impl Symbol {
 
                         // We successfully resolved it to its definition. Now, get the associated symbol. This is a method
                         // definition or the initialization of a variable
-                        let parent_symbol = arena[parent_definition].get();
+                        let parent_symbol = arena[parent_definition_node].get();
 
                         // This is the case when a static method or property was accessed
                         if parent_symbol.kind == PhpSymbolKind::Class {
-                            // TODO: Also check parents of this class if necessary
-                            for child in parent_definition.children(arena) {
-                                if arena[child].get().name == self.name {
-                                    return Some(child);
+                            let mut parent_definition_node = parent_definition_node;
+                            let mut parent_symbol = parent_symbol;
+
+                            loop {
+                                for child_node in parent_definition_node.children(arena) {
+                                    if arena[child_node].get().name == self.name {
+                                        return Some(child_node);
+                                    }
+                                }
+
+                                if parent_symbol.inherits_from.is_empty() {
+                                    return None;
+                                }
+
+                                for ancestor in parent_symbol.inherits_from.iter() {
+                                    if let Some(node) =
+                                        resolve_reference(&ancestor, arena, my_node_id, global_symbols)
+                                    {
+                                        parent_definition_node = node;
+                                        parent_symbol = arena[node].get();
+                                    } else {
+                                        return None;
+                                    }
+
                                 }
                             }
+
                         }
 
                         // Go through all possible data types of the symbol. Variables get the data type of the expression that

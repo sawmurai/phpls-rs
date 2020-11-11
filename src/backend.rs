@@ -650,6 +650,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_resolves_inherited_members() {
+        let base_dir = std::env::current_dir().unwrap();
+        let root = format!("{}/fixtures/small/oop", base_dir.display());
+        let file = format!(
+            "{}/fixtures/small/oop/inheritance.php",
+            base_dir.display()
+        );
+
+        let backend = Backend::new();
+        let uri = Url::from_file_path(root).unwrap();
+        backend.init_workspace(&uri).await.unwrap();
+
+        let diagnostics = backend.diagnostics.lock().await;
+        let diagnostics = diagnostics.get(&file).unwrap();
+
+        println!("{:?}", diagnostics);
+        assert_eq!(true, diagnostics.is_empty());
+    }
+
+    #[tokio::test]
     async fn test_handles_unresolvable() {
         let base_dir = std::env::current_dir().unwrap();
         let root = format!("{}/fixtures/projects/invalid", base_dir.display());
