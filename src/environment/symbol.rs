@@ -256,6 +256,7 @@ impl Symbol {
                 // parent_node is $object
                 if let Some(&parent_node) = self.parent.as_ref() {
 
+
                     // To determine the type of node, we must first know what $object is an instance of, so we
                     // try to resolve it to get its definition
                     if let Some(parent_definition_node) =
@@ -263,13 +264,12 @@ impl Symbol {
                             .get()
                             .resolve(arena, &parent_node, global_symbols, visited.clone())
                     {
-
                         // We successfully resolved it to its definition. Now, get the associated symbol. This is a method
                         // definition or the initialization of a variable
                         let parent_symbol = arena[parent_definition_node].get();
 
                         // This is the case when a static method or property was accessed
-                        if parent_symbol.kind == PhpSymbolKind::Class {
+                        if parent_symbol.kind == PhpSymbolKind::Class || parent_symbol.kind == PhpSymbolKind::Interface {
                             let mut parent_definition_node = parent_definition_node;
                             let mut parent_symbol = parent_symbol;
 
@@ -286,14 +286,14 @@ impl Symbol {
 
                                 for ancestor in parent_symbol.inherits_from.iter() {
                                     if let Some(node) =
-                                        resolve_reference(&ancestor, arena, my_node_id, global_symbols)
+                                        resolve_reference(&ancestor, arena, &parent_definition_node, global_symbols)
                                     {
                                         parent_definition_node = node;
                                         parent_symbol = arena[node].get();
+                                        break;
                                     } else {
                                         return None;
                                     }
-
                                 }
                             }
 
@@ -480,18 +480,9 @@ fn resolve_reference(
     let mut node = arena[*node].parent().unwrap();
 
     loop {
-        // Check symbols on this level
-        for symbol in node.children(arena) {
-            let found_symbol = arena[symbol].get();
-
-            // TODO: Make sure not false positives with strings etc.
-            if found_symbol.kind != PhpSymbolKind::Unknown && found_symbol.name == symbol_name {
-                return Some(symbol);
-            }
-        }
-
         // Check imports if they exist
         let current_node = arena[node].get();
+
         if let Some(imports) = &current_node.imports {
             for import in imports {
                 if import.name() == symbol_name {
@@ -516,6 +507,16 @@ fn resolve_reference(
         } else if current_node.kind == PhpSymbolKind::File {
             if let Some(global_symbol_node) = global_symbols.get(&symbol_name) {
                 return Some(*global_symbol_node);
+            }
+        } else {
+            // Check symbols on this level
+            for symbol in node.children(arena) {
+                let found_symbol = arena[symbol].get();
+
+                // TODO: Make sure not false positives with strings etc.
+                if found_symbol.kind != PhpSymbolKind::Unknown && found_symbol.name == symbol_name {
+                    return Some(symbol);
+                }
             }
         }
 
