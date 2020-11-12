@@ -288,8 +288,10 @@ impl Symbol {
                                     if let Some(node) =
                                         resolve_reference(&ancestor, arena, &parent_definition_node, global_symbols)
                                     {
+                                        eprint!("Resolved parent_symbol {}", parent_symbol.name);
                                         parent_definition_node = node;
                                         parent_symbol = arena[node].get();
+                                        eprintln!(" now getting {}", parent_symbol.name);
                                         break;
                                     } else {
                                         return None;
@@ -484,11 +486,45 @@ fn resolve_reference(
         let current_node = arena[node].get();
 
         if let Some(imports) = &current_node.imports {
+
             for import in imports {
-                if import.name() == symbol_name {
-                    let full_name = import.full_name();
-                    if let Some(node) = global_symbols.get(&full_name) {
-                        return Some(*node);
+                // If we are resolving a type_ref make sure that we are taking the entire namespace into account
+                // Example:
+                // use Some\Imported\Thing;
+                //
+                // $x = new Thing\Rofl();
+                // Thin needs to match!
+                if let Some(type_ref) = reference.type_ref.as_ref() {
+                    // It is a type_ref, take first part of usage (Thing) if it exists (it should, but well, this is rust)
+                    if let Some(first_part_of_usage) = type_ref.first() {
+                        // It exists ... who would have thought. Now, lets check if it has a label and if the name matches
+                        if let Some(fpos_label) = first_part_of_usage.label.as_ref() {
+                            // Yes, a match! Now construct FQN:
+                            // Some\Imported\Thing + Thing\Rofl == Some\Imported\Thing\Rofl
+                            if fpos_label == &import.name() {
+                                // TODO: Move this out of the loop to save some iterations
+                                let end_of_usage = type_ref
+                                .iter()
+                                .skip(1)
+                                .filter(|tok| tok.label.is_some())
+                                .map(|tok| tok.label.clone().unwrap())
+                                .collect::<Vec<String>>()
+                                .join("\\");
+
+                                let full_name = if end_of_usage.len() > 0 {
+                                    format!("{}\\{}", import.full_name(), end_of_usage)
+                                }   else {
+                                    import.full_name()
+                                };
+
+                                if let Some(node) = global_symbols.get(&full_name) {
+                                    //eprintln!("Found {} in imports", symbol_name);
+                                    return Some(*node);
+                                } else {
+                                    return None;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -500,12 +536,15 @@ fn resolve_reference(
             if let Some(node) =
                 global_symbols.get(&format!("{}\\{}", current_node.name, symbol_name))
             {
+
+                //eprintln!("[NS] Found {} in global symbols", &format!("{}\\{}", current_node.name, symbol_name));
                 return Some(*node);
             }
         // If the current node is the file then the last chance would be if the symbol is a global symbol from
         // the stdlib
         } else if current_node.kind == PhpSymbolKind::File {
             if let Some(global_symbol_node) = global_symbols.get(&symbol_name) {
+                //eprintln!("[F] Found {} in global symbols", symbol_name);
                 return Some(*global_symbol_node);
             }
         } else {
@@ -515,6 +554,8 @@ fn resolve_reference(
 
                 // TODO: Make sure not false positives with strings etc.
                 if found_symbol.kind != PhpSymbolKind::Unknown && found_symbol.name == symbol_name {
+
+                    //eprintln!("Found {} in else", symbol_name);
                     return Some(symbol);
                 }
             }

@@ -37,16 +37,6 @@ impl Reference {
         return false;
     }
 
-    /// Reference to a variable
-    pub fn variable(token: &Token) -> Self {
-        Self {
-            token: Some(token.clone()),
-            type_ref: None,
-            range: get_range(token.range()),
-            node: None,
-        }
-    }
-
     /// Reference to an identifier, for example a function or a member
     pub fn node(token: &Token, node: NodeId) -> Self {
         Self {

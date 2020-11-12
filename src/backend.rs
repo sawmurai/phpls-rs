@@ -43,10 +43,10 @@ impl Backend {
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-       // self.reindex_folder(&PathBuf::from(
-        //    "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
-       // ))
-      //  .await?;
+        self.reindex_folder(&PathBuf::from(
+            "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
+        ))
+        .await?;
 
         if let Ok(root_path) = url.to_file_path() {
             self.reindex_folder(&root_path).await?;
@@ -309,6 +309,8 @@ impl LanguageServer for Backend {
     async fn initialized(&self, client: &Client, _params: InitializedParams) {
         let mut diagnostics = self.diagnostics.lock().await;
 
+        return;
+
         for (file, diagnostics) in diagnostics.iter() {
             if
             /*file.contains("/vendor/")
@@ -567,21 +569,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handles_fluent_interfaces() {
-        let base_dir = std::env::current_dir().unwrap();
-        let root = format!("{}/fixtures/small", base_dir.display());
-        let file = format!("{}/fixtures/small/fluent-interface.php", base_dir.display());
-
-        let backend = Backend::new();
-        let uri = Url::from_file_path(root).unwrap();
-        backend.init_workspace(&uri).await.unwrap();
-
-        let diagnostics = backend.diagnostics.lock().await;
-        let diagnostics = diagnostics.get(&file).unwrap();
-        assert_eq!(true, diagnostics.is_empty());
-    }
-
-    #[tokio::test]
     async fn test_detects_class_within_grouping() {
         let base_dir = std::env::current_dir().unwrap();
         let root = format!("{}/fixtures/small", base_dir.display());
@@ -593,6 +580,7 @@ mod tests {
 
         let diagnostics = backend.diagnostics.lock().await;
         let diagnostics = diagnostics.get(&file).unwrap();
+
         assert_eq!(true, diagnostics.is_empty());
     }
 
