@@ -1,5 +1,10 @@
 use crate::environment;
+use crate::environment::in_range;
+use crate::environment::traverser::traverse;
 use crate::environment::scope::collect_symbols;
+use crate::environment::visitor::workspace_symbol::{WorkspaceSymbolVisitor};
+use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolver};
+use crate::environment::visitor::name_resolver::Reference;
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use crate::node::{get_range, Node};
 use crate::parser::Parser;
@@ -22,22 +27,26 @@ pub struct Backend {
     pub arena: Arc<Mutex<Arena<Symbol>>>,
 
     /// NodeIds of entry points to files
-    pub root_symbols: Arc<Mutex<HashMap<String, NodeId>>>,
+    pub files: Arc<Mutex<HashMap<String, NodeId>>>,
 
     /// FQDN to NodeId
     pub global_symbols: Arc<Mutex<HashMap<String, NodeId>>>,
 
     /// Global list of all diagnostics
     pub diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
+
+    /// References to symbols. Key is the filename
+    pub symbol_references: Arc<Mutex<HashMap<String, Vec<Reference>>>>,
 }
 
 impl Backend {
     pub fn new() -> Self {
         Backend {
             arena: Arc::new(Mutex::new(Arena::new())),
-            root_symbols: Arc::new(Mutex::new(HashMap::new())),
+            files: Arc::new(Mutex::new(HashMap::new())),
             global_symbols: Arc::new(Mutex::new(HashMap::new())),
             diagnostics: Arc::new(Mutex::new(HashMap::new())),
+            symbol_references: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -56,10 +65,10 @@ impl Backend {
 
         let arena = self.arena.lock().await;
         let mut diagnostics = self.diagnostics.lock().await;
-        let root_symbols = self.root_symbols.lock().await;
+        let files = self.files.lock().await;
 
         let mut global_table: HashMap<String, NodeId> = HashMap::new();
-        for (_file, node_id) in root_symbols.iter() {
+        for (_file, node_id) in files.iter() {
             for symbol_id in node_id.children(&arena) {
                 let symbol = arena[symbol_id].get();
 
@@ -82,7 +91,7 @@ impl Backend {
             }
         }
 
-        for (file, node_id) in root_symbols.iter() {
+        for (file, node_id) in files.iter() {
             for symbol_node in node_id.descendants(&arena) {
                 let symbol = arena[symbol_node].get();
 
@@ -141,7 +150,7 @@ impl Backend {
                             }
                         };
 
-                        self.reindex(&p, &content).await?;
+                        self.reindex(&p, &content, false).await?;
                     }
                 }
             }
@@ -149,7 +158,7 @@ impl Backend {
         Ok(())
     }
 
-    async fn reindex(&self, path: &str, content: &str) -> io::Result<()> {
+    async fn reindex(&self, path: &str, content: &str, resolve: bool) -> io::Result<()> {
         let mut scanner = Scanner::new(&content);
 
         if let Err(msg) = scanner.scan() {
@@ -165,73 +174,42 @@ impl Backend {
             let mut arena = self.arena.lock().await;
 
             let enclosing_file = arena.new_node(Symbol {
-                name: path.to_owned(),
                 kind: PhpSymbolKind::File,
+                name: path.to_owned(),
                 range,
                 selection_range: range,
-                detail: None,
-                deprecated: None,
-                inherits_from: Vec::new(),
-                parent: None,
-                references: None,
-                references_by: Vec::new(),
-                data_types: Vec::new(),
-                is_static: false,
-                imports: None,
+                ..Symbol::default()
             });
 
-            // By default, put all symbols in the file scope
-            let mut current_parent = enclosing_file;
-
+            let mut visitor = WorkspaceSymbolVisitor::new();
             let mut iter = ast.iter();
             while let Some(node) = iter.next() {
-                match node {
-                    // Once we detect a namespace statement we consider all following definitions to be
-                    // within the namespaces symbol
-                    Node::NamespaceStatement { type_ref, .. } => {
-                        let (name, selection_range) = match &**type_ref {
-                            Node::TypeRef(tokens) => (
-                                tokens
-                                    .iter()
-                                    .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
-                                    .collect::<Vec<String>>()
-                                    .join(""),
-                                // Range from first part of name until the last one
-                                get_range((
-                                    tokens.first().unwrap().range().0,
-                                    tokens.last().unwrap().range().1,
-                                )),
-                            ),
-                            _ => panic!("This should not happen"),
-                        };
+                traverse(node, &mut visitor, &mut arena, enclosing_file);
 
-                        current_parent = arena.new_node(Symbol {
-                            name,
-                            kind: PhpSymbolKind::Namespace,
-                            range,
-                            selection_range,
-                            detail: None,
-                            deprecated: None,
-                            inherits_from: Vec::new(),
-                            parent: None,
-                            references: None,
-                            references_by: Vec::new(),
-                            data_types: Vec::new(),
-                            is_static: false,
-                            imports: None,
-                        });
-
-                        enclosing_file.append(current_parent, &mut arena);
-                    }
-                    _ => {
-                        if let Err(e) = collect_symbols(&mut arena, &current_parent, &node) {
+                /*  if let Err(e) = collect_symbols(&mut arena, &current_parent, &node) {
                             eprintln!("Mööp!: {} {}", path, e);
-                        }
-                    }
-                }
+                        }*/
+
+                //}
             }
 
-            self.root_symbols
+            if resolve {
+                let global_symbols = self.global_symbols.lock().await;
+                let mut resolver = NameResolver::new(&global_symbols);
+
+                let mut visitor = NameResolveVisitor::new(&mut resolver);
+                let mut iter = ast.iter();
+                while let Some(node) = iter.next() {
+                    traverse(node, &mut visitor, &mut arena, enclosing_file);
+                }
+
+                self.symbol_references
+                .lock()
+                .await
+                .insert(path.to_owned(), visitor.references());
+            }
+
+            self.files
                 .lock()
                 .await
                 .insert(path.to_owned(), enclosing_file);
@@ -334,14 +312,20 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
+        if params.query == "" {
+            return Ok(None);
+        }
+
+        let query = params.query.to_lowercase();
+
         let mut symbols = Vec::new();
         let arena = self.arena.lock().await;
 
-        for (file_name, node) in self.root_symbols.lock().await.iter() {
-            for symbol in node.children(&arena) {
+        for (file_name, node) in self.files.lock().await.iter() {
+            for symbol in node.descendants(&arena) {
                 let symbol = arena[symbol].get();
 
-                if params.query != "" && symbol.name.starts_with(&params.query) {
+                if symbol.name.to_lowercase().starts_with(&query) {
                     if let Some(kind) = symbol.kind.to_symbol_kind() {
                         symbols.push(SymbolInformation {
                             name: symbol.name.clone(),
@@ -368,7 +352,7 @@ impl LanguageServer for Backend {
         let path = params.text_document.uri.path();
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = self.root_symbols.lock().await.get(path) {
+        if let Some(node_id) = self.files.lock().await.get(path) {
             return Ok(Some(DocumentSymbolResponse::Nested(
                 node_id
                     .children(&arena)
@@ -393,7 +377,7 @@ impl LanguageServer for Backend {
             .path();
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = self.root_symbols.lock().await.get(file) {
+        if let Some(node_id) = self.files.lock().await.get(file) {
             return Ok(environment::document_highlights(
                 &params.text_document_position_params.position,
                 &arena,
@@ -407,7 +391,7 @@ impl LanguageServer for Backend {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let file = params.text_document_position.text_document.uri.path();
 
-        if let Some(_arena) = self.root_symbols.lock().await.get(file) {
+        if let Some(_arena) = self.files.lock().await.get(file) {
         } else {
             eprintln!("File not found");
         }
@@ -421,18 +405,23 @@ impl LanguageServer for Backend {
     ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let file = uri.path();
-        let arena = self.arena.lock().await;
-        let root_symbols = self.root_symbols.lock().await;
-        let global_symbols = self.global_symbols.lock().await;
 
-        if let Some(node_id) = root_symbols.get(file) {
-            if let Some(location) = environment::definition_of_symbol_under_cursor(
-                &arena,
-                node_id,
-                &params.text_document_position_params.position,
-                &global_symbols,
-            ) {
-                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+        let local_references = self.symbol_references.lock().await;
+
+        let arena = self.arena.lock().await;
+
+        let position = &params.text_document_position_params.position;
+
+        if let Some(references) = local_references.get(file) {
+            for reference in references {
+                if in_range(position, &get_range(reference.range)) {
+                    if let Some(location) = environment::symbol_location(
+                        &arena,
+                        &reference.node
+                    ) {
+                        return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                    }
+                }
             }
         }
 
@@ -442,17 +431,17 @@ impl LanguageServer for Backend {
     async fn did_change(&self, client: &Client, params: DidChangeTextDocumentParams) {
         let path = params.text_document.uri.path();
 
-        if let Err(e) = self.reindex(path, &params.content_changes[0].text).await {
+        if let Err(e) = self.reindex(path, &params.content_changes[0].text, true).await {
             client.log_message(MessageType::Error, e);
 
             return;
         }
 
-        let root_symbols = self.root_symbols.lock().await;
+        let files = self.files.lock().await;
         let global_table = self.global_symbols.lock().await;
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = root_symbols.get(path) {
+        if let Some(node_id) = files.get(path) {
             let mut diagnostics = Vec::new();
 
             for symbol_node in node_id.descendants(&arena) {
@@ -479,7 +468,7 @@ impl LanguageServer for Backend {
         let path = params.text_document.uri.path();
         let content = tokio::fs::read_to_string(path).await.unwrap();
 
-        if let Err(e) = self.reindex(path, &content).await {
+        if let Err(e) = self.reindex(path, &content, true).await {
             client.log_message(MessageType::Error, format!("Failed to index {}", e));
 
             return;
@@ -504,10 +493,10 @@ impl LanguageServer for Backend {
         let uri = params.text_document_position_params.text_document.uri;
         let file = uri.path();
         let arena = self.arena.lock().await;
-        let root_symbols = self.root_symbols.lock().await;
+        let files = self.files.lock().await;
         let global_symbols = self.global_symbols.lock().await;
 
-        if let Some(node_id) = root_symbols.get(file) {
+        if let Some(node_id) = files.get(file) {
             if let Some(string) = environment::hover(
                 &arena,
                 node_id,

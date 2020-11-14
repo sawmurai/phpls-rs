@@ -535,6 +535,7 @@ pub enum Node {
 }
 
 impl Node {
+
     pub fn is_offset(&self) -> bool {
         true
     }

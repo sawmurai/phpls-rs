@@ -21,9 +21,10 @@ async fn main() {
 
     let backend = Backend {
         arena: Arc::new(Mutex::new(Arena::new())),
-        root_symbols: Arc::new(Mutex::new(HashMap::new())),
+        files: Arc::new(Mutex::new(HashMap::new())),
         global_symbols: Arc::new(Mutex::new(HashMap::new())),
         diagnostics: Arc::new(Mutex::new(HashMap::new())),
+        symbol_references: Arc::new(Mutex::new(HashMap::new()))
     };
 
     let (service, messages) = LspService::new(backend);

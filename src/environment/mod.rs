@@ -1,4 +1,4 @@
-use crate::environment::symbol::Symbol;
+use crate::environment::symbol::{Symbol, PhpSymbolKind};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{DocumentHighlight, Location, Position, Range, Url};
@@ -6,6 +6,8 @@ use tower_lsp::lsp_types::{DocumentHighlight, Location, Position, Range, Url};
 pub mod import;
 pub mod scope;
 pub mod symbol;
+pub mod traverser;
+pub mod visitor;
 
 /// Return all references to the symbol under the cursor at `position`
 pub fn document_highlights(
@@ -73,41 +75,32 @@ pub fn symbol_under_cursor(
 }
 
 /// Find the definition or reference under the cursor
-pub fn definition_of_symbol_under_cursor(
+pub fn symbol_location(
     arena: &Arena<Symbol>,
-    symbol_node: &NodeId,
-    position: &Position,
-    global_symbols: &HashMap<String, NodeId>,
+    symbol_node: &NodeId
 ) -> Option<Location> {
-    if let Some(symbol_node) = symbol_under_cursor(arena, symbol_node, position) {
-        let symbol = arena[symbol_node].get();
+    let range = arena[*symbol_node].get().selection_range;
 
-        // Improvement: Already get the file here to avoid another climb up the tree
-        if let Some(mut resolved) = symbol.resolve(arena, &symbol_node, global_symbols, Vec::new()) {
-            let range = arena[resolved].get().selection_range;
+    let mut symbol_node = *symbol_node;
 
-            while arena[resolved].parent().is_some() {
-                resolved = arena[resolved].parent().unwrap();
-            }
+    while let Some(parent) = arena[symbol_node].parent() {
+        let symbol = arena[parent].get();
 
-            let file = arena[resolved].get();
-
+        if symbol.kind == PhpSymbolKind::File {
             return Some(Location {
-                uri: Url::from_file_path(file.name.clone()).unwrap(),
+                uri: Url::from_file_path(symbol.name.clone()).unwrap(),
                 range,
             });
-        } else {
-            eprintln!("Symbol under the cursor is not resolvable");
         }
-    } else {
-        eprintln!("Could not find a symbol under the cursor");
+
+        symbol_node = parent;
     }
 
     return None;
 }
 
 /// Checks if a given `position` is within a given `range`.
-fn in_range(position: &Position, range: &Range) -> bool {
+pub fn in_range(position: &Position, range: &Range) -> bool {
     // Before the start or behind the end
     if position.line > range.end.line || position.line < range.start.line {
         return false;

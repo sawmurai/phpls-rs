@@ -74,6 +74,26 @@ pub struct Symbol {
     pub is_static: bool,
 }
 
+impl Default for Symbol {
+    fn default() -> Self {
+        Symbol {
+            name: String::new(),
+            kind: PhpSymbolKind::File,
+            range: get_range(((0, 0), (0, 0))),
+            selection_range: get_range(((0, 0), (0, 0))),
+            detail: None,
+            deprecated: None,
+            inherits_from: Vec::new(),
+            parent: None,
+            references: None,
+            references_by: Vec::new(),
+            data_types: Vec::new(),
+            is_static: false,
+            imports: None,
+        }
+    }
+}
+
 impl PhpSymbolKind {
     pub fn to_symbol_kind(&self) -> Option<SymbolKind> {
         let kind = match self {
