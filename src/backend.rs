@@ -1,6 +1,6 @@
 use crate::environment;
 use crate::environment::in_range;
-use crate::environment::traverser::traverse;
+use crate::environment::traverser::{traverse, traverse_scoped};
 use crate::environment::visitor::workspace_symbol::{WorkspaceSymbolVisitor};
 use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolver};
 use crate::environment::visitor::name_resolver::Reference;
@@ -224,12 +224,12 @@ impl Backend {
 
             if resolve {
                 let global_symbols = global_symbols.lock().await;
-                let mut resolver = NameResolver::new(&global_symbols);
+                let mut resolver = NameResolver::new(&global_symbols, enclosing_file);
 
                 let mut visitor = NameResolveVisitor::new(&mut resolver);
                 let mut iter = ast.iter();
                 while let Some(node) = iter.next() {
-                    traverse(node, &mut visitor, &mut arena, enclosing_file);
+                    traverse_scoped(node, &mut visitor, &mut arena);
                 }
 
                 symbol_references

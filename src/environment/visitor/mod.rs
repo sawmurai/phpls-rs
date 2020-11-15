@@ -15,3 +15,9 @@ pub trait Visitor {
     fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) -> NextAction;
     fn after(&mut self, node: &AstNode);
 }
+
+pub trait ScopedVisitor {
+    fn before(&mut self, node: &AstNode);
+    fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>) -> NextAction;
+    fn after(&mut self, node: &AstNode);
+}

@@ -1330,6 +1330,13 @@ impl Node {
             _ => ((1, 1), (1, 1)),
         }
     }
+
+    pub fn name(&self) -> String {
+        match self {
+            Node::Variable(token) | Node::Literal(token) => format!("{}", token),
+            _ => String::new()
+        }
+    }
 }
 
 pub fn get_range(coords: NodeRange) -> Range {

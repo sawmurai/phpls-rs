@@ -1,6 +1,6 @@
-use super::Visitor;
+use super::ScopedVisitor;
 use super::Symbol;
-use crate::token::Token;
+use crate::token::{Token, TokenType};
 use super::NextAction;
 use crate::node::{Node as AstNode, NodeRange};
 use std::collections::HashMap;
@@ -31,33 +31,68 @@ pub struct NameResolver<'a> {
     /// Contains locally defined variables and functions
     local_scopes: Vec<HashMap<String, NodeId>>,
 
+    /// Contains a stack of references to $this
+    current_class: Option<NodeId>,
+
+    /// Current scope container for storage of new symbols
+    /// Usually a method / function body or a file
+    scope_container: NodeId,
+
     pub document_references: Vec<Reference>
 }
 
 impl<'a> NameResolver<'a> {
-    pub fn new(global_scope: &'a HashMap<String, NodeId>) -> Self {
+    pub fn new(global_scope: &'a HashMap<String, NodeId>, scope_container: NodeId) -> Self {
         NameResolver {
             global_scope,
             imports: HashMap::new(),
             current_namespace: String::new(),
             local_scopes: vec![HashMap::new()],
-            document_references: Vec::new()
+            current_class: None,
+            document_references: Vec::new(),
+            scope_container
         }
     }
 
+    /// Return the collected references
     pub fn references(&self) -> Vec<Reference> {
         self.document_references.clone()
     }
 
+    /// Enter a new scope
     pub fn push_scope(&mut self) {
         self.local_scopes.push(HashMap::new());
     }
 
+    /// Leave the current scope and discard it
     pub fn pop_scope(&mut self) {
         self.local_scopes.pop();
     }
 
+    /// Enter a new class
+    pub fn enter_class(&mut self, node: NodeId) {
+        self.current_class = Some(node);
+    }
+
+    /// Enter a new class
+    pub fn leave_class(&mut self) {
+        self.current_class = None;
+    }
+
+    /// Return a local symbol by its name. The name is stored in the token, so its sufficient
+    /// to just pass the token
     pub fn get_local(&self, token: &Token) -> Option<NodeId> {
+        // Resolve $this to current class
+        if token.t == TokenType::Variable {
+            if let Some(label) = token.label.as_ref() {
+                if label == "this" {
+                    if let Some(current_class) = self.current_class {
+                        return Some(current_class);
+                    }
+                }
+            }
+        }
+
         if let Some(top_scope) = self.local_scopes.last() {
             if let Some(node) = top_scope.get(&token.clone().label.unwrap()) {
                 return Some(*node);
@@ -67,11 +102,12 @@ impl<'a> NameResolver<'a> {
         None
     }
 
+    /// Register a new reference to a local symbol
     pub fn reference_local(&mut self, token: &Token, node: &NodeId) {
-        eprintln!("Referencing local variable");
         self.document_references.push(Reference::new(token.range(), *node))
     }
 
+    /// Declare a local symbol, usually a variable or a function
     pub fn declare_local(&mut self, token: &Token, t: NodeId) {
         if let Some(top_scope) = self.local_scopes.last_mut() {
             let name = token.clone().label.unwrap();
@@ -84,11 +120,13 @@ impl<'a> NameResolver<'a> {
         }
     }
 
+    /// Enter a new namespace which is used to resolved symbols in the same namespace
     pub fn enter_namespace(&mut self, namespace: &str) {
         self.current_namespace = namespace.to_owned();
     }
 
-    pub fn resolve_type_ref(&mut self, tokens: &Vec<Token>) -> Option<&NodeId> {
+    /// Resolve a TypeRef `Some\Name\Space` to the node if the definition of that symbol
+    pub fn resolve_type_ref(&mut self, tokens: &Vec<Token>) -> Option<NodeId> {
         let tokens = tokens.iter().filter(|t| t.label.is_some()).map(|t| t.clone()).collect::<Vec<Token>>();
 
         if tokens.len() == 0 {
@@ -118,12 +156,14 @@ impl<'a> NameResolver<'a> {
             eprintln!("YEAH: {}", joined_name);
 
             let range = (tokens.first().unwrap().start(), tokens.last().unwrap().end());
-            self.document_references.push(Reference::new(range, *node))
+            self.document_references.push(Reference::new(range, *node));
+
+            return Some(*node);
         } else {
             eprintln!("ARGH: {}", joined_name);
         }
 
-        return self.global_scope.get(&joined_name);
+        None
     }
 }
 
@@ -145,10 +185,10 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
 /// The NameResolveVisitor walks the AST and creates a list of references
 /// Furthermore it adds variables to the arena underneath the files entry
-impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b>  {
+impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
 
     /// Decides if a symbol is worth collecting
-    fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) -> NextAction {
+    fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>) -> NextAction {
         match node {
             AstNode::NamespaceStatement { type_ref, .. } => {
                 let name = match &**type_ref {
@@ -171,12 +211,19 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b>  {
 
                 NextAction::Abort
             }
-            AstNode::ClassStatement { .. } => {
+            AstNode::ClassStatement { name, .. } => {
                 self.resolver.push_scope();
+
+                // Register $this in the current scope
+                if let Some(current_class) = self.resolver.resolve_type_ref(&vec![name.clone()]) {
+
+                    self.resolver.enter_class(current_class);
+                }
 
                 NextAction::ProcessChildren
             }
             AstNode::MethodDefinitionStatement {
+                name,
                 doc_comment,
                 ..
             } => {
@@ -193,6 +240,18 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b>  {
                     }
                 }
 
+                let method_name = format!("{}", name);
+
+                if let Some(current_class) = self.resolver.current_class {
+                    for method in current_class.children(arena) {
+                        if arena[method].get().name == method_name {
+                            self.resolver.scope_container = method;
+
+                            break;
+                        }
+                    }
+                }
+
                 // Push scope for method arguments and body
                 self.resolver.push_scope();
 
@@ -204,7 +263,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b>  {
                 } else {
                     let child = arena.new_node(Symbol::from(token));
 
-                    parent.append(child, arena);
+                    self.resolver.scope_container.append(child, arena);
                     self.resolver.declare_local(token, child);
                 }
 
@@ -213,14 +272,77 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b>  {
             AstNode::FunctionArgument{name, ..} => {
                 let child = arena.new_node(Symbol::from(name));
 
-                parent.append(child, arena);
+                self.resolver.scope_container.append(child, arena);
                 self.resolver.declare_local(name, child);
 
-                NextAction::Abort
-            }
-            AstNode::Call {..} => {
-                // Do the magic here to parse $this->is->a->call()->or()->not();
                 NextAction::ProcessChildren
+            }
+            AstNode::Member { object, member, .. } => {
+                let mut reversed_chain = vec![member];
+
+                let mut current_object = object;
+                let root_node = loop {
+                    match current_object.as_ref() {
+                        AstNode::Call { callee, .. } => {
+                            current_object = callee;
+                        }
+                        AstNode::Member { object, member, .. } => {
+                            current_object = object;
+                            reversed_chain.push(member);
+                        }
+                        AstNode::Variable(token) => {
+                            if let Some(node) = self.resolver.get_local(token) {
+
+                                self.resolver.reference_local(&token, &node);
+                                break Some(node);
+                            }
+
+                            break None
+                        }
+                        AstNode::TypeRef(tokens) => {
+                            if let Some(node) = self.resolver.resolve_type_ref(tokens) {
+                                break Some(node);
+                            }
+                        }
+                        _ => break None,
+                    }
+                };
+
+                if let Some(mut root_node) = root_node {
+                    // $this (root_node) will have resolved to the definition of the current class
+
+                    'outer: for link in reversed_chain.iter().rev() {
+                        // Get the definition of the current parent and try to find "link" in it
+
+                        for child in root_node.children(arena) {
+                            // Check all children of the root_node
+                            let child_symbol = arena[child].get();
+
+                            if child_symbol.name == link.name() {
+                                match &***link {
+                                    AstNode::Variable(token) | AstNode::Literal(token) => {
+                                        // Register reference here
+                                        self.resolver.reference_local(&token, &child);
+
+                                    },
+                                    _ => ()
+                                }
+
+                                root_node = child;
+
+                                continue 'outer;
+                            }
+                        }
+
+                        // Nothing found :(
+                        break;
+
+
+                        //self.resolver.reference_local(token, node)
+                    }
+                }
+
+                NextAction::Abort
             }
             _ => NextAction::ProcessChildren
         }
@@ -232,8 +354,11 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b>  {
 
     fn after(&mut self, node: &AstNode) {
         match node {
-            AstNode::ClassStatement { .. }
-            | AstNode::TraitStatement { .. }
+            AstNode::ClassStatement { .. } => {
+                self.resolver.leave_class();
+                self.resolver.pop_scope();
+            }
+            AstNode::TraitStatement { .. }
             | AstNode::MethodDefinitionStatement { .. } => {
                 self.resolver.pop_scope();
             },

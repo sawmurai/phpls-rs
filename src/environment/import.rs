@@ -69,6 +69,7 @@ impl From<&SymbolImport> for Symbol {
             data_types: Vec::new(),
             is_static: false,
             imports: None,
+            node: None,
         }
     }
 }

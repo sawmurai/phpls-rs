@@ -1,5 +1,5 @@
 use crate::node::Node as AstNode;
-use super::visitor::Visitor;
+use super::visitor::{Visitor, ScopedVisitor};
 use super::Symbol;
 use super::visitor::NextAction;
 use indextree::{Arena, NodeId};
@@ -18,7 +18,22 @@ pub fn traverse<T>(node: &AstNode, visitor: &mut T, arena: &mut Arena<Symbol>, p
             };
 
             for child in node.children() {
-                traverse(child, visitor, arena, parent)
+                traverse(child, visitor, arena, parent);
+            }
+        }
+    }
+
+    visitor.after(node);
+}
+
+pub fn traverse_scoped<T>(node: &AstNode, visitor: &mut T, arena: &mut Arena<Symbol>) where T: ScopedVisitor {
+    visitor.before(node);
+
+    match visitor.visit(node, arena) {
+        NextAction::Abort => return,
+        NextAction::ProcessChildren => {
+            for child in node.children() {
+                traverse_scoped(child, visitor, arena);
             }
         }
     }
