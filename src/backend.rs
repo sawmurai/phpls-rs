@@ -204,7 +204,6 @@ impl Backend {
 
         let range = get_range(scanner.document_range());
 
-
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens) {
             //eprintln!("{:#?}", ast);
             let mut arena = arena.lock().await;
