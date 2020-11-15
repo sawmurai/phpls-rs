@@ -146,11 +146,11 @@ impl Visitor for WorkspaceSymbolVisitor  {
                 NextAction::Abort
             }
             AstNode::PropertyDefinitionStatement {
-                name, data_type, ..
+                name, data_type, doc_comment, ..
             } => {
                 let range = get_range(node.range());
 
-                let data_types = if let Some(data_type) = data_type {
+                let mut data_types = if let Some(data_type) = data_type {
                     if let Some(type_ref) = get_type_ref(data_type) {
                         vec![Reference::type_ref(type_ref)]
                     } else {
@@ -159,6 +159,18 @@ impl Visitor for WorkspaceSymbolVisitor  {
                 } else {
                     Vec::new()
                 };
+
+                // Is there a doc comment?
+                if let Some(doc_comment) = doc_comment {
+                    if let AstNode::DocComment { var_docs, .. } = doc_comment.as_ref() {
+                        for rt in var_docs {
+                            if let Some(type_ref) = get_type_ref(rt) {
+                                data_types.push(Reference::type_ref(type_ref));
+                            }
+                        }
+                    }
+                }
+
                 let child = arena.new_node(Symbol {
                     name: name.clone().label.unwrap(),
                     kind: PhpSymbolKind::Property,
@@ -245,7 +257,7 @@ fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
             }
         }
         AstNode::TypeRef(items) => Some(items.clone()),
-        AstNode::DocCommentReturn { types, .. } => {
+        AstNode::DocCommentVar { types, ..} | AstNode::DocCommentReturn { types, .. } => {
             if let Some(types) = types {
                 match &**types {
                     AstNode::TypeRef(items) => Some(items.clone()),

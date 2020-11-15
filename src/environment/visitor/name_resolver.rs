@@ -1,5 +1,5 @@
 use super::ScopedVisitor;
-use super::Symbol;
+use super::{Symbol, super::PhpSymbolKind};
 use crate::token::{Token, TokenType};
 use super::NextAction;
 use crate::node::{Node as AstNode, NodeRange};
@@ -185,6 +185,12 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
 /// The NameResolveVisitor walks the AST and creates a list of references
 /// Furthermore it adds variables to the arena underneath the files entry
+///
+/// Whenever the visitor enters a new scope that allows the definition of local symbols, like variables
+/// or functions, a container in the arena is put into the resolver, so that
+/// the variables can be stored somewhere
+/// Whenever a class is entered the variable $this and the symbols self, parent etc. are updated with
+/// the correct symbol
 impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
 
     /// Decides if a symbol is worth collecting
@@ -212,7 +218,6 @@ impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
                 NextAction::Abort
             }
             AstNode::ClassStatement { name, .. } => {
-                self.resolver.push_scope();
 
                 // Register $this in the current scope
                 if let Some(current_class) = self.resolver.resolve_type_ref(&vec![name.clone()]) {
@@ -318,6 +323,7 @@ impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
                             // Check all children of the root_node
                             let child_symbol = arena[child].get();
 
+                            // This is the correct child
                             if child_symbol.name == link.name() {
                                 match &***link {
                                     AstNode::Variable(token) | AstNode::Literal(token) => {
@@ -328,17 +334,29 @@ impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
                                     _ => ()
                                 }
 
-                                root_node = child;
+                                match child_symbol.kind {
+                                    PhpSymbolKind::Property | PhpSymbolKind::Method => {
+                                        for data_type in child_symbol.data_types.iter() {
+                                            if let Some(type_ref) = data_type.type_ref.as_ref() {
+                                                if let Some(resolved_type) = self.resolver.resolve_type_ref(&type_ref) {
+                                                    root_node = resolved_type;
+                                                }
+                                            }
+                                        }
+                                    },
+                                    _ => {
+                                        root_node = child;
+                                    },
+                                }
+
 
                                 continue 'outer;
                             }
                         }
 
+                        eprintln!("did not find {} in ", link.name());
                         // Nothing found :(
                         break;
-
-
-                        //self.resolver.reference_local(token, node)
                     }
                 }
 
@@ -356,7 +374,6 @@ impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
         match node {
             AstNode::ClassStatement { .. } => {
                 self.resolver.leave_class();
-                self.resolver.pop_scope();
             }
             AstNode::TraitStatement { .. }
             | AstNode::MethodDefinitionStatement { .. } => {
