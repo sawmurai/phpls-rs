@@ -1,15 +1,13 @@
 use crate::environment;
 use crate::environment::in_range;
 use crate::environment::traverser::traverse;
-use crate::environment::scope::collect_symbols;
 use crate::environment::visitor::workspace_symbol::{WorkspaceSymbolVisitor};
 use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolver};
 use crate::environment::visitor::name_resolver::Reference;
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
-use crate::node::{get_range, Node};
+use crate::node::{get_range};
 use crate::parser::Parser;
 use crate::scanner::Scanner;
-use async_recursion::async_recursion;
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use std::fs;
@@ -20,23 +18,29 @@ use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
+use tokio::task;
+
+type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
+type NodeMapMutex = Arc<Mutex<HashMap<String, NodeId>>>;
+type DiagnosticsMutex = Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>;
+type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
 
 /// Represents the backend of the language server.
 pub struct Backend {
     /// Storage arena for all symbols
-    pub arena: Arc<Mutex<Arena<Symbol>>>,
+    pub arena: ArenaMutex,
 
     /// NodeIds of entry points to files
-    pub files: Arc<Mutex<HashMap<String, NodeId>>>,
+    pub files: NodeMapMutex,
 
     /// FQDN to NodeId
-    pub global_symbols: Arc<Mutex<HashMap<String, NodeId>>>,
+    pub global_symbols: NodeMapMutex,
 
     /// Global list of all diagnostics
-    pub diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
+    pub diagnostics: DiagnosticsMutex,
 
     /// References to symbols. Key is the filename
-    pub symbol_references: Arc<Mutex<HashMap<String, Vec<Reference>>>>,
+    pub symbol_references: ReferenceMapMutex,
 }
 
 impl Backend {
@@ -52,15 +56,53 @@ impl Backend {
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-        self.reindex_folder(&PathBuf::from(
+        let mut files = self.reindex_folder(&PathBuf::from(
             "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
-        ))
-        .await?;
+        ))?;
 
+        let mut joins = Vec::new();
         if let Ok(root_path) = url.to_file_path() {
-            self.reindex_folder(&root_path).await?;
+            files.extend(self.reindex_folder(&root_path)?);
+
+            for path in files {
+                let content = match fs::read_to_string(&path) {
+                    Ok(content) => content,
+                    Err(error) => {
+                        eprintln!("{}", error);
+
+                        continue;
+                    }
+                };
+
+                let arena = self.arena.clone();
+                let global_symbols = self.global_symbols.clone();
+                let files = self.files.clone();
+                let references = self.symbol_references.clone();
+                let diagnostics = self.diagnostics.clone();
+                let path = path.clone();
+                let content = content.clone();
+
+                joins.push(task::spawn(async {
+                    match Backend::reindex(path, content, false, arena, global_symbols, references, files, diagnostics).await {
+                        Ok(()) => (),
+                        Err(err) => {
+                            eprintln!("{}", err);
+                        }
+                    }
+                }));
+            }
+
         } else {
             eprintln!("Error converting url to file path");
+        }
+
+        for j in joins {
+            match j.await {
+                Ok(()) => (),
+                Err(err) => {
+                    eprintln!("{}", err);
+                }
+            }
         }
 
         let arena = self.arena.lock().await;
@@ -113,15 +155,16 @@ impl Backend {
         Ok(())
     }
 
-    #[async_recursion]
-    async fn reindex_folder(&self, dir: &PathBuf) -> io::Result<()> {
+    fn reindex_folder(&self, dir: &PathBuf) -> io::Result<Vec<String>> {
+        let mut files = Vec::new();
+
         if dir.is_dir() {
             let entries = match fs::read_dir(dir) {
                 Ok(entries) => entries,
                 Err(e) => {
                     eprintln!("Error reading folder {:?}: {}", dir, e);
 
-                    return Ok(());
+                    return Ok(files);
                 }
             };
 
@@ -131,34 +174,26 @@ impl Backend {
                     Err(e) => {
                         eprintln!("- Error reading folder {:?}: {}", dir, e);
 
-                        return Ok(());
+                        return Ok(files);
                     }
                 };
                 let path = entry.path();
                 if path.is_dir() {
                     // && !path.ends_with("vendor") {
-                    self.reindex_folder(&path).await?;
+                    files.extend(self.reindex_folder(&path)?);
                 } else if let Some(ext) = path.extension() {
+
                     if ext == "php" {
                         let p = path.to_str().unwrap().to_string();
-                        let content = match fs::read_to_string(path) {
-                            Ok(content) => content,
-                            Err(error) => {
-                                eprintln!("{}", error);
-
-                                continue;
-                            }
-                        };
-
-                        self.reindex(&p, &content, false).await?;
+                        files.push(p);
                     }
                 }
             }
         }
-        Ok(())
+        Ok(files)
     }
 
-    async fn reindex(&self, path: &str, content: &str, resolve: bool) -> io::Result<()> {
+    async fn reindex(path: String, content: String, resolve: bool, arena: ArenaMutex, global_symbols: NodeMapMutex, symbol_references: ReferenceMapMutex, files: NodeMapMutex, diagnostics: DiagnosticsMutex) -> io::Result<()> {
         let mut scanner = Scanner::new(&content);
 
         if let Err(msg) = scanner.scan() {
@@ -169,9 +204,10 @@ impl Backend {
 
         let range = get_range(scanner.document_range());
 
+
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens) {
             //eprintln!("{:#?}", ast);
-            let mut arena = self.arena.lock().await;
+            let mut arena = arena.lock().await;
 
             let enclosing_file = arena.new_node(Symbol {
                 kind: PhpSymbolKind::File,
@@ -185,16 +221,10 @@ impl Backend {
             let mut iter = ast.iter();
             while let Some(node) = iter.next() {
                 traverse(node, &mut visitor, &mut arena, enclosing_file);
-
-                /*  if let Err(e) = collect_symbols(&mut arena, &current_parent, &node) {
-                            eprintln!("Mööp!: {} {}", path, e);
-                        }*/
-
-                //}
             }
 
             if resolve {
-                let global_symbols = self.global_symbols.lock().await;
+                let global_symbols = global_symbols.lock().await;
                 let mut resolver = NameResolver::new(&global_symbols);
 
                 let mut visitor = NameResolveVisitor::new(&mut resolver);
@@ -203,17 +233,17 @@ impl Backend {
                     traverse(node, &mut visitor, &mut arena, enclosing_file);
                 }
 
-                self.symbol_references
+                symbol_references
                 .lock()
                 .await
                 .insert(path.to_owned(), visitor.references());
             }
 
-            self.files
+            files
                 .lock()
                 .await
                 .insert(path.to_owned(), enclosing_file);
-            self.diagnostics.lock().await.insert(
+            diagnostics.lock().await.insert(
                 path.to_owned(),
                 errors
                     .iter()
@@ -431,7 +461,15 @@ impl LanguageServer for Backend {
     async fn did_change(&self, client: &Client, params: DidChangeTextDocumentParams) {
         let path = params.text_document.uri.path();
 
-        if let Err(e) = self.reindex(path, &params.content_changes[0].text, true).await {
+        let arena = self.arena.clone();
+        let global_symbols = self.global_symbols.clone();
+        let files = self.files.clone();
+        let references = self.symbol_references.clone();
+        let diagnostics = self.diagnostics.clone();
+        let reindex_path = path.to_owned();
+        let content = params.content_changes[0].text.to_owned();
+
+        if let Err(e) = Backend::reindex(reindex_path, content, true, arena, global_symbols, references, files, diagnostics).await {
             client.log_message(MessageType::Error, e);
 
             return;
@@ -467,8 +505,14 @@ impl LanguageServer for Backend {
     async fn did_open(&self, client: &Client, params: DidOpenTextDocumentParams) {
         let path = params.text_document.uri.path();
         let content = tokio::fs::read_to_string(path).await.unwrap();
+        let arena = self.arena.clone();
+        let global_symbols = self.global_symbols.clone();
+        let files = self.files.clone();
+        let references = self.symbol_references.clone();
+        let diagnostics = self.diagnostics.clone();
+        let reindex_path = path.to_owned();
 
-        if let Err(e) = self.reindex(path, &content, true).await {
+        if let Err(e) = Backend::reindex(reindex_path, content, true, arena, global_symbols, references, files, diagnostics).await {
             client.log_message(MessageType::Error, format!("Failed to index {}", e));
 
             return;
