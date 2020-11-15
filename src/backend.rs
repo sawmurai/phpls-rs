@@ -1,11 +1,11 @@
 use crate::environment;
 use crate::environment::in_range;
-use crate::environment::traverser::{traverse, traverse_scoped};
-use crate::environment::visitor::workspace_symbol::{WorkspaceSymbolVisitor};
-use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolver};
-use crate::environment::visitor::name_resolver::Reference;
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
-use crate::node::{get_range};
+use crate::environment::traverser::traverse;
+use crate::environment::visitor::name_resolver::Reference;
+use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolver};
+use crate::environment::visitor::workspace_symbol::WorkspaceSymbolVisitor;
+use crate::node::get_range;
 use crate::parser::Parser;
 use crate::scanner::Scanner;
 use indextree::{Arena, NodeId};
@@ -15,10 +15,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{self};
 use tokio::sync::Mutex;
+use tokio::task;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
-use tokio::task;
 
 type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
 type NodeMapMutex = Arc<Mutex<HashMap<String, NodeId>>>;
@@ -83,7 +83,18 @@ impl Backend {
                 let content = content.clone();
 
                 joins.push(task::spawn(async {
-                    match Backend::reindex(path, content, false, arena, global_symbols, references, files, diagnostics).await {
+                    match Backend::reindex(
+                        path,
+                        content,
+                        false,
+                        arena,
+                        global_symbols,
+                        references,
+                        files,
+                        diagnostics,
+                    )
+                    .await
+                    {
                         Ok(()) => (),
                         Err(err) => {
                             eprintln!("{}", err);
@@ -91,7 +102,6 @@ impl Backend {
                     }
                 }));
             }
-
         } else {
             eprintln!("Error converting url to file path");
         }
@@ -111,24 +121,16 @@ impl Backend {
 
         let mut global_table: HashMap<String, NodeId> = HashMap::new();
         for (_file, node_id) in files.iter() {
+            let mut current_namespace = String::new();
+
             for symbol_id in node_id.children(&arena) {
                 let symbol = arena[symbol_id].get();
 
                 if symbol.kind == PhpSymbolKind::Namespace {
-                    let base_name = symbol.name.clone();
-
-                    for symbol_id in symbol_id.children(&arena) {
-                        let symbol = arena[symbol_id].get();
-
-                        if symbol.kind.register_global() {
-                            global_table
-                                .insert(format!("{}\\{}", base_name, symbol.name), symbol_id);
-                        }
-                    }
-                } else {
-                    if symbol.kind.register_global() {
-                        global_table.insert(symbol.name.clone(), symbol_id);
-                    }
+                    current_namespace = symbol.name.clone();
+                } else if symbol.kind.register_global() {
+                    global_table
+                        .insert(format!("{}\\{}", current_namespace, symbol.name), symbol_id);
                 }
             }
         }
@@ -155,6 +157,7 @@ impl Backend {
         Ok(())
     }
 
+    // TODO: Filter out vendor tests
     fn reindex_folder(&self, dir: &PathBuf) -> io::Result<Vec<String>> {
         let mut files = Vec::new();
 
@@ -182,7 +185,6 @@ impl Backend {
                     // && !path.ends_with("vendor") {
                     files.extend(self.reindex_folder(&path)?);
                 } else if let Some(ext) = path.extension() {
-
                     if ext == "php" {
                         let p = path.to_str().unwrap().to_string();
                         files.push(p);
@@ -193,7 +195,16 @@ impl Backend {
         Ok(files)
     }
 
-    async fn reindex(path: String, content: String, resolve: bool, arena: ArenaMutex, global_symbols: NodeMapMutex, symbol_references: ReferenceMapMutex, files: NodeMapMutex, diagnostics: DiagnosticsMutex) -> io::Result<()> {
+    async fn reindex(
+        path: String,
+        content: String,
+        resolve: bool,
+        arena: ArenaMutex,
+        global_symbols: NodeMapMutex,
+        symbol_references: ReferenceMapMutex,
+        files: NodeMapMutex,
+        diagnostics: DiagnosticsMutex,
+    ) -> io::Result<()> {
         let mut scanner = Scanner::new(&content);
 
         if let Err(msg) = scanner.scan() {
@@ -229,19 +240,16 @@ impl Backend {
                 let mut visitor = NameResolveVisitor::new(&mut resolver);
                 let mut iter = ast.iter();
                 while let Some(node) = iter.next() {
-                    traverse_scoped(node, &mut visitor, &mut arena);
+                    traverse(node, &mut visitor, &mut arena, enclosing_file);
                 }
 
                 symbol_references
-                .lock()
-                .await
-                .insert(path.to_owned(), visitor.references());
+                    .lock()
+                    .await
+                    .insert(path.to_owned(), visitor.references());
             }
 
-            files
-                .lock()
-                .await
-                .insert(path.to_owned(), enclosing_file);
+            files.lock().await.insert(path.to_owned(), enclosing_file);
             diagnostics.lock().await.insert(
                 path.to_owned(),
                 errors
@@ -444,10 +452,7 @@ impl LanguageServer for Backend {
         if let Some(references) = local_references.get(file) {
             for reference in references {
                 if in_range(position, &get_range(reference.range)) {
-                    if let Some(location) = environment::symbol_location(
-                        &arena,
-                        &reference.node
-                    ) {
+                    if let Some(location) = environment::symbol_location(&arena, &reference.node) {
                         return Ok(Some(GotoDefinitionResponse::Scalar(location)));
                     }
                 }
@@ -468,7 +473,18 @@ impl LanguageServer for Backend {
         let reindex_path = path.to_owned();
         let content = params.content_changes[0].text.to_owned();
 
-        if let Err(e) = Backend::reindex(reindex_path, content, true, arena, global_symbols, references, files, diagnostics).await {
+        if let Err(e) = Backend::reindex(
+            reindex_path,
+            content,
+            true,
+            arena,
+            global_symbols,
+            references,
+            files,
+            diagnostics,
+        )
+        .await
+        {
             client.log_message(MessageType::Error, e);
 
             return;
@@ -511,7 +527,18 @@ impl LanguageServer for Backend {
         let diagnostics = self.diagnostics.clone();
         let reindex_path = path.to_owned();
 
-        if let Err(e) = Backend::reindex(reindex_path, content, true, arena, global_symbols, references, files, diagnostics).await {
+        if let Err(e) = Backend::reindex(
+            reindex_path,
+            content,
+            true,
+            arena,
+            global_symbols,
+            references,
+            files,
+            diagnostics,
+        )
+        .await
+        {
             client.log_message(MessageType::Error, format!("Failed to index {}", e));
 
             return;
@@ -673,10 +700,7 @@ mod tests {
     async fn test_resolves_inherited_members() {
         let base_dir = std::env::current_dir().unwrap();
         let root = format!("{}/fixtures/small/oop", base_dir.display());
-        let file = format!(
-            "{}/fixtures/small/oop/inheritance.php",
-            base_dir.display()
-        );
+        let file = format!("{}/fixtures/small/oop/inheritance.php", base_dir.display());
 
         let backend = Backend::new();
         let uri = Url::from_file_path(root).unwrap();

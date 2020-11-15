@@ -1,10 +1,13 @@
-use crate::node::Node as AstNode;
-use super::visitor::{Visitor, ScopedVisitor};
-use super::Symbol;
 use super::visitor::NextAction;
+use super::visitor::Visitor;
+use super::Symbol;
+use crate::node::Node as AstNode;
 use indextree::{Arena, NodeId};
 
-pub fn traverse<T>(node: &AstNode, visitor: &mut T, arena: &mut Arena<Symbol>, parent: NodeId) where T: Visitor {
+pub fn traverse<T>(node: &AstNode, visitor: &mut T, arena: &mut Arena<Symbol>, parent: NodeId)
+where
+    T: Visitor,
+{
     visitor.before(node);
 
     match visitor.visit(node, arena, parent) {
@@ -17,23 +20,10 @@ pub fn traverse<T>(node: &AstNode, visitor: &mut T, arena: &mut Arena<Symbol>, p
                 parent
             };
 
+            // If node is a namespace somehow the classes and interface etc. are not added to it but still to the file
+            // Probably because they are not children in the ast node of namespace
             for child in node.children() {
                 traverse(child, visitor, arena, parent);
-            }
-        }
-    }
-
-    visitor.after(node);
-}
-
-pub fn traverse_scoped<T>(node: &AstNode, visitor: &mut T, arena: &mut Arena<Symbol>) where T: ScopedVisitor {
-    visitor.before(node);
-
-    match visitor.visit(node, arena) {
-        NextAction::Abort => return,
-        NextAction::ProcessChildren => {
-            for child in node.children() {
-                traverse_scoped(child, visitor, arena);
             }
         }
     }

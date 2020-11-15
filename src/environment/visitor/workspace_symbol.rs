@@ -1,30 +1,48 @@
-use super::Visitor;
-use super::Symbol;
-use crate::token::Token;
+use super::super::import::collect_uses;
 use super::NextAction;
-use crate::environment::scope::{Reference};
-use crate::environment::symbol::{PhpSymbolKind};
-use crate::node::Node as AstNode;
+use super::Symbol;
+use super::Visitor;
+use crate::environment::scope::Reference;
+use crate::environment::symbol::PhpSymbolKind;
 use crate::node::get_range;
+use crate::node::Node as AstNode;
+use crate::token::Token;
+
 use indextree::{Arena, NodeId};
 
-pub struct WorkspaceSymbolVisitor {
-}
+pub struct WorkspaceSymbolVisitor {}
 
 impl WorkspaceSymbolVisitor {
     pub fn new() -> Self {
-        WorkspaceSymbolVisitor {
-
-        }
+        WorkspaceSymbolVisitor {}
     }
 }
 
-impl Visitor for WorkspaceSymbolVisitor  {
-
+impl Visitor for WorkspaceSymbolVisitor {
     /// Decides if a symbol is worth collecting
     fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) -> NextAction {
-
         match node {
+            AstNode::UseFunctionStatement { .. } => NextAction::ProcessChildren,
+            AstNode::UseStatement { .. } => NextAction::ProcessChildren,
+            AstNode::GroupedUse { .. }
+            | AstNode::UseDeclaration { .. }
+            | AstNode::UseFunction { .. }
+            | AstNode::UseConst { .. } => {
+                // Either get the file if parent is a namespace or the class if parent is a block
+                let mut file_symbol = if let Some(grandparent) = arena[parent].parent() {
+                    arena[grandparent].get_mut()
+                } else {
+                    arena[parent].get_mut()
+                };
+
+                if let Some(imports) = file_symbol.imports.as_mut() {
+                    imports.extend(collect_uses(node, &Vec::new()));
+                } else {
+                    file_symbol.imports = Some(collect_uses(node, &Vec::new()));
+                }
+
+                NextAction::Abort
+            }
             AstNode::Block { .. } => NextAction::ProcessChildren,
             AstNode::NamespaceStatement { type_ref, .. } => {
                 let (name, selection_range) = match &**type_ref {
@@ -56,7 +74,7 @@ impl Visitor for WorkspaceSymbolVisitor  {
                 arena[new_node].get_mut().node = Some(new_node);
 
                 NextAction::ProcessChildren
-            },
+            }
             AstNode::ClassStatement { name, extends, .. } => {
                 let inherits_from = if let Some(extends) = extends {
                     extends
@@ -130,7 +148,7 @@ impl Visitor for WorkspaceSymbolVisitor  {
                 arena[child].get_mut().node = Some(child);
 
                 NextAction::ProcessChildren
-            },
+            }
             AstNode::ClassConstantDefinitionStatement { name, .. } => {
                 let range = get_range(node.range());
                 let child = arena.new_node(Symbol {
@@ -146,7 +164,10 @@ impl Visitor for WorkspaceSymbolVisitor  {
                 NextAction::Abort
             }
             AstNode::PropertyDefinitionStatement {
-                name, data_type, doc_comment, ..
+                name,
+                data_type,
+                doc_comment,
+                ..
             } => {
                 let range = get_range(node.range());
 
@@ -193,7 +214,9 @@ impl Visitor for WorkspaceSymbolVisitor  {
                 ..
             } => {
                 let return_type =
-                    if let AstNode::FunctionDefinitionStatement { return_type, .. } = function.as_ref() {
+                    if let AstNode::FunctionDefinitionStatement { return_type, .. } =
+                        function.as_ref()
+                    {
                         return_type
                     } else {
                         // Err("Invalid function".to_owned());
@@ -236,15 +259,13 @@ impl Visitor for WorkspaceSymbolVisitor  {
 
                 NextAction::ProcessChildren
             }
-            _ => NextAction::Abort
+            _ => NextAction::Abort,
         }
     }
 
-    fn before(&mut self, _node: &AstNode) {
-    }
+    fn before(&mut self, _node: &AstNode) {}
 
-    fn after(&mut self, _node: &AstNode) {
-    }
+    fn after(&mut self, _node: &AstNode) {}
 }
 
 fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
@@ -257,7 +278,7 @@ fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
             }
         }
         AstNode::TypeRef(items) => Some(items.clone()),
-        AstNode::DocCommentVar { types, ..} | AstNode::DocCommentReturn { types, .. } => {
+        AstNode::DocCommentVar { types, .. } | AstNode::DocCommentReturn { types, .. } => {
             if let Some(types) = types {
                 match &**types {
                     AstNode::TypeRef(items) => Some(items.clone()),

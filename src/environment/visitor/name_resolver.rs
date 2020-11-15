@@ -1,10 +1,10 @@
-use super::ScopedVisitor;
-use super::{Symbol, super::PhpSymbolKind};
-use crate::token::{Token, TokenType};
 use super::NextAction;
+use super::Visitor;
+use super::{super::PhpSymbolKind, Symbol};
 use crate::node::{Node as AstNode, NodeRange};
-use std::collections::HashMap;
+use crate::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Reference {
@@ -12,14 +12,12 @@ pub struct Reference {
     pub range: NodeRange,
 
     /// NodeId the reference if pointing to
-    pub node: NodeId
+    pub node: NodeId,
 }
 
 impl Reference {
     pub fn new(range: NodeRange, node: NodeId) -> Self {
-        Reference {
-            range, node
-        }
+        Reference { range, node }
     }
 }
 
@@ -38,7 +36,7 @@ pub struct NameResolver<'a> {
     /// Usually a method / function body or a file
     scope_container: NodeId,
 
-    pub document_references: Vec<Reference>
+    pub document_references: Vec<Reference>,
 }
 
 impl<'a> NameResolver<'a> {
@@ -50,7 +48,7 @@ impl<'a> NameResolver<'a> {
             local_scopes: vec![HashMap::new()],
             current_class: None,
             document_references: Vec::new(),
-            scope_container
+            scope_container,
         }
     }
 
@@ -104,7 +102,8 @@ impl<'a> NameResolver<'a> {
 
     /// Register a new reference to a local symbol
     pub fn reference_local(&mut self, token: &Token, node: &NodeId) {
-        self.document_references.push(Reference::new(token.range(), *node))
+        self.document_references
+            .push(Reference::new(token.range(), *node))
     }
 
     /// Declare a local symbol, usually a variable or a function
@@ -113,7 +112,8 @@ impl<'a> NameResolver<'a> {
             let name = token.clone().label.unwrap();
 
             if let Some(node) = top_scope.get(&name) {
-                self.document_references.push(Reference::new(token.range(), *node));
+                self.document_references
+                    .push(Reference::new(token.range(), *node));
             } else {
                 top_scope.insert(name, t);
             }
@@ -121,41 +121,90 @@ impl<'a> NameResolver<'a> {
     }
 
     /// Enter a new namespace which is used to resolved symbols in the same namespace
-    pub fn enter_namespace(&mut self, namespace: &str) {
+    /// Preload the imports with the imports of the namespace
+    pub fn enter_namespace(&mut self, namespace: &str, file: &Symbol) {
         self.current_namespace = namespace.to_owned();
+        self.imports.clear();
+
+        if let Some(imports) = file.imports.as_ref() {
+            for import in imports {
+                self.imports.insert(import.name(), import.full_name());
+            }
+        }
+
+        eprintln!("{:?}", file);
+    }
+
+    /// Resolve fully qualified
+    pub fn resolve_fully_qualified(&mut self, name: &str) -> Option<NodeId> {
+        if let Some(node) = self.global_scope.get(name) {
+            Some(*node)
+        } else {
+            None
+        }
     }
 
     /// Resolve a TypeRef `Some\Name\Space` to the node if the definition of that symbol
     pub fn resolve_type_ref(&mut self, tokens: &Vec<Token>) -> Option<NodeId> {
-        let tokens = tokens.iter().filter(|t| t.label.is_some()).map(|t| t.clone()).collect::<Vec<Token>>();
+        let fully_qualified =
+            tokens.len() > 0 && tokens.first().unwrap().t == TokenType::NamespaceSeparator;
+        let tokens = tokens
+            .iter()
+            .filter(|t| t.label.is_some())
+            .map(|t| t.clone())
+            .collect::<Vec<Token>>();
 
         if tokens.len() == 0 {
             return None;
         }
 
-        let mut joined_name = tokens
-        .iter()
-        .map(|n| n.clone().label.unwrap())
-        .collect::<Vec<String>>()
-        .join("\\");
+        // Maybe do the following only if the name starts with a backslash?
         let name = tokens.first().unwrap().label.clone().unwrap();
+        eprintln!("searching for {}, fq. {}", name, fully_qualified);
 
-        // Prefer imported symbol
-        if let Some(import) = self.imports.get(&name) {
-            joined_name = if tokens.len() > 1 {
-                let end = tokens.iter().skip(1).map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
-                .collect::<Vec<String>>()
-                .join("");
+        // Simple, if fully qualified do not tamper with the name
+        let joined_name = if fully_qualified {
+            format!(
+                "\\{}",
+                tokens
+                    .iter()
+                    .map(|n| n.clone().label.unwrap())
+                    .collect::<Vec<String>>()
+                    .join("\\")
+            )
+        } else if let Some(import) = self.imports.get(&name) {
+            // If not fully qualified, check imports
+            if tokens.len() > 1 {
+                let end = tokens
+                    .iter()
+                    .skip(1)
+                    .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
+                    .collect::<Vec<String>>()
+                    .join("");
+
                 format!("{}\\{}", import, end)
             } else {
                 import.to_owned()
-            };
-        }
+            }
+        } else if self.current_namespace != "" {
+            // Next try the name in the current namespace
+            format!("{}\\{}", self.current_namespace, name)
+        } else {
+            // Otherwise use a fqdn but cut off the leading backslash
+            tokens
+                .iter()
+                .map(|n| n.clone().label.unwrap())
+                .collect::<Vec<String>>()
+                .join("\\")
+        };
 
         if let Some(node) = self.global_scope.get(&joined_name) {
             eprintln!("YEAH: {}", joined_name);
 
-            let range = (tokens.first().unwrap().start(), tokens.last().unwrap().end());
+            let range = (
+                tokens.first().unwrap().start(),
+                tokens.last().unwrap().end(),
+            );
             self.document_references.push(Reference::new(range, *node));
 
             return Some(*node);
@@ -168,14 +217,12 @@ impl<'a> NameResolver<'a> {
 }
 
 pub struct NameResolveVisitor<'a, 'b: 'a> {
-    resolver: &'b mut NameResolver<'a>
+    resolver: &'b mut NameResolver<'a>,
 }
 
 impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
     pub fn new(resolver: &'b mut NameResolver<'a>) -> Self {
-        NameResolveVisitor {
-            resolver
-        }
+        NameResolveVisitor { resolver }
     }
 
     pub fn references(&self) -> Vec<Reference> {
@@ -191,46 +238,41 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 /// the variables can be stored somewhere
 /// Whenever a class is entered the variable $this and the symbols self, parent etc. are updated with
 /// the correct symbol
-impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
-
+impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
     /// Decides if a symbol is worth collecting
-    fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>) -> NextAction {
+    fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) -> NextAction {
         match node {
             AstNode::NamespaceStatement { type_ref, .. } => {
-                let name = match &**type_ref {
-                    AstNode::TypeRef(tokens) =>
-                        tokens
-                            .iter()
-                            .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
-                            .collect::<Vec<String>>()
-                            .join(""),
-
+                let tokens = match &**type_ref {
+                    AstNode::TypeRef(tokens) => tokens,
                     _ => panic!("This should not happen"),
                 };
 
-                self.resolver.enter_namespace(&name);
+                let name = tokens
+                    .iter()
+                    .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
+                    .collect::<Vec<String>>()
+                    .join("");
+
+                self.resolver.enter_namespace(&name, arena[parent].get());
 
                 NextAction::ProcessChildren
-            },
+            }
             AstNode::TypeRef(type_ref) => {
                 self.resolver.resolve_type_ref(type_ref);
 
                 NextAction::Abort
             }
             AstNode::ClassStatement { name, .. } => {
-
                 // Register $this in the current scope
                 if let Some(current_class) = self.resolver.resolve_type_ref(&vec![name.clone()]) {
-
                     self.resolver.enter_class(current_class);
                 }
 
                 NextAction::ProcessChildren
             }
             AstNode::MethodDefinitionStatement {
-                name,
-                doc_comment,
-                ..
+                name, doc_comment, ..
             } => {
                 // Is there a doc comment?
                 if let Some(doc_comment) = doc_comment {
@@ -274,13 +316,22 @@ impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
 
                 NextAction::Abort
             }
-            AstNode::FunctionArgument{name, ..} => {
+            AstNode::FunctionArgument { name, .. } => {
                 let child = arena.new_node(Symbol::from(name));
 
                 self.resolver.scope_container.append(child, arena);
                 self.resolver.declare_local(name, child);
 
                 NextAction::ProcessChildren
+            }
+            AstNode::ReturnType { data_type, .. } => {
+                if let Some(type_ref) = get_type_ref(data_type) {
+                    if self.resolver.resolve_type_ref(&type_ref).is_none() {
+                        // Add error
+                    }
+                }
+
+                NextAction::Abort
             }
             AstNode::Member { object, member, .. } => {
                 let mut reversed_chain = vec![member];
@@ -297,12 +348,11 @@ impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
                         }
                         AstNode::Variable(token) => {
                             if let Some(node) = self.resolver.get_local(token) {
-
                                 self.resolver.reference_local(&token, &node);
                                 break Some(node);
                             }
 
-                            break None
+                            break None;
                         }
                         AstNode::TypeRef(tokens) => {
                             if let Some(node) = self.resolver.resolve_type_ref(tokens) {
@@ -329,26 +379,26 @@ impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
                                     AstNode::Variable(token) | AstNode::Literal(token) => {
                                         // Register reference here
                                         self.resolver.reference_local(&token, &child);
-
-                                    },
-                                    _ => ()
+                                    }
+                                    _ => (),
                                 }
 
                                 match child_symbol.kind {
                                     PhpSymbolKind::Property | PhpSymbolKind::Method => {
                                         for data_type in child_symbol.data_types.iter() {
                                             if let Some(type_ref) = data_type.type_ref.as_ref() {
-                                                if let Some(resolved_type) = self.resolver.resolve_type_ref(&type_ref) {
+                                                if let Some(resolved_type) =
+                                                    self.resolver.resolve_type_ref(&type_ref)
+                                                {
                                                     root_node = resolved_type;
                                                 }
                                             }
                                         }
-                                    },
+                                    }
                                     _ => {
                                         root_node = child;
-                                    },
+                                    }
                                 }
-
 
                                 continue 'outer;
                             }
@@ -362,24 +412,21 @@ impl<'a, 'b: 'a> ScopedVisitor for NameResolveVisitor<'a, 'b>  {
 
                 NextAction::Abort
             }
-            _ => NextAction::ProcessChildren
+            _ => NextAction::ProcessChildren,
         }
     }
 
-    fn before(&mut self, _node: &AstNode) {
-
-    }
+    fn before(&mut self, _node: &AstNode) {}
 
     fn after(&mut self, node: &AstNode) {
         match node {
             AstNode::ClassStatement { .. } => {
                 self.resolver.leave_class();
             }
-            AstNode::TraitStatement { .. }
-            | AstNode::MethodDefinitionStatement { .. } => {
+            AstNode::TraitStatement { .. } | AstNode::MethodDefinitionStatement { .. } => {
                 self.resolver.pop_scope();
-            },
-            _ => ()
+            }
+            _ => (),
         }
     }
 }

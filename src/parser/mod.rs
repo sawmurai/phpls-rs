@@ -49,7 +49,7 @@ impl From<&Error> for Diagnostic {
                 ..Diagnostic::default()
             },
             Error::Eof => Diagnostic {
-                range: get_range(((0, 0), (0,0))),
+                range: get_range(((0, 0), (0, 0))),
                 message: "Unexpected end of file".to_owned(),
                 ..Diagnostic::default()
             },
