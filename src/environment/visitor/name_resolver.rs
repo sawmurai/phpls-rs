@@ -1,6 +1,7 @@
 use super::NextAction;
 use super::Visitor;
 use super::{super::PhpSymbolKind, Symbol};
+use crate::environment::symbol::Visibility;
 use crate::node::{Node as AstNode, NodeRange};
 use crate::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
@@ -364,49 +365,106 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 };
 
                 if let Some(mut root_node) = root_node {
-                    // $this (root_node) will have resolved to the definition of the current class
+                    let root_symbol = arena[root_node].get();
 
-                    'outer: for link in reversed_chain.iter().rev() {
+                    // TODO: Handle all the other cases ... self, static, ...
+                    let mut minimal_visibility = if root_symbol.name == "this"
+                        && root_symbol.kind == PhpSymbolKind::Variable
+                    {
+                        Visibility::Private
+                    } else if root_symbol.name == "parent" {
+                        Visibility::Protected
+                    } else {
+                        Visibility::Public
+                    };
+
+                    // $this (root_node) will have resolved to the definition of the class
+                    // of the object
+                    'link_loop: for link in reversed_chain.iter().rev() {
                         // Get the definition of the current parent and try to find "link" in it
+                        // Loop backwards through the inheritance chain, from the object towards its ancestors
 
-                        for child in root_node.children(arena) {
-                            // Check all children of the root_node
-                            let child_symbol = arena[child].get();
+                        loop {
+                            // Get the children of the current root_node, that is its properties and methods
+                            for child in root_node.children(arena) {
+                                // Check all children of the current class
+                                let child_symbol = arena[child].get();
 
-                            // This is the correct child
-                            if child_symbol.name == link.name() {
-                                match &***link {
-                                    AstNode::Variable(token) | AstNode::Literal(token) => {
-                                        // Register reference here
-                                        self.resolver.reference_local(&token, &child);
-                                    }
-                                    _ => (),
+                                eprintln!(
+                                    "{:?} < {:?}",
+                                    child_symbol.visibility, minimal_visibility
+                                );
+                                if child_symbol.visibility < minimal_visibility {
+                                    continue;
                                 }
 
-                                match child_symbol.kind {
-                                    PhpSymbolKind::Property | PhpSymbolKind::Method => {
-                                        for data_type in child_symbol.data_types.iter() {
-                                            if let Some(type_ref) = data_type.type_ref.as_ref() {
-                                                if let Some(resolved_type) =
-                                                    self.resolver.resolve_type_ref(&type_ref)
+                                // This is the correct child
+                                if child_symbol.name == link.name() {
+                                    match &***link {
+                                        AstNode::Variable(token) | AstNode::Literal(token) => {
+                                            // Register reference here
+                                            self.resolver.reference_local(&token, &child);
+                                        }
+                                        _ => (),
+                                    }
+
+                                    match child_symbol.kind {
+                                        PhpSymbolKind::Property | PhpSymbolKind::Method => {
+                                            for data_type in child_symbol.data_types.iter() {
+                                                if let Some(type_ref) = data_type.type_ref.as_ref()
                                                 {
-                                                    root_node = resolved_type;
+                                                    if let Some(resolved_type) =
+                                                        self.resolver.resolve_type_ref(&type_ref)
+                                                    {
+                                                        root_node = resolved_type;
+
+                                                        // Got a match, stop and proceeed with the next link
+                                                        continue 'link_loop;
+                                                    }
                                                 }
                                             }
+
+                                            // No data type resolveable ... no way to proceed
+                                            break 'link_loop;
+                                        }
+                                        _ => {
+                                            root_node = child;
                                         }
                                     }
-                                    _ => {
-                                        root_node = child;
-                                    }
-                                }
 
-                                continue 'outer;
+                                    // Done. Get the next link. Remain in the context of where this link was resolved
+                                    // This might actually be a parent of the object that the current root_node started
+                                    // as
+                                    continue 'link_loop;
+                                }
                             }
+
+                            let current_class = arena[root_node].get();
+
+                            // No parents, so no luck
+                            if current_class.inherits_from.is_empty() {
+                                break;
+                            }
+
+                            // Change the iterator to an iterator over the children of this parent. Maybe one of them has the name.
+                            // But this time we need to be careful because we must take visibility into account
+                            let inherits_from = current_class.inherits_from.iter().nth(0).unwrap();
+                            if let Some(type_ref) = inherits_from.type_ref.as_ref() {
+                                if let Some(parent_class) = self.resolver.resolve_type_ref(type_ref)
+                                {
+                                    eprintln!("up up up {:?}", parent_class);
+                                    minimal_visibility = Visibility::Protected;
+                                    root_node = parent_class;
+
+                                    continue;
+                                }
+                            }
+
+                            return NextAction::Abort;
                         }
 
-                        eprintln!("did not find {} in ", link.name());
                         // Nothing found :(
-                        break;
+                        return NextAction::Abort;
                     }
                 }
 

@@ -3,7 +3,7 @@ use super::NextAction;
 use super::Symbol;
 use super::Visitor;
 use crate::environment::scope::Reference;
-use crate::environment::symbol::PhpSymbolKind;
+use crate::environment::symbol::{PhpSymbolKind, Visibility};
 use crate::node::get_range;
 use crate::node::Node as AstNode;
 use crate::token::Token;
@@ -149,13 +149,16 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 NextAction::ProcessChildren
             }
-            AstNode::ClassConstantDefinitionStatement { name, .. } => {
+            AstNode::ClassConstantDefinitionStatement {
+                name, visibility, ..
+            } => {
                 let range = get_range(node.range());
                 let child = arena.new_node(Symbol {
                     name: name.clone().label.unwrap(),
                     kind: PhpSymbolKind::Constant,
                     range,
                     selection_range: range,
+                    visibility: Visibility::from(visibility),
                     ..Symbol::default()
                 });
                 parent.append(child, arena);
@@ -167,6 +170,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 name,
                 data_type,
                 doc_comment,
+                visibility,
                 ..
             } => {
                 let range = get_range(node.range());
@@ -198,6 +202,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     range,
                     selection_range: range,
                     data_types,
+                    visibility: Visibility::from(visibility),
                     ..Symbol::default()
                 });
 
@@ -211,6 +216,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 function,
                 is_static,
                 doc_comment,
+                visibility,
                 ..
             } => {
                 let return_type =
@@ -251,6 +257,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     selection_range: get_range(name.range()),
                     data_types,
                     is_static: is_static.is_some(),
+                    visibility: Visibility::from(visibility),
                     ..Symbol::default()
                 });
 

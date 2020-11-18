@@ -24,7 +24,7 @@ async fn main() {
         files: Arc::new(Mutex::new(HashMap::new())),
         global_symbols: Arc::new(Mutex::new(HashMap::new())),
         diagnostics: Arc::new(Mutex::new(HashMap::new())),
-        symbol_references: Arc::new(Mutex::new(HashMap::new()))
+        symbol_references: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let (service, messages) = LspService::new(backend);

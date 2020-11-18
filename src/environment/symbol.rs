@@ -3,6 +3,7 @@ use crate::environment::scope::{collect_symbols, Reference};
 use crate::node::{get_range, Node};
 use crate::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
+use std::cmp::PartialOrd;
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Range, SymbolKind};
 
@@ -36,6 +37,28 @@ pub enum PhpSymbolKind {
 
     // Capturing all unknown enums by this lib.
     Unknown = 255,
+}
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub enum Visibility {
+    Private,
+    Protected,
+    Public,
+    None,
+}
+
+impl From<&Option<Token>> for Visibility {
+    fn from(token: &Option<Token>) -> Self {
+        if let Some(token) = token {
+            match token.t {
+                TokenType::Private => Visibility::Private,
+                TokenType::Protected => Visibility::Protected,
+                TokenType::Public => Visibility::Public,
+                _ => Visibility::None,
+            }
+        } else {
+            Visibility::None
+        }
+    }
 }
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
@@ -75,6 +98,9 @@ pub struct Symbol {
 
     /// True if this value was declared static
     pub is_static: bool,
+
+    /// The visibility of the symbol
+    pub visibility: Visibility,
 }
 
 impl Default for Symbol {
@@ -94,6 +120,7 @@ impl Default for Symbol {
             data_types: Vec::new(),
             is_static: false,
             imports: None,
+            visibility: Visibility::None,
         }
     }
 }
@@ -786,6 +813,7 @@ pub fn document_symbol(
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -816,6 +844,7 @@ pub fn document_symbol(
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -839,6 +868,7 @@ pub fn document_symbol(
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -885,6 +915,7 @@ pub fn document_symbol(
                 data_types,
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -966,6 +997,7 @@ pub fn document_symbol(
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -1007,6 +1039,7 @@ pub fn document_symbol(
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
             enclosing.append(child, arena);
 
@@ -1046,6 +1079,7 @@ pub fn document_symbol(
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
             enclosing.append(child, arena);
 
@@ -1075,6 +1109,7 @@ pub fn document_symbol(
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
             enclosing.append(child, arena);
 
@@ -1114,6 +1149,7 @@ pub fn document_symbol(
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
             enclosing.append(child, arena);
 
@@ -1141,6 +1177,7 @@ pub fn document_symbol(
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
             enclosing.append(child, arena);
 
@@ -1175,6 +1212,7 @@ pub fn document_symbol(
                 data_types,
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -1230,6 +1268,7 @@ pub fn document_symbol(
                 data_types,
                 is_static: is_static.is_some(),
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -1268,6 +1307,7 @@ pub fn document_symbol(
                 data_types,
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -1311,6 +1351,7 @@ pub fn document_symbol(
                 data_types,
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -1344,6 +1385,7 @@ pub fn document_symbol(
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
