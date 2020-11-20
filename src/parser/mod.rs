@@ -62,7 +62,7 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 type ArgumentListResult = Result<Option<Vec<Node>>>;
 type ExpressionResult = Result<Node>;
 type ExpressionListResult = Result<Vec<Node>>;
-type AstResult = Result<(Vec<Node>, Vec<Error>)>;
+pub type AstResult = Result<(Vec<Node>, Vec<Error>)>;
 
 pub mod arrays;
 pub mod calls;

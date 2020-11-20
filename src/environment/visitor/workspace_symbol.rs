@@ -266,6 +266,46 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 NextAction::ProcessChildren
             }
+
+            AstNode::NamedFunctionDefinitionStatement { name, function, .. } => {
+                let return_type =
+                    if let AstNode::FunctionDefinitionStatement { return_type, .. } =
+                        function.as_ref()
+                    {
+                        return_type
+                    } else {
+                        eprintln!("Invalid function {:?}", function);
+
+                        return NextAction::Abort;
+                    };
+
+                let data_types = if let Some(data_type) = return_type {
+                    if let Some(type_ref) = get_type_ref(&*data_type) {
+                        vec![Reference::type_ref(type_ref)]
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                };
+
+                let child = arena.new_node(Symbol {
+                    name: name.clone().label.unwrap(),
+                    kind: PhpSymbolKind::Function,
+                    range: get_range(node.range()),
+                    selection_range: get_range(name.range()),
+                    inherits_from: Vec::new(),
+                    references_by: Vec::new(),
+                    data_types,
+                    ..Symbol::default()
+                });
+
+                parent.append(child, arena);
+                arena[child].get_mut().node = Some(child);
+
+                NextAction::Abort
+            }
+
             _ => NextAction::Abort,
         }
     }
