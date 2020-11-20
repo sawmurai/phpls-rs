@@ -159,7 +159,7 @@ pub enum Node {
         member: Box<Node>,
     },
     StaticMember {
-        class: Box<Node>,
+        object: Box<Node>,
         pn: Token,
         member: Box<Node>,
     },
@@ -535,7 +535,6 @@ pub enum Node {
 }
 
 impl Node {
-
     pub fn is_offset(&self) -> bool {
         true
     }
@@ -597,7 +596,11 @@ impl Node {
             Node::New { class, .. } => vec![class],
             Node::Clone { object, .. } => vec![object],
             Node::Member { object, member, .. } => vec![object, member],
-            Node::StaticMember { class, member, .. } => vec![class, member],
+            Node::StaticMember {
+                object: class,
+                member,
+                ..
+            } => vec![class, member],
             Node::StaticMethod { class, method, .. } => vec![class, method],
             Node::Field { array, index, .. } => {
                 if let Some(index) = index {
@@ -991,7 +994,11 @@ impl Node {
             Node::New { token, class } => (token.start(), class.range().1),
             Node::Clone { token, object } => (token.start(), object.range().1),
             Node::Member { object, member, .. } => (object.range().0, member.range().1),
-            Node::StaticMember { class, member, .. } => (class.range().0, member.range().1),
+            Node::StaticMember {
+                object: class,
+                member,
+                ..
+            } => (class.range().0, member.range().1),
             Node::StaticMethod { class, method, .. } => (class.range().0, method.range().1),
             Node::Field { array, cb, .. } => (array.range().0, cb.end()),
             Node::Static { token, expr } => (token.start(), expr.last().unwrap().range().1),
@@ -1334,7 +1341,7 @@ impl Node {
     pub fn name(&self) -> String {
         match self {
             Node::Variable(token) | Node::Literal(token) => format!("{}", token),
-            _ => String::new()
+            _ => String::new(),
         }
     }
 }

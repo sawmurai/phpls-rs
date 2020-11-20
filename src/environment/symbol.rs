@@ -38,12 +38,34 @@ pub enum PhpSymbolKind {
     // Capturing all unknown enums by this lib.
     Unknown = 255,
 }
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Visibility {
-    Private,
-    Protected,
-    Public,
     None,
+    Public,
+    Protected,
+    Private,
+}
+
+impl PartialOrd for Visibility {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self == other {
+            return Some(std::cmp::Ordering::Equal);
+        }
+
+        if *self == Visibility::None || *self == Visibility::Public {
+            return Some(std::cmp::Ordering::Greater);
+        }
+
+        if *self == Visibility::Private {
+            return Some(std::cmp::Ordering::Less);
+        }
+
+        if *other == Visibility::Private {
+            return Some(std::cmp::Ordering::Greater);
+        }
+
+        return Some(std::cmp::Ordering::Less);
+    }
 }
 
 impl From<&Option<Token>> for Visibility {
@@ -712,7 +734,11 @@ pub fn document_symbol(
         Node::New { class, .. } => document_symbol(arena, enclosing, class, parent),
         Node::Clone { object, .. } => document_symbol(arena, enclosing, object, parent),
         // Not working yet for some reason
-        Node::StaticMember { class, member, .. } => {
+        Node::StaticMember {
+            object: class,
+            member,
+            ..
+        } => {
             // Resolve the object (which can also be a callee)
             let object_node = document_symbol(arena, enclosing, class, parent)?;
             let member_node = document_symbol(arena, enclosing, member, Some(object_node))?;

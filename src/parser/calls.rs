@@ -45,7 +45,7 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
             // Class property
             if parser.next_token_one_of(&[TokenType::Variable]) {
                 expr = Node::StaticMember {
-                    class: Box::new(expr),
+                    object: Box::new(expr),
                     pn,
                     member: Box::new(variables::variable(parser)?),
                 };
@@ -62,7 +62,7 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
             // Class constant
             } else {
                 expr = Node::StaticMember {
-                    class: Box::new(expr),
+                    object: Box::new(expr),
                     pn,
                     member: Box::new(Node::Literal(parser.consume_member()?)),
                 };
