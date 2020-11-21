@@ -434,6 +434,12 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         let mut current_object = node;
         let (root_node, mut minimal_visibility) = 'root_node: loop {
             match current_object {
+                AstNode::New { class, .. } => {
+                    current_object = class;
+                }
+                AstNode::Grouping(inside) => {
+                    current_object = inside;
+                }
                 AstNode::Call { callee, .. } => {
                     current_object = callee;
                 }
