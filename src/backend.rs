@@ -656,23 +656,27 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let uri = params.text_document_position_params.text_document.uri;
-        let file = uri.path();
+        let file = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .path();
+        let local_references = self.symbol_references.lock().await;
         let arena = self.arena.lock().await;
-        let files = self.files.lock().await;
-        let global_symbols = self.global_symbols.lock().await;
+        let position = &params.text_document_position_params.position;
 
-        if let Some(node_id) = files.get(file) {
-            if let Some(string) = environment::hover(
-                &arena,
-                node_id,
-                &params.text_document_position_params.position,
-                &global_symbols,
-            ) {
-                return Ok(Some(Hover {
-                    contents: HoverContents::Scalar(MarkedString::String(string)),
-                    range: None,
-                }));
+        if let Some(references) = local_references.get(file) {
+            for reference in references {
+                if in_range(position, &get_range(reference.range)) {
+                    let symbol = arena[reference.node].get();
+
+                    return Ok(Some(Hover {
+                        range: Some(get_range(reference.range)),
+                        contents: HoverContents::Scalar(MarkedString::String(
+                            symbol.hover_text(&arena, &reference.node),
+                        )),
+                    }));
+                }
             }
         }
 
