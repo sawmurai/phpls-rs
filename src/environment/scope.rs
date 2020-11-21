@@ -122,26 +122,6 @@ pub fn collect_symbols(
                 collect_symbols(arena, symbol, child)?;
             }
         }
-        Node::GroupedUse { .. }
-        | Node::UseDeclaration { .. }
-        | Node::UseFunction { .. }
-        | Node::UseConst { .. } => {
-            let actual_symbol = arena[*symbol].get_mut();
-
-            if let Some(imports) = actual_symbol.imports.as_mut() {
-                imports.extend(collect_uses(node, &Vec::new()));
-            } else {
-                actual_symbol.imports = Some(collect_uses(node, &Vec::new()));
-            }
-
-            // I have no idea how to work around the necessity to clone
-            if let Some(imports) = &arena[*symbol].get_mut().imports.clone() {
-                for imp in imports.iter() {
-                    let import_node = arena.new_node(Symbol::from(imp));
-                    symbol.append(import_node, arena);
-                }
-            }
-        }
         Node::Call {
             callee, parameters, ..
         } => {

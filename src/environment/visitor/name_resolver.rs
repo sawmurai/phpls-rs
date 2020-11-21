@@ -365,176 +365,41 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 NextAction::Abort
             }
-            AstNode::StaticMember { object, member, .. }
-            | AstNode::Member { object, member, .. } => {
-                let mut reversed_chain = vec![member];
+            AstNode::Binary { left, right, token } => {
+                //let right = document_symbol(arena, enclosing, right, parent)?;
+                //let left = document_symbol(arena, enclosing, left, parent)?;
 
-                let mut current_object = object;
-                let (root_node, mut minimal_visibility) = 'root_node: loop {
-                    match current_object.as_ref() {
-                        AstNode::Call { callee, .. } => {
-                            current_object = callee;
-                        }
-                        AstNode::Member { object, member, .. } => {
-                            current_object = object;
-                            reversed_chain.push(member);
-                        }
-                        AstNode::Variable(token) => {
-                            if let Some(node) = self.resolver.get_local(token) {
-                                self.resolver.reference_local(&token, &node);
+                let data_type = self.resolve_member_type(&right, arena);
 
-                                if let Some(name) = token.label.as_ref() {
-                                    if name == "this" {
-                                        // In this case this was automatically resolved to the current class
-                                        break (Some(node), Visibility::Private);
-                                    } else {
-                                        // In this case we need to resolve to the type of the class
-                                        for data_type in arena[node].get().data_types.iter() {
-                                            if let Some(resolved_data_type) =
-                                                self.resolver.resolve_type_ref(
-                                                    data_type.type_ref.as_ref().unwrap().as_ref(),
-                                                )
-                                            {
-                                                break 'root_node (
-                                                    Some(resolved_data_type),
-                                                    Visibility::Public,
-                                                );
-                                            }
-                                        }
+                if token.t == TokenType::Assignment {
+                    if let AstNode::Variable(token) = left.as_ref() {
+                        let child = if let Some(data_type) = data_type {
+                            arena.new_node(Symbol {
+                                // TODO: Make sure this type of reference is still resolvable (should be aight)
+                                data_types: vec![SymbolReference::node(&token, data_type)],
+                                ..Symbol::from(token)
+                            })
+                        } else {
+                            arena.new_node(Symbol::from(token))
+                        };
 
-                                        break (Some(node), Visibility::Public);
-                                    }
-                                } else {
-                                    break (Some(node), Visibility::Public);
-                                };
-                            }
-
-                            break (None, Visibility::None);
-                        }
-                        AstNode::Literal(token) => match token.t {
-                            TokenType::TypeSelf | TokenType::Static => {
-                                break (self.resolver.current_class, Visibility::Private)
-                            }
-                            TokenType::Parent => {
-                                if let Some(current_class) = self.resolver.current_class {
-                                    break (
-                                        self.resolver.parent_class(arena[current_class].get()),
-                                        Visibility::Protected,
-                                    );
-                                } else {
-                                    break (None, Visibility::None);
-                                }
-                            }
-                            _ => {
-                                break (
-                                    self.resolver.resolve_type_ref(&vec![token.clone()]),
-                                    Visibility::Public,
-                                )
-                            }
-                        },
-                        AstNode::TypeRef(tokens) => {
-                            if let Some(node) = self.resolver.resolve_type_ref(tokens) {
-                                break (Some(node), Visibility::Public);
-                            } else {
-                                break (None, Visibility::None);
-                            }
-                        }
-                        _ => break (None, Visibility::None),
-                    }
-                };
-
-                if let Some(mut root_node) = root_node {
-                    let root_symbol = arena[root_node].get();
-
-                    eprintln!("Root symbol is {}", root_symbol.name);
-
-                    // $this (root_node) will have resolved to the definition of the class
-                    // of the object
-                    'link_loop: for link in reversed_chain.iter().rev() {
-                        // Get the definition of the current parent and try to find "link" in it
-                        // Loop backwards through the inheritance chain, from the object towards its ancestors
-
-                        loop {
-                            // Get the children of the current root_node, that is its properties and methods
-                            for child in root_node.children(arena) {
-                                // Check all children of the current class
-                                let child_symbol = arena[child].get();
-
-                                if child_symbol.visibility < minimal_visibility {
-                                    eprintln!(
-                                        "{} is {:?} < {:?}",
-                                        child_symbol.name,
-                                        child_symbol.visibility,
-                                        minimal_visibility
-                                    );
-                                    continue;
-                                }
-
-                                // This is the correct child
-                                if child_symbol.name == link.name() {
-                                    match &***link {
-                                        AstNode::Variable(token) | AstNode::Literal(token) => {
-                                            // Register reference here
-                                            self.resolver.reference_local(&token, &child);
-                                        }
-                                        _ => (),
-                                    }
-
-                                    match child_symbol.kind {
-                                        PhpSymbolKind::Property | PhpSymbolKind::Method => {
-                                            for data_type in child_symbol.data_types.iter() {
-                                                if let Some(type_ref) = data_type.type_ref.as_ref()
-                                                {
-                                                    if let Some(resolved_type) =
-                                                        self.resolver.resolve_type_ref(&type_ref)
-                                                    {
-                                                        root_node = resolved_type;
-
-                                                        // Got a match, stop and proceeed with the next link
-                                                        continue 'link_loop;
-                                                    }
-                                                }
-                                            }
-
-                                            // No data type resolveable ... no way to proceed
-                                            break 'link_loop;
-                                        }
-                                        _ => {
-                                            root_node = child;
-                                        }
-                                    }
-
-                                    // Done. Get the next link. Remain in the context of where this link was resolved
-                                    // This might actually be a parent of the object that the current root_node started
-                                    // as
-                                    continue 'link_loop;
-                                }
-                            }
-
-                            let current_class = arena[root_node].get();
-
-                            // No parents, so no luck
-                            if current_class.inherits_from.is_empty() {
-                                break;
-                            }
-
-                            // Change the iterator to an iterator over the children of this parent. Maybe one of them has the name.
-                            // But this time we need to be careful because we must take visibility into account
-                            if let Some(parent_class) = self.resolver.parent_class(current_class) {
-                                eprintln!("up up up {:?}", parent_class);
-                                minimal_visibility = Visibility::Protected;
-                                root_node = parent_class;
-
-                                continue;
-                            }
-
-                            return NextAction::Abort;
-                        }
-
-                        // Nothing found :(
-                        return NextAction::Abort;
+                        self.resolver.scope_container.append(child, arena);
+                        self.resolver.declare_local(token, child);
                     }
                 }
+                eprintln!("{:#?}", node);
+                /*
+                enclosing.append(left, arena);
+                enclosing.append(right, arena);
+
+                Ok(left)*/
+                //eprintln!("{:#?}", node);
+
+                return NextAction::ProcessChildren;
+            }
+            AstNode::StaticMember { object, member, .. }
+            | AstNode::Member { object, member, .. } => {
+                self.resolve_member_type(node, arena);
 
                 NextAction::Abort
             }
@@ -554,6 +419,208 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             }
             _ => (),
         }
+    }
+}
+
+impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
+    /// Resolve a member chain like
+    /// ```php
+    /// $object->method()->member;
+    /// ```
+    /// and return the type of the last link, in this case of member
+    fn resolve_member_type(&mut self, node: &AstNode, arena: &mut Arena<Symbol>) -> Option<NodeId> {
+        let mut reversed_chain = Vec::with_capacity(5);
+
+        let mut current_object = node;
+        let (root_node, mut minimal_visibility) = 'root_node: loop {
+            match current_object {
+                AstNode::Call { callee, .. } => {
+                    current_object = callee;
+                }
+                AstNode::StaticMember { object, member, .. }
+                | AstNode::Member { object, member, .. } => {
+                    reversed_chain.push(member);
+                    current_object = object;
+                }
+                AstNode::Variable(token) => {
+                    if let Some(node) = self.resolver.get_local(token) {
+                        self.resolver.reference_local(&token, &node);
+
+                        if let Some(name) = token.label.as_ref() {
+                            if name == "this" {
+                                // In this case this was automatically resolved to the current class
+                                break (Some(node), Visibility::Private);
+                            } else {
+                                // In this case we need to resolve to the type of the variable
+                                for reference in arena[node].get().data_types.iter() {
+                                    if let Some(referenced_node) = reference.node {
+                                        break 'root_node (
+                                            // Return the referenced node
+                                            Some(referenced_node),
+                                            // Now, the required visibility depends on if we are in the same class or not
+                                            if let Some(current_class) = self.resolver.current_class
+                                            {
+                                                if current_class == referenced_node {
+                                                    Visibility::Private
+                                                } else {
+                                                    Visibility::Public
+                                                }
+                                            } else {
+                                                Visibility::Public
+                                            },
+                                        );
+                                    } else if let Some(type_ref) = reference.type_ref.as_ref() {
+                                        if let Some(resolved_data_type) =
+                                            self.resolver.resolve_type_ref(type_ref)
+                                        {
+                                            break 'root_node (
+                                                Some(resolved_data_type),
+                                                Visibility::Public,
+                                            );
+                                        }
+                                    }
+                                }
+
+                                break (Some(node), Visibility::Public);
+                            }
+                        } else {
+                            break (Some(node), Visibility::Public);
+                        };
+                    }
+
+                    break (None, Visibility::None);
+                }
+                AstNode::Literal(token) => match token.t {
+                    TokenType::TypeSelf | TokenType::Static => {
+                        break (self.resolver.current_class, Visibility::Private)
+                    }
+                    TokenType::Parent => {
+                        if let Some(current_class) = self.resolver.current_class {
+                            break (
+                                self.resolver.parent_class(arena[current_class].get()),
+                                Visibility::Protected,
+                            );
+                        } else {
+                            break (None, Visibility::None);
+                        }
+                    }
+                    _ => {
+                        break (
+                            self.resolver.resolve_type_ref(&vec![token.clone()]),
+                            Visibility::Public,
+                        )
+                    }
+                },
+                AstNode::TypeRef(tokens) => {
+                    if let Some(node) = self.resolver.resolve_type_ref(tokens) {
+                        break (Some(node), Visibility::Public);
+                    } else {
+                        break (None, Visibility::None);
+                    }
+                }
+                _ => break (None, Visibility::None),
+            }
+        };
+
+        if let Some(mut root_node) = root_node {
+            let root_symbol = arena[root_node].get();
+
+            eprint!("{}", root_symbol.name);
+
+            // $this (root_node) will have resolved to the definition of the class
+            // of the object
+            'link_loop: for link in reversed_chain.iter().rev() {
+                eprint!("->{:#?}", link);
+                // Get the definition of the current parent and try to find "link" in it
+                // Loop backwards through the inheritance chain, from the object towards its ancestors
+
+                loop {
+                    // Get the children of the current root_node, that is its properties and methods
+                    for child in root_node.children(arena) {
+                        // Check all children of the current class
+                        let child_symbol = arena[child].get();
+
+                        // Name must be unique, so we can bail out if we find a name that has a bad visibility
+                        if child_symbol.visibility < minimal_visibility {
+                            eprintln!("Failed, vis is bad");
+                            return None;
+                        }
+
+                        // This is the correct child
+                        if child_symbol.name == link.name() {
+                            match link.as_ref() {
+                                AstNode::Variable(token) | AstNode::Literal(token) => {
+                                    // Register reference here
+                                    self.resolver.reference_local(&token, &child);
+                                }
+                                _ => (),
+                            }
+
+                            match child_symbol.kind {
+                                PhpSymbolKind::Property | PhpSymbolKind::Method => {
+                                    for data_type in child_symbol.data_types.iter() {
+                                        if let Some(type_ref) = data_type.type_ref.as_ref() {
+                                            if let Some(resolved_type) =
+                                                self.resolver.resolve_type_ref(&type_ref)
+                                            {
+                                                root_node = resolved_type;
+
+                                                // Got a match, stop and proceeed with the next link
+                                                continue 'link_loop;
+                                            }
+                                        }
+                                    }
+
+                                    // No data type resolveable ... no way to proceed
+                                    eprintln!("Failed, no resolvable data type");
+
+                                    return None;
+                                }
+                                _ => {
+                                    root_node = child;
+                                }
+                            }
+
+                            // Done. Get the next link. Remain in the context of where this link was resolved
+                            // This might actually be a parent of the object that the current root_node started
+                            // as
+                            continue 'link_loop;
+                        }
+                    }
+
+                    let current_class = arena[root_node].get();
+
+                    // No parents, so no luck
+                    if current_class.inherits_from.is_empty() {
+                        eprintln!("Failed, no parents");
+                        break;
+                    }
+
+                    // Change the iterator to an iterator over the children of this parent. Maybe one of them has the name.
+                    // But this time we need to be careful because we must take visibility into account
+                    if let Some(parent_class) = self.resolver.parent_class(current_class) {
+                        minimal_visibility = Visibility::Protected;
+                        root_node = parent_class;
+
+                        continue;
+                    }
+
+                    eprintln!("Failed, no resolvable parents");
+                    return None;
+                }
+
+                // Nothing found :(
+                eprintln!("Failed, link {} unresolvable", link.name());
+                return None;
+            }
+
+            // At this point we arrived at the last link and successfully resolved everything
+            return Some(root_node);
+        }
+
+        eprintln!(">> Root node unresolvable");
+
+        None
     }
 }
 
