@@ -233,20 +233,12 @@ impl Symbol {
     }
 
     pub fn hover_text(&self, arena: &Arena<Symbol>, me: &NodeId) -> String {
-        if let Some(parent) = self.parent {
-            format!(
-                "{}, child of {}",
-                self.name,
-                arena[parent].get().hover_text(&arena, me)
-            )
-        } else {
-            format!(
-                "{} ({:?}) < {:?}",
-                self.name,
-                self.kind,
-                arena[arena[*me].parent().unwrap()].get().kind
-            )
-        }
+        format!(
+            "{} ({:?}) < {:?}",
+            self.name,
+            self.kind,
+            arena[arena[*me].parent().unwrap()].get().kind
+        )
     }
 
     /// Find a direct descendant of node by its name

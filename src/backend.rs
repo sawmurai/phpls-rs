@@ -85,8 +85,6 @@ impl Backend {
                 let files = self.files.clone();
                 let references = self.symbol_references.clone();
                 let diagnostics = self.diagnostics.clone();
-                let path = path.clone();
-                let content = content.clone();
 
                 joins.push(task::spawn(async move {
                     if let Ok((ast, range)) = Backend::source_to_ast(&content) {
