@@ -71,7 +71,6 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 let new_node = arena.new_node(symbol);
                 parent.append(new_node, arena);
-                arena[new_node].get_mut().node = Some(new_node);
 
                 NextAction::ProcessChildren
             }
@@ -85,7 +84,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                 });
 
                 parent.append(child, arena);
-                arena[child].get_mut().node = Some(child);
 
                 NextAction::Abort
             }
@@ -114,7 +112,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                 });
 
                 parent.append(child, arena);
-                arena[child].get_mut().node = Some(child);
 
                 NextAction::ProcessChildren
             }
@@ -131,7 +128,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                     ..Symbol::default()
                 });
                 parent.append(child, arena);
-                arena[child].get_mut().node = Some(child);
 
                 NextAction::ProcessChildren
             }
@@ -159,7 +155,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                     ..Symbol::default()
                 });
                 parent.append(child, arena);
-                arena[child].get_mut().node = Some(child);
 
                 NextAction::ProcessChildren
             }
@@ -176,7 +171,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                     ..Symbol::default()
                 });
                 parent.append(child, arena);
-                arena[child].get_mut().node = Some(child);
 
                 NextAction::Abort
             }
@@ -221,7 +215,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                 });
 
                 parent.append(child, arena);
-                arena[child].get_mut().node = Some(child);
 
                 NextAction::Abort
             }
@@ -276,7 +269,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                 });
 
                 parent.append(child, arena);
-                arena[child].get_mut().node = Some(child);
 
                 NextAction::ProcessChildren
             }
@@ -313,7 +305,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                 });
 
                 parent.append(child, arena);
-                arena[child].get_mut().node = Some(child);
 
                 NextAction::Abort
             }

@@ -101,9 +101,6 @@ pub struct Symbol {
     /// to display meaningful error messages
     pub inherits_from: Vec<Reference>,
 
-    /// Own node id
-    pub node: Option<NodeId>,
-
     /// Id of the node this node references (if it is not a definition)
     pub references: Option<Reference>,
 
@@ -126,7 +123,6 @@ impl Default for Symbol {
             selection_range: get_range(((0, 0), (0, 0))),
             deprecated: None,
             inherits_from: Vec::new(),
-            node: None,
             references: None,
             data_types: Vec::new(),
             is_static: false,
