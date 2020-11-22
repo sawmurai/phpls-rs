@@ -261,17 +261,28 @@ impl<'a> NameResolver<'a> {
     }
 }
 
+pub type Notification = (NodeRange, String);
+
 pub struct NameResolveVisitor<'a, 'b: 'a> {
     resolver: &'b mut NameResolver<'a>,
+    diagnostics: Vec<Notification>,
 }
 
 impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
     pub fn new(resolver: &'b mut NameResolver<'a>) -> Self {
-        NameResolveVisitor { resolver }
+        NameResolveVisitor {
+            resolver,
+            diagnostics: Vec::new(),
+        }
     }
 
     pub fn references(&self) -> Vec<Reference> {
         self.resolver.references()
+    }
+
+    pub fn diagnostics(&self) -> Vec<Notification> {
+        // TODO: Rather return an iterator?
+        self.diagnostics.clone()
     }
 }
 
@@ -304,7 +315,10 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 NextAction::ProcessChildren
             }
             AstNode::TypeRef(type_ref) => {
-                self.resolver.resolve_type_ref(type_ref, arena);
+                if self.resolver.resolve_type_ref(type_ref, arena).is_none() {
+                    self.diagnostics
+                        .push((node.range(), String::from("Unresolvable type")));
+                }
 
                 NextAction::Abort
             }

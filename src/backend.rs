@@ -299,16 +299,21 @@ impl Backend {
                 .lock()
                 .await
                 .insert(path.to_owned(), visitor.references());
+
+            diagnostics.lock().await.insert(
+                path.to_owned(),
+                visitor
+                    .diagnostics()
+                    .iter()
+                    .map(|notification| Diagnostic {
+                        range: get_range(notification.0),
+                        message: notification.1.clone(),
+                        ..Diagnostic::default()
+                    })
+                    .collect::<Vec<Diagnostic>>(),
+            );
         }
-        /*
-                diagnostics.lock().await.insert(
-                    path.to_owned(),
-                    errors
-                        .iter()
-                        .map(Diagnostic::from)
-                        .collect::<Vec<Diagnostic>>(),
-                );
-        */
+
         Ok(())
     }
 }
@@ -535,8 +540,12 @@ impl LanguageServer for Backend {
             )
             .await;
 
-            let diags = errors.iter().map(|e| Diagnostic::from(e)).collect();
-            diagnostics.lock().await.insert(path.to_string(), diags);
+            diagnostics
+                .lock()
+                .await
+                .entry(path.to_string())
+                .or_insert(Vec::new())
+                .extend(errors.iter().map(Diagnostic::from));
 
             self.opened_files
                 .lock()
@@ -572,6 +581,8 @@ impl LanguageServer for Backend {
         }
 
         if let Some(diagnostics) = self.diagnostics.lock().await.get(path) {
+            eprintln!("asdasdasdasd");
+
             // TODO: Add resolver here and collect unresolvable for diagnostics
             if
             /*file.contains("/vendor/")
