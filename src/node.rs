@@ -359,7 +359,8 @@ pub enum Node {
         paa: Option<Token>,
         member: Box<Node>,
         as_token: Token,
-        as_name: Token,
+        visibility: Option<Token>,
+        as_name: Option<Token>,
     },
     // Merge with Class?
     ClassStatement {
@@ -1193,12 +1194,25 @@ impl Node {
                 left,
                 member,
                 as_name,
+                visibility,
                 ..
             } => {
                 if let Some(left) = left {
-                    (left.range().0, as_name.end())
+                    if let Some(as_name) = as_name {
+                        (left.range().0, as_name.end())
+                    } else if let Some(visibility) = visibility {
+                        (left.range().0, visibility.end())
+                    } else {
+                        left.range()
+                    }
                 } else {
-                    (member.range().0, as_name.end())
+                    if let Some(as_name) = as_name {
+                        (member.range().0, as_name.end())
+                    } else if let Some(visibility) = visibility {
+                        (member.range().0, visibility.end())
+                    } else {
+                        member.range()
+                    }
                 }
             }
             Node::ClassStatement {

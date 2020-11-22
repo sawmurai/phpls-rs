@@ -7,6 +7,7 @@ use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolve
 use crate::environment::visitor::workspace_symbol::WorkspaceSymbolVisitor;
 use crate::node::get_range;
 use crate::node::Node as AstNode;
+use crate::parser::Error as ParserError;
 use crate::parser::Parser;
 use crate::scanner::Scanner;
 use indextree::{Arena, NodeId};
@@ -87,7 +88,7 @@ impl Backend {
                 let diagnostics = self.diagnostics.clone();
 
                 joins.push(task::spawn(async move {
-                    if let Ok((ast, range)) = Backend::source_to_ast(&content) {
+                    if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
                         let reindex_result = Backend::reindex(
                             &path,
                             &ast,
@@ -98,7 +99,7 @@ impl Backend {
                             global_symbols,
                             references,
                             files,
-                            diagnostics,
+                            diagnostics.clone(),
                         )
                         .await;
 
@@ -108,6 +109,9 @@ impl Backend {
                                 eprintln!("{}", err);
                             }
                         }
+
+                        let diags = errors.iter().map(|e| Diagnostic::from(e)).collect();
+                        diagnostics.lock().await.insert(path, diags);
                     } else {
                         // TODO: Publish errors as diagnostics
                         eprintln!("Could not index {} due to syntax errors", path);
@@ -128,7 +132,6 @@ impl Backend {
         }
 
         let arena = self.arena.lock().await;
-        let mut diagnostics = self.diagnostics.lock().await;
         let files = self.files.lock().await;
 
         let mut global_table: HashMap<String, NodeId> = HashMap::new();
@@ -191,7 +194,9 @@ impl Backend {
     }
 
     /// Index a source string to an ast
-    fn source_to_ast(source: &str) -> std::result::Result<(Vec<AstNode>, Range), String> {
+    fn source_to_ast(
+        source: &str,
+    ) -> std::result::Result<(Vec<AstNode>, Range, Vec<ParserError>), String> {
         let mut scanner = Scanner::new(&source);
 
         if let Err(msg) = scanner.scan() {
@@ -203,7 +208,7 @@ impl Backend {
         let range = get_range(scanner.document_range());
 
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens) {
-            Ok((ast, range))
+            Ok((ast, range, errors))
         } else {
             Err(String::from("dd"))
         }
@@ -369,8 +374,6 @@ impl LanguageServer for Backend {
     async fn initialized(&self, client: &Client, _params: InitializedParams) {
         let mut diagnostics = self.diagnostics.lock().await;
 
-        return;
-
         for (file, diagnostics) in diagnostics.iter() {
             if
             /*file.contains("/vendor/")
@@ -517,7 +520,7 @@ impl LanguageServer for Backend {
         let diagnostics = self.diagnostics.clone();
         let content = tokio::fs::read_to_string(path).await.unwrap();
 
-        if let Ok((ast, range)) = Backend::source_to_ast(&content) {
+        if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
             let reindex_result = Backend::reindex(
                 path,
                 &ast,
@@ -531,6 +534,9 @@ impl LanguageServer for Backend {
                 diagnostics.clone(),
             )
             .await;
+
+            let diags = errors.iter().map(|e| Diagnostic::from(e)).collect();
+            diagnostics.lock().await.insert(path.to_string(), diags);
 
             self.opened_files
                 .lock()
@@ -565,19 +571,21 @@ impl LanguageServer for Backend {
             }
         }
 
-        let files = self.files.lock().await;
-        let arena = self.arena.lock().await;
-
-        if let Some(node_id) = files.get(path) {
-            let mut diagnostics = Vec::new();
-
+        if let Some(diagnostics) = self.diagnostics.lock().await.get(path) {
             // TODO: Add resolver here and collect unresolvable for diagnostics
+            if
+            /*file.contains("/vendor/")
+            || file.contains("/phpstorm-stubs/")
+            || */
+            diagnostics.is_empty() {
+                return;
+            }
 
-            client.publish_diagnostics(params.text_document.uri, diagnostics, None);
+            client.publish_diagnostics(params.text_document.uri, diagnostics.clone(), None);
         }
     }
 
-    async fn did_close(&self, client: &Client, params: DidCloseTextDocumentParams) {
+    async fn did_close(&self, _client: &Client, params: DidCloseTextDocumentParams) {
         self.opened_files
             .lock()
             .await
@@ -601,7 +609,9 @@ impl LanguageServer for Backend {
             client.log_message(MessageType::Info, "Need to freshly index");
 
             let source = tokio::fs::read_to_string(path).await.unwrap();
-            if let Ok((ast, range)) = Backend::source_to_ast(&source) {
+            if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
+                let diags = errors.iter().map(|e| Diagnostic::from(e)).collect();
+                diagnostics.lock().await.insert(path.to_owned(), diags);
                 opened_files.insert(path.to_string(), (ast, range));
             } else {
                 client.log_message(MessageType::Error, "Error indexing");

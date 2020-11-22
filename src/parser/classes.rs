@@ -316,13 +316,43 @@ fn trait_usage_alteration_group(parser: &mut Parser) -> ExpressionResult {
             };
 
         if let Some(as_token) = parser.consume_or_ignore(TokenType::As) {
-            alterations.push(Node::UseTraitAs {
-                left: class_name,
-                paa,
-                member,
-                as_token,
-                as_name: parser.consume_identifier()?,
-            });
+            let visibility = parser.consume_one_of_or_ignore(&[
+                TokenType::Private,
+                TokenType::Public,
+                TokenType::Protected,
+            ]);
+
+            if visibility.is_some() {
+                if !parser.next_token_one_of(&[TokenType::Semicolon]) {
+                    alterations.push(Node::UseTraitAs {
+                        left: class_name,
+                        paa,
+                        member,
+                        as_token,
+                        visibility,
+                        as_name: Some(parser.consume_identifier()?),
+                    });
+                } else {
+                    alterations.push(Node::UseTraitAs {
+                        left: class_name,
+                        paa,
+                        member,
+                        as_token,
+                        visibility,
+                        as_name: None,
+                    });
+                }
+            } else {
+                // TODO: Parse modifier (private etc.)
+                alterations.push(Node::UseTraitAs {
+                    left: class_name,
+                    paa,
+                    member,
+                    as_token,
+                    visibility: None,
+                    as_name: Some(parser.consume_identifier()?),
+                });
+            }
         } else if let Some(insteadof) = parser.consume_or_ignore(TokenType::Insteadof) {
             alterations.push(Node::UseTraitInsteadOf {
                 left: class_name,

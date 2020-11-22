@@ -306,6 +306,9 @@ impl Token {
             | TokenType::TypeFloat
             | TokenType::TypeSelf
             | TokenType::Print
+            | TokenType::LogicAnd
+            | TokenType::LogicOr
+            | TokenType::LogicXor
             | TokenType::Identifier => true,
             _ => false,
         }

@@ -1,4 +1,4 @@
-use crate::environment::symbol::{PhpSymbolKind, Symbol, Visibility};
+use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use crate::node::Node;
 use crate::token::Token;
 use tower_lsp::lsp_types::{Position, Range};
