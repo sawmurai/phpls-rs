@@ -105,6 +105,15 @@ impl<'a> NameResolver<'a> {
                 | TokenType::TypeInt
                 | TokenType::TypeFloat
                 | TokenType::Null
+                | TokenType::TypeObject
+                | TokenType::ConstFile
+                | TokenType::ConstDir
+                | TokenType::ConstClass
+                | TokenType::ConstFunction
+                | TokenType::ConstMethod
+                | TokenType::Callable
+                | TokenType::ConstLine
+                | TokenType::ConstTrait
                 | TokenType::Void => return true,
                 _ => return false,
             }
@@ -189,6 +198,8 @@ impl<'a> NameResolver<'a> {
         if self.is_builtin(tokens) {
             return None;
         }
+
+        eprintln!("{:?}", tokens);
 
         let fully_qualified =
             tokens.len() > 0 && tokens.first().unwrap().t == TokenType::NamespaceSeparator;
@@ -293,7 +304,7 @@ impl<'a> NameResolver<'a> {
                 tokens.first().unwrap().range().0,
                 tokens.last().unwrap().range().1,
             ),
-            String::from("Unresolvable type"),
+            format!("Unresolvable type '{}'", name),
         ));
 
         None
