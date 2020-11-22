@@ -133,7 +133,6 @@ impl DocBlockScanner {
                                 Some('\n') | None => break,
                                 _ => (),
                             }
-                            eprintln!("{:?}", type_ref_parts);
 
                             while let Some(n) = self.advance() {
                                 match n {

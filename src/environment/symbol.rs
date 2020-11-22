@@ -104,9 +104,6 @@ pub struct Symbol {
     /// Id of the node this node references (if it is not a definition)
     pub references: Option<Reference>,
 
-    /// Ids referencing this node
-    pub references_by: Vec<NodeId>,
-
     /// Ids of the symbols defining the possible types this symbol can have
     pub data_types: Vec<Reference>,
 
@@ -127,7 +124,6 @@ impl Default for Symbol {
             deprecated: None,
             inherits_from: Vec::new(),
             references: None,
-            references_by: Vec::new(),
             data_types: Vec::new(),
             is_static: false,
             imports: None,
@@ -170,10 +166,13 @@ impl PhpSymbolKind {
     }
 
     pub fn register_global(&self) -> bool {
-        matches!(self, PhpSymbolKind::Class
-            | PhpSymbolKind::Interface
-            | PhpSymbolKind::Function
-            | PhpSymbolKind::Constant)
+        matches!(
+            self,
+            PhpSymbolKind::Class
+                | PhpSymbolKind::Interface
+                | PhpSymbolKind::Function
+                | PhpSymbolKind::Constant
+        )
     }
 }
 

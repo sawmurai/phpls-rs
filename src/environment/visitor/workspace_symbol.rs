@@ -295,7 +295,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                     range: get_range(node.range()),
                     selection_range: get_range(name.range()),
                     inherits_from: Vec::new(),
-                    references_by: Vec::new(),
                     data_types,
                     ..Symbol::default()
                 });
