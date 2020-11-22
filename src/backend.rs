@@ -19,7 +19,16 @@ use tokio::io::{self};
 use tokio::sync::Mutex;
 use tokio::task;
 use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::{CompletionItem, CompletionParams, CompletionResponse, Diagnostic, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, InitializeParams, InitializeResult, InitializedParams, Location, MarkedString, MessageType, Range, ReferenceParams, ServerCapabilities, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceCapability, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams};
+use tower_lsp::lsp_types::{
+    CompletionItem, CompletionParams, CompletionResponse, Diagnostic, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentHighlight,
+    DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+    InitializeParams, InitializeResult, InitializedParams, Location, MarkedString, MessageType,
+    Range, ReferenceParams, ServerCapabilities, SymbolInformation, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Url, WorkspaceCapability, WorkspaceFolderCapability,
+    WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
+};
 use tower_lsp::{Client, LanguageServer};
 
 type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
@@ -216,7 +225,7 @@ impl Backend {
 
     async fn reindex(
         path: &str,
-        ast: &Vec<AstNode>,
+        ast: &[AstNode],
         range: &Range,
         resolve: bool,
         collect: bool,
@@ -238,7 +247,7 @@ impl Backend {
                 ..Symbol::default()
             });
 
-            let mut visitor = WorkspaceSymbolVisitor::new();
+            let mut visitor = WorkspaceSymbolVisitor {};
             let iter = ast.iter();
             for node in iter {
                 traverse(node, &mut visitor, &mut arena, enclosing_file);
@@ -544,13 +553,13 @@ impl LanguageServer for Backend {
                 .lock()
                 .await
                 .entry(path.to_string())
-                .or_insert(Vec::new())
+                .or_insert_with(Vec::new)
                 .extend(errors.iter().map(Diagnostic::from));
 
             self.opened_files
                 .lock()
                 .await
-                .insert(path.to_string(), (ast, range));
+                .insert(path.to_string(), (ast.to_owned(), range));
 
             if let Err(e) = reindex_result {
                 client.log_message(MessageType::Error, e);
@@ -623,7 +632,7 @@ impl LanguageServer for Backend {
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
                 let diags = errors.iter().map(Diagnostic::from).collect();
                 diagnostics.lock().await.insert(path.to_owned(), diags);
-                opened_files.insert(path.to_string(), (ast, range));
+                opened_files.insert(path.to_string(), (ast.to_owned(), range));
             } else {
                 client.log_message(MessageType::Error, "Error indexing");
 

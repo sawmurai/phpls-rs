@@ -66,7 +66,7 @@ impl From<&SymbolImport> for Symbol {
 }
 
 /// Collect symbol imports underneath the current node
-pub fn collect_uses(node: &Node, prefix: &Vec<Token>) -> Vec<SymbolImport> {
+pub fn collect_uses(node: &Node, prefix: &[Token]) -> Vec<SymbolImport> {
     let mut collected_uses = Vec::new();
 
     match node {
@@ -129,7 +129,7 @@ pub fn collect_uses(node: &Node, prefix: &Vec<Token>) -> Vec<SymbolImport> {
             });
         }
         Node::TypeRef(tokens) => {
-            let mut ns = prefix.clone();
+            let mut ns = prefix.to_owned();
             ns.extend(tokens.clone());
             collected_uses.push(SymbolImport {
                 path: ns,

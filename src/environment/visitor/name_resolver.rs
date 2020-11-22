@@ -95,7 +95,7 @@ impl<'a> NameResolver<'a> {
     }
 
     /// Return true of the token is an identifier of a built in type
-    fn is_builtin(&self, tokens: &Vec<Token>) -> bool {
+    fn is_builtin(&self, tokens: &[Token]) -> bool {
         if tokens.len() == 1 {
             match tokens[0].t {
                 TokenType::TypeString
@@ -192,11 +192,7 @@ impl<'a> NameResolver<'a> {
     }
 
     /// Resolve a TypeRef `Some\Name\Space` to the node if the definition of that symbol
-    pub fn resolve_type_ref(
-        &mut self,
-        tokens: &Vec<Token>,
-        arena: &Arena<Symbol>,
-    ) -> Option<NodeId> {
+    pub fn resolve_type_ref(&mut self, tokens: &[Token], arena: &Arena<Symbol>) -> Option<NodeId> {
         if self.is_builtin(tokens) {
             return None;
         }
@@ -315,7 +311,7 @@ impl<'a> NameResolver<'a> {
         current_class: &Symbol,
         arena: &Arena<Symbol>,
     ) -> Option<NodeId> {
-        let inherits_from = current_class.inherits_from.iter().nth(0).unwrap();
+        let inherits_from = current_class.inherits_from.first().unwrap();
         if let Some(type_ref) = inherits_from.type_ref.as_ref() {
             if let Some(parent_class) = self.resolve_type_ref(type_ref, arena) {
                 return Some(parent_class);

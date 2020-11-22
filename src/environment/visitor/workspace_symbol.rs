@@ -12,12 +12,6 @@ use indextree::{Arena, NodeId};
 
 pub struct WorkspaceSymbolVisitor {}
 
-impl WorkspaceSymbolVisitor {
-    pub fn new() -> Self {
-        WorkspaceSymbolVisitor {}
-    }
-}
-
 impl Visitor for WorkspaceSymbolVisitor {
     /// Decides if a symbol is worth collecting
     fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) -> NextAction {

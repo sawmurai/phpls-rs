@@ -282,6 +282,5 @@ pub(crate) fn consume_optional_doc_comment(parser: &mut Parser) -> Result<Option
 
     let mut scanner = DocBlockScanner::new(comment);
 
-    let x = scanner.scan();
-    x
+    scanner.scan()
 }

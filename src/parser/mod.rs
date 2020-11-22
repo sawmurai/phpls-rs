@@ -1,4 +1,4 @@
-use crate::node::{Node, get_range};
+use crate::node::{get_range, Node};
 use crate::token::{Token, TokenType};
 use snafu::Snafu;
 
