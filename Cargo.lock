@@ -194,11 +194,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glob"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
 name = "hermit-abi"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -403,7 +398,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "phpls-rs"
 version = "0.1.0"
 dependencies = [
- "glob 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "indextree 4.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "snafu 0.6.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "spmc 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -753,7 +747,6 @@ dependencies = [
 "checksum futures-task 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "7b0a34e53cf6cdcd0178aa573aed466b646eb3db769570841fda0c7ede375a27"
 "checksum futures-util 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "22766cf25d64306bedf0384da004d05c9974ab104fcc4528f1236181c18004c5"
 "checksum getrandom 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)" = "7abc8dd8451921606d809ba32e95b6111925cd2906060d2dcc29c070220503eb"
-"checksum glob 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "9b919933a397b79c37e33b77bb2aa3dc8eb6e165ad809e58ff75bc7db2e34574"
 "checksum hermit-abi 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)" = "61565ff7aaace3525556587bd2dc31d4a07071957be715e63ce7b1eccf51a8f4"
 "checksum idna 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "02e2673c30ee86b5b96a9cb52ad15718aa1f966f5ab9ad54a8b95d5ca33120a9"
 "checksum indextree 4.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "df86f0c82859379c2e9068f42fb345d4c0fba1bb09fcc52454ec19131a2aa068"

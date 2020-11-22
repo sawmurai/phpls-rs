@@ -2,7 +2,6 @@
 
 use crate::backend::Backend;
 use tower_lsp::{LspService, Server};
-extern crate glob;
 
 pub mod backend;
 pub mod environment;

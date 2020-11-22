@@ -9,7 +9,6 @@ use crate::node::get_range;
 use crate::node::Node as AstNode;
 use crate::parser::Parser;
 use crate::scanner::Scanner;
-use glob::glob;
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use std::fs;
@@ -63,60 +62,62 @@ impl Backend {
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-        let mut files =
-            self.reindex_folder("/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs")?;
-
-        let fp = url.to_file_path().unwrap();
-        let dir = fp.to_str().unwrap();
+        let mut files = self.reindex_folder(&PathBuf::from(
+            "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
+        ))?;
 
         let mut joins = Vec::new();
-        files.extend(self.reindex_folder(dir)?);
+        if let Ok(root_path) = url.to_file_path() {
+            files.extend(self.reindex_folder(&root_path)?);
 
-        for path in files {
-            let content = match fs::read_to_string(&path) {
-                Ok(content) => content,
-                Err(error) => {
-                    eprintln!("{}", error);
+            for path in files {
+                let content = match fs::read_to_string(&path) {
+                    Ok(content) => content,
+                    Err(error) => {
+                        eprintln!("{}", error);
 
-                    continue;
-                }
-            };
-
-            let arena = self.arena.clone();
-            let global_symbols = self.global_symbols.clone();
-            let files = self.files.clone();
-            let references = self.symbol_references.clone();
-            let diagnostics = self.diagnostics.clone();
-            let path = path.clone();
-            let content = content.clone();
-
-            joins.push(task::spawn(async move {
-                if let Ok((ast, range)) = Backend::source_to_ast(&content) {
-                    let reindex_result = Backend::reindex(
-                        &path,
-                        &ast,
-                        &range,
-                        false,
-                        true,
-                        arena,
-                        global_symbols,
-                        references,
-                        files,
-                        diagnostics,
-                    )
-                    .await;
-
-                    match reindex_result {
-                        Ok(()) => (),
-                        Err(err) => {
-                            eprintln!("{}", err);
-                        }
+                        continue;
                     }
-                } else {
-                    // TODO: Publish errors as diagnostics
-                    eprintln!("Could not index {} due to syntax errors", path);
-                }
-            }));
+                };
+
+                let arena = self.arena.clone();
+                let global_symbols = self.global_symbols.clone();
+                let files = self.files.clone();
+                let references = self.symbol_references.clone();
+                let diagnostics = self.diagnostics.clone();
+                let path = path.clone();
+                let content = content.clone();
+
+                joins.push(task::spawn(async move {
+                    if let Ok((ast, range)) = Backend::source_to_ast(&content) {
+                        let reindex_result = Backend::reindex(
+                            &path,
+                            &ast,
+                            &range,
+                            false,
+                            true,
+                            arena,
+                            global_symbols,
+                            references,
+                            files,
+                            diagnostics,
+                        )
+                        .await;
+
+                        match reindex_result {
+                            Ok(()) => (),
+                            Err(err) => {
+                                eprintln!("{}", err);
+                            }
+                        }
+                    } else {
+                        // TODO: Publish errors as diagnostics
+                        eprintln!("Could not index {} due to syntax errors", path);
+                    }
+                }));
+            }
+        } else {
+            eprintln!("Error converting url to file path");
         }
 
         for j in joins {
@@ -154,27 +155,40 @@ impl Backend {
     }
 
     // TODO: Filter out vendor tests
-    fn reindex_folder(&self, dir: &str) -> io::Result<Vec<String>> {
-        let mut files = Vec::with_capacity(10000);
+    fn reindex_folder(&self, dir: &PathBuf) -> io::Result<Vec<String>> {
+        let mut files = Vec::new();
 
-        for entry in glob(&format!("{}/**/*.php", dir)).expect("Failed to read glob pattern") {
-            match entry {
-                Ok(path) => {
-                    let path = format!("{}", path.display());
+        if dir.is_dir() {
+            let entries = match fs::read_dir(dir) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    eprintln!("Error reading folder {:?}: {}", dir, e);
 
-                    // TODO: Find a better way ... like having a glob crate that supports ()
-                    if path.contains("/vendor/") && path.contains("/tests/") {
-                        continue;
-                    }
-
-                    files.push(path);
+                    return Ok(files);
                 }
-                Err(e) => println!("{:?}", e),
+            };
+
+            for entry in entries {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(e) => {
+                        eprintln!("- Error reading folder {:?}: {}", dir, e);
+
+                        return Ok(files);
+                    }
+                };
+                let path = entry.path();
+                if path.is_dir() {
+                    // && !path.ends_with("vendor") {
+                    files.extend(self.reindex_folder(&path)?);
+                } else if let Some(ext) = path.extension() {
+                    if ext == "php" {
+                        let p = path.to_str().unwrap().to_string();
+                        files.push(p);
+                    }
+                }
             }
         }
-
-        eprintln!("{} files", files.len());
-
         Ok(files)
     }
 
