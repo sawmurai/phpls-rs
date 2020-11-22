@@ -320,6 +320,7 @@ impl Visitor for WorkspaceSymbolVisitor {
     fn after(&mut self, _node: &AstNode) {}
 }
 
+// TODO: Think about supporting multiple types
 fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
     match node {
         AstNode::ReturnType { data_type, .. } => get_type_ref(data_type),
@@ -332,13 +333,14 @@ fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
         AstNode::TypeRef(items) => Some(items.clone()),
         AstNode::DocCommentVar { types, .. } | AstNode::DocCommentReturn { types, .. } => {
             if let Some(types) = types {
-                match &**types {
-                    AstNode::TypeRef(items) => Some(items.clone()),
-                    _ => None,
+                for t in types {
+                    if let AstNode::TypeRef(items) = t {
+                        return Some(items.clone());
+                    };
                 }
-            } else {
-                None
             }
+
+            None
         }
         _ => None,
     }

@@ -190,6 +190,7 @@ pub enum TokenType {
     TypeObject,
     TypeFloat,
     TypeSelf,
+    Mixed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -573,6 +574,7 @@ impl Display for Token {
             TokenType::TypeObject => "object".to_owned(),
             TokenType::TypeFloat => "float".to_owned(),
             TokenType::TypeSelf => "self".to_owned(),
+            TokenType::Mixed => "mixed".to_owned(),
             TokenType::Parent => "parent".to_owned(),
         };
 

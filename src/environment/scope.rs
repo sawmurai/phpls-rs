@@ -1,5 +1,5 @@
 use crate::node::get_range;
-use crate::token::{Token, TokenType};
+use crate::token::Token;
 use indextree::NodeId;
 use tower_lsp::lsp_types::Range;
 
@@ -38,23 +38,6 @@ impl std::fmt::Display for Reference {
 }
 
 impl Reference {
-    pub fn is_builtin(&self) -> bool {
-        if let Some(type_ref) = self.type_ref.as_ref() {
-            if type_ref.len() == 1 {
-                match type_ref[0].t {
-                    TokenType::TypeString
-                    | TokenType::TypeArray
-                    | TokenType::TypeBool
-                    | TokenType::TypeSelf
-                    | TokenType::TypeInt => return true,
-                    _ => return false,
-                }
-            }
-        }
-
-        return false;
-    }
-
     /// Reference to an identifier, for example a function or a member
     pub fn node(token: &Token, node: NodeId) -> Self {
         Self {

@@ -23,6 +23,8 @@ impl Reference {
     }
 }
 
+pub type Notification = (NodeRange, String);
+
 pub struct NameResolver<'a> {
     global_scope: &'a HashMap<String, NodeId>,
     imports: HashMap<String, String>,
@@ -39,6 +41,8 @@ pub struct NameResolver<'a> {
     scope_container: NodeId,
 
     pub document_references: Vec<Reference>,
+
+    diagnostics: Vec<Notification>,
 }
 
 impl<'a> NameResolver<'a> {
@@ -51,12 +55,23 @@ impl<'a> NameResolver<'a> {
             current_class: None,
             document_references: Vec::new(),
             scope_container,
+            diagnostics: Vec::new(),
         }
     }
 
     /// Return the collected references
     pub fn references(&self) -> Vec<Reference> {
         self.document_references.clone()
+    }
+
+    /// Return the collected diagnostics
+    pub fn diagnostics(&self) -> Vec<Notification> {
+        self.diagnostics.clone()
+    }
+
+    /// Push a diagnotic message to the queue
+    pub fn diagnostic(&mut self, range: NodeRange, message: String) {
+        self.diagnostics.push((range, message));
     }
 
     /// Enter a new scope
@@ -77,6 +92,25 @@ impl<'a> NameResolver<'a> {
     /// Enter a new class
     pub fn leave_class(&mut self) {
         self.current_class = None;
+    }
+
+    /// Return true of the token is an identifier of a built in type
+    fn is_builtin(&self, tokens: &Vec<Token>) -> bool {
+        if tokens.len() == 1 {
+            match tokens[0].t {
+                TokenType::TypeString
+                | TokenType::Mixed
+                | TokenType::TypeArray
+                | TokenType::TypeBool
+                | TokenType::TypeInt
+                | TokenType::TypeFloat
+                | TokenType::Null
+                | TokenType::Void => return true,
+                _ => return false,
+            }
+        }
+
+        return false;
     }
 
     /// Return a local symbol by its name. The name is stored in the token, so its sufficient
@@ -152,6 +186,10 @@ impl<'a> NameResolver<'a> {
         tokens: &Vec<Token>,
         arena: &Arena<Symbol>,
     ) -> Option<NodeId> {
+        if self.is_builtin(tokens) {
+            return None;
+        }
+
         let fully_qualified =
             tokens.len() > 0 && tokens.first().unwrap().t == TokenType::NamespaceSeparator;
         let tokens = tokens
@@ -168,8 +206,17 @@ impl<'a> NameResolver<'a> {
         let name = tokens.first().unwrap().label.clone().unwrap();
 
         if name == "self" || name == "static" {
-            // TODO: Raise error here if not in class scope
-            return self.current_class;
+            if self.current_class.is_some() {
+                return self.current_class;
+            }
+
+            self.diagnostics.push((
+                (
+                    tokens.first().unwrap().range().0,
+                    tokens.last().unwrap().range().1,
+                ),
+                String::from("Can only be used inside a class"),
+            ));
         }
 
         if name == "parent" {
@@ -177,10 +224,14 @@ impl<'a> NameResolver<'a> {
                 return self.parent_class(arena[current_class].get(), arena);
             }
 
-            // TODO: Raise error here that we are not in a class scope
+            self.diagnostics.push((
+                (
+                    tokens.first().unwrap().range().0,
+                    tokens.last().unwrap().range().1,
+                ),
+                String::from("Parent can only be used inside a class"),
+            ));
         }
-
-        //eprintln!("searching for {}, fq. {}", name, fully_qualified);
 
         // Simple, if fully qualified do not tamper with the name
         let joined_name = if fully_qualified {
@@ -219,8 +270,6 @@ impl<'a> NameResolver<'a> {
         };
 
         if let Some(node) = self.global_scope.get(&joined_name) {
-            //eprintln!("YEAH: {}", joined_name);
-
             let range = (
                 tokens.first().unwrap().start(),
                 tokens.last().unwrap().end(),
@@ -237,10 +286,15 @@ impl<'a> NameResolver<'a> {
             self.document_references
                 .push(Reference::new(range, *global_symbol));
             return Some(*global_symbol);
-        } else {
-            // TODO: Error for unresolvable
-            eprintln!("Did not find {} ({})", name, joined_name);
         }
+
+        self.diagnostics.push((
+            (
+                tokens.first().unwrap().range().0,
+                tokens.last().unwrap().range().1,
+            ),
+            String::from("Unresolvable type"),
+        ));
 
         None
     }
@@ -261,19 +315,13 @@ impl<'a> NameResolver<'a> {
     }
 }
 
-pub type Notification = (NodeRange, String);
-
 pub struct NameResolveVisitor<'a, 'b: 'a> {
     resolver: &'b mut NameResolver<'a>,
-    diagnostics: Vec<Notification>,
 }
 
 impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
     pub fn new(resolver: &'b mut NameResolver<'a>) -> Self {
-        NameResolveVisitor {
-            resolver,
-            diagnostics: Vec::new(),
-        }
+        NameResolveVisitor { resolver }
     }
 
     pub fn references(&self) -> Vec<Reference> {
@@ -282,7 +330,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
     pub fn diagnostics(&self) -> Vec<Notification> {
         // TODO: Rather return an iterator?
-        self.diagnostics.clone()
+        self.resolver.diagnostics()
     }
 }
 
@@ -312,13 +360,10 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 self.resolver.enter_namespace(&name, arena[parent].get());
 
-                NextAction::ProcessChildren
+                NextAction::Abort
             }
             AstNode::TypeRef(type_ref) => {
-                if self.resolver.resolve_type_ref(type_ref, arena).is_none() {
-                    self.diagnostics
-                        .push((node.range(), String::from("Unresolvable type")));
-                }
+                self.resolver.resolve_type_ref(type_ref, arena);
 
                 NextAction::Abort
             }
@@ -340,9 +385,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
                         for rt in return_type {
                             if let Some(type_ref) = get_type_ref(rt) {
-                                if self.resolver.resolve_type_ref(&type_ref, arena).is_none() {
-                                    // Add error
-                                }
+                                self.resolver.resolve_type_ref(&type_ref, arena);
                             }
                         }
                     }
@@ -377,6 +420,27 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 NextAction::Abort
             }
+            AstNode::CatchBlock { var, types, .. } => {
+                let mut data_types = Vec::with_capacity(types.len());
+
+                for data_type in types {
+                    if let Some(type_ref) = get_type_ref(data_type) {
+                        let type_ref_ref = SymbolReference::type_ref(type_ref.clone());
+
+                        data_types.push(type_ref_ref);
+                    }
+                }
+
+                let child = arena.new_node(Symbol {
+                    data_types,
+                    ..Symbol::from(var)
+                });
+
+                self.resolver.scope_container.append(child, arena);
+                self.resolver.declare_local(var, child);
+
+                NextAction::ProcessChildren
+            }
             AstNode::FunctionArgument {
                 name,
                 argument_type,
@@ -406,9 +470,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             }
             AstNode::ReturnType { data_type, .. } => {
                 if let Some(type_ref) = get_type_ref(data_type) {
-                    if self.resolver.resolve_type_ref(&type_ref, arena).is_none() {
-                        // Add error
-                    }
+                    self.resolver.resolve_type_ref(&type_ref, arena);
                 }
 
                 NextAction::Abort
@@ -423,7 +485,6 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     if let AstNode::Variable(token) = left.as_ref() {
                         let child = if let Some(data_type) = data_type {
                             arena.new_node(Symbol {
-                                // TODO: Make sure this type of reference is still resolvable (should be aight)
                                 data_types: vec![SymbolReference::node(&token, data_type)],
                                 ..Symbol::from(token)
                             })
@@ -435,13 +496,6 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         self.resolver.declare_local(token, child);
                     }
                 }
-                eprintln!("{:#?}", node);
-                /*
-                enclosing.append(left, arena);
-                enclosing.append(right, arena);
-
-                Ok(left)*/
-                //eprintln!("{:#?}", node);
 
                 return NextAction::ProcessChildren;
             }
@@ -481,6 +535,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         let mut current_object = node;
         let (root_node, mut minimal_visibility) = 'root_node: loop {
             match current_object {
+                AstNode::Clone { object, .. } => {
+                    current_object = object;
+                }
                 AstNode::New { class, .. } => {
                     current_object = class;
                 }
@@ -558,6 +615,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             break (None, Visibility::None);
                         }
                     }
+                    TokenType::ConstantEncapsedString | TokenType::EncapsedAndWhitespaceString => {
+                        break (None, Visibility::None);
+                    }
                     _ => {
                         break (
                             self.resolver.resolve_type_ref(&vec![token.clone()], arena),
@@ -577,14 +637,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         };
 
         if let Some(mut root_node) = root_node {
-            let root_symbol = arena[root_node].get();
-
-            eprint!("{}", root_symbol.name);
-
             // $this (root_node) will have resolved to the definition of the class
             // of the object
             'link_loop: for link in reversed_chain.iter().rev() {
-                eprint!("->{:#?}", link);
                 // Get the definition of the current parent and try to find "link" in it
                 // Loop backwards through the inheritance chain, from the object towards its ancestors
 
@@ -594,14 +649,20 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         // Check all children of the current class
                         let child_symbol = arena[child].get();
 
-                        // Name must be unique, so we can bail out if we find a name that has a bad visibility
-                        if child_symbol.visibility < minimal_visibility {
-                            eprintln!("Failed, vis is bad");
-                            return None;
-                        }
-
                         // This is the correct child
                         if child_symbol.name == link.name() {
+                            // Name must be unique, so we can bail out if we find a name that has a bad visibility
+                            if child_symbol.visibility < minimal_visibility {
+                                self.resolver.diagnostic(
+                                    link.range(),
+                                    String::from(
+                                        "Method was found but is not accessible from this scope.",
+                                    ),
+                                );
+
+                                return None;
+                            }
+
                             match link.as_ref() {
                                 AstNode::Variable(token) | AstNode::Literal(token) => {
                                     // Register reference here
@@ -688,15 +749,16 @@ fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
             }
         }
         AstNode::TypeRef(items) => Some(items.clone()),
-        AstNode::DocCommentReturn { types, .. } => {
+        AstNode::DocCommentVar { types, .. } | AstNode::DocCommentReturn { types, .. } => {
             if let Some(types) = types {
-                match &**types {
-                    AstNode::TypeRef(items) => Some(items.clone()),
-                    _ => None,
+                for t in types {
+                    if let AstNode::TypeRef(items) = t {
+                        return Some(items.clone());
+                    };
                 }
-            } else {
-                None
             }
+
+            None
         }
         _ => None,
     }

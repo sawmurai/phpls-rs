@@ -15,7 +15,7 @@ pub enum Node {
         name: Token,
 
         // Node::TypeRef
-        types: Option<Box<Node>>,
+        types: Option<Vec<Node>>,
 
         description: String,
     },
@@ -23,13 +23,13 @@ pub enum Node {
         name: Token,
 
         // Node::TypeRef
-        types: Option<Box<Node>>,
+        types: Option<Vec<Node>>,
 
         description: String,
     },
     DocCommentReturn {
         // Node::TypeRef
-        types: Option<Box<Node>>,
+        types: Option<Vec<Node>>,
 
         description: String,
     },

@@ -23,6 +23,21 @@ impl DocBlockScanner {
         }
     }
 
+    fn token_type(&self, name: &str) -> TokenType {
+        match name {
+            "null" => TokenType::Null,
+            "mixed" => TokenType::Mixed,
+            "bool" | "boolean" => TokenType::TypeBool,
+            "int" | "integer" => TokenType::TypeInt,
+            "string" | "binary" => TokenType::TypeString,
+            "array" => TokenType::TypeArray,
+            "object" => TokenType::TypeObject,
+            "float" | "double" => TokenType::TypeFloat,
+            "void" => TokenType::Void,
+            _ => TokenType::Identifier,
+        }
+    }
+
     pub fn scan(&mut self) -> Result<Option<Box<Node>>> {
         let mut description = String::new();
         let mut is_deprecated = false;
@@ -41,12 +56,14 @@ impl DocBlockScanner {
                         self.skip_blanks();
 
                         let mut type_ref_parts = Vec::new();
+                        let mut type_refs = Vec::new();
                         loop {
+                            let identifier = &self.collect_identifer();
                             type_ref_parts.push(Token::named(
-                                TokenType::Identifier,
+                                self.token_type(&identifier),
                                 self.line,
                                 self.col,
-                                &self.collect_identifer(),
+                                identifier,
                             ));
 
                             let n = self.advance();
@@ -62,10 +79,19 @@ impl DocBlockScanner {
 
                         while let Some(n) = self.advance() {
                             match n {
+                                '|' => {
+                                    type_refs.push(Node::TypeRef(type_ref_parts.clone()));
+                                    type_ref_parts.clear();
+
+                                    continue;
+                                }
                                 '\n' => break,
                                 _ => param_descr.push(n),
                             }
                         }
+
+                        type_refs.push(Node::TypeRef(type_ref_parts.clone()));
+                        type_ref_parts.clear();
 
                         params.push(Node::DocCommentParam {
                             name: Token::named(
@@ -74,7 +100,7 @@ impl DocBlockScanner {
                                 identifer.1,
                                 &param_name,
                             ),
-                            types: Some(Box::new(Node::TypeRef(type_ref_parts))),
+                            types: Some(type_refs),
                             description: param_descr,
                         });
                     } else if directive.eq("return") {
@@ -82,20 +108,30 @@ impl DocBlockScanner {
                         self.skip_blanks();
 
                         let mut type_ref_parts = Vec::new();
+                        let mut type_refs = Vec::new();
                         'outer: loop {
+                            let identifier = &self.collect_identifer();
+
                             type_ref_parts.push(Token::named(
-                                TokenType::Identifier,
+                                self.token_type(&identifier),
                                 self.line,
                                 self.col,
-                                &self.collect_identifer(),
+                                identifier,
                             ));
 
-                            let n = self.advance();
+                            let n = self.peek();
                             match n {
-                                Some('|') => continue,
+                                Some('|') => {
+                                    type_refs.push(Node::TypeRef(type_ref_parts.clone()));
+                                    type_ref_parts.clear();
+                                    self.advance();
+
+                                    continue;
+                                }
                                 Some('\n') | None => break,
                                 _ => (),
                             }
+                            eprintln!("{:?}", type_ref_parts);
 
                             while let Some(n) = self.advance() {
                                 match n {
@@ -105,8 +141,11 @@ impl DocBlockScanner {
                             }
                         }
 
+                        type_refs.push(Node::TypeRef(type_ref_parts.clone()));
+                        type_ref_parts.clear();
+
                         return_type.push(Node::DocCommentReturn {
-                            types: Some(Box::new(Node::TypeRef(type_ref_parts))),
+                            types: Some(type_refs),
                             description: return_descr,
                         });
                     } else if directive.eq("var") {
@@ -115,12 +154,14 @@ impl DocBlockScanner {
                         self.skip_blanks();
 
                         let mut type_ref_parts = Vec::new();
+                        let mut type_refs = Vec::new();
                         loop {
+                            let identifier = &self.collect_identifer();
                             type_ref_parts.push(Token::named(
-                                TokenType::Identifier,
+                                self.token_type(&identifier),
                                 self.line,
                                 self.col,
-                                &self.collect_identifer(),
+                                identifier,
                             ));
 
                             let n = self.advance();
@@ -141,6 +182,9 @@ impl DocBlockScanner {
                             }
                         }
 
+                        type_refs.push(Node::TypeRef(type_ref_parts.clone()));
+                        type_ref_parts.clear();
+
                         var_docs.push(Node::DocCommentVar {
                             name: Token::named(
                                 TokenType::Variable,
@@ -148,7 +192,7 @@ impl DocBlockScanner {
                                 identifer.1,
                                 &param_name,
                             ),
-                            types: Some(Box::new(Node::TypeRef(type_ref_parts))),
+                            types: Some(type_refs),
                             description: param_descr,
                         });
                     } else if directive.eq("deprecated") {
