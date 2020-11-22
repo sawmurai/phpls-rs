@@ -19,7 +19,7 @@ use tokio::io::{self};
 use tokio::sync::Mutex;
 use tokio::task;
 use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::{CompletionItem, CompletionParams, CompletionResponse, Diagnostic, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, InitializeParams, InitializeResult, InitializedParams, Location, MarkedString, MessageType, Range, ReferenceParams, ServerCapabilities, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceCapability, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams};
 use tower_lsp::{Client, LanguageServer};
 
 type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
@@ -110,7 +110,7 @@ impl Backend {
                             }
                         }
 
-                        let diags = errors.iter().map(|e| Diagnostic::from(e)).collect();
+                        let diags = errors.iter().map(Diagnostic::from).collect();
                         diagnostics.lock().await.insert(path, diags);
                     } else {
                         // TODO: Publish errors as diagnostics
@@ -233,14 +233,14 @@ impl Backend {
             let enclosing_file = arena.new_node(Symbol {
                 kind: PhpSymbolKind::File,
                 name: path.to_owned(),
-                range: range.clone(),
-                selection_range: range.clone(),
+                range: *range,
+                selection_range: *range,
                 ..Symbol::default()
             });
 
             let mut visitor = WorkspaceSymbolVisitor::new();
-            let mut iter = ast.iter();
-            while let Some(node) = iter.next() {
+            let iter = ast.iter();
+            for node in iter {
                 traverse(node, &mut visitor, &mut arena, enclosing_file);
             }
 
@@ -290,8 +290,8 @@ impl Backend {
             let mut resolver = NameResolver::new(&global_symbols, enclosing_file);
 
             let mut visitor = NameResolveVisitor::new(&mut resolver);
-            let mut iter = ast.iter();
-            while let Some(node) = iter.next() {
+            let iter = ast.iter();
+            for node in iter {
                 traverse(node, &mut visitor, &mut arena, enclosing_file);
             }
 
@@ -402,7 +402,7 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
-        if params.query == "" {
+        if params.query.is_empty() {
             return Ok(None);
         }
 
@@ -447,8 +447,8 @@ impl LanguageServer for Backend {
                 node_id
                     .children(&arena)
                     .map(|s| arena[s].get().to_doc_sym(&arena, &s))
-                    .filter(|s| s.is_some())
-                    .map(|s| s.unwrap())
+                    .filter(std::option::Option::is_some)
+                    .map(std::option::Option::unwrap)
                     .collect(),
             )));
         }
@@ -621,7 +621,7 @@ impl LanguageServer for Backend {
 
             let source = tokio::fs::read_to_string(path).await.unwrap();
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
-                let diags = errors.iter().map(|e| Diagnostic::from(e)).collect();
+                let diags = errors.iter().map(Diagnostic::from).collect();
                 diagnostics.lock().await.insert(path.to_owned(), diags);
                 opened_files.insert(path.to_string(), (ast, range));
             } else {

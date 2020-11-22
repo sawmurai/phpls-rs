@@ -84,7 +84,7 @@ pub(crate) fn const_statement(parser: &mut Parser) -> ExpressionResult {
         value: Box::new(expressions::expression(parser)?),
     });
 
-    while let None = parser.consume_or_ignore(TokenType::Semicolon) {
+    while parser.consume_or_ignore(TokenType::Semicolon).is_none() {
         parser.consume_or_err(TokenType::Comma)?;
         constants.push(Node::Const {
             name: parser.consume_identifier()?,

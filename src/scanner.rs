@@ -424,7 +424,7 @@ impl Scanner {
                 '$' => {
                     let name = self.collect_identifer();
 
-                    if name != "" {
+                    if !name.is_empty() {
                         self.push_named_token(TokenType::Variable, &name);
                     } else {
                         self.push_token(TokenType::Variable);
@@ -436,7 +436,7 @@ impl Scanner {
 
                     if let Some('x') = self.peek() {
                         if c == '0' {
-                            number.push_str("x");
+                            number.push('x');
                             self.advance();
                             number.push_str(&self.collect_hex_number());
                             self.push_named_token(TokenType::HexNumber, &number);
@@ -447,7 +447,7 @@ impl Scanner {
 
                     if let Some('b') = self.peek() {
                         if c == '0' {
-                            number.push_str("b");
+                            number.push('b');
                             self.advance();
                             number.push_str(&self.collect_binary_number());
                             self.push_named_token(TokenType::BinaryNumber, &number);
@@ -460,7 +460,7 @@ impl Scanner {
                     let mut number_type = TokenType::LongNumber;
 
                     if let Some(&'.') = self.peek() {
-                        number.push_str(".");
+                        number.push('.');
                         self.advance();
 
                         let decimal = self.collect_number();
@@ -720,9 +720,9 @@ impl Scanner {
         let mut name = String::new();
 
         while let Some(&c) = self.peek() {
-            if c >= 'a' && c <= 'z'
-                || c >= 'A' && c <= 'Z'
-                || c >= '0' && c <= '9'
+            if ('a'..='z').contains(&c)
+                || ('A'..='Z').contains(&c)
+                || ('0'..='9').contains(&c)
                 || c == '_'
                 || c >= 0x80 as char
             {
@@ -741,7 +741,7 @@ impl Scanner {
         let mut number = String::new();
 
         while let Some(&c) = self.peek() {
-            if c >= '0' && c <= '9' {
+            if ('0'..='9').contains(&c) {
                 number.push(c);
             } else {
                 break;
@@ -757,7 +757,7 @@ impl Scanner {
         let mut number = String::new();
 
         while let Some(&c) = self.peek() {
-            if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' {
+            if ('0'..='9').contains(&c) || ('a'..='f').contains(&c) || ('A'..='F').contains(&c) {
                 number.push(c);
             } else {
                 break;
@@ -996,7 +996,7 @@ mod tests {
     macro_rules! token_list {
         ($vec:expr) => {
             $vec.iter()
-                .map(|token| token.to_string())
+                .map(std::string::ToString::to_string)
                 .collect::<Vec<String>>()
                 .join(" ");
         };
@@ -1054,7 +1054,7 @@ mod tests {
     fn test_scans_multibyte_string() {
         let mut scanner = Scanner::new(
             "<?php
-$object->{'東京'} = 2020;
+$object->{'\u{6771}\u{4eac}'} = 2020;
 ",
         );
 
@@ -1072,7 +1072,7 @@ $object->{'東京'} = 2020;
         assert_eq!(scanner.tokens[3], Token::new(TokenType::OpenCurly, 1, 9));
         assert_eq!(
             scanner.tokens[4],
-            Token::named(TokenType::ConstantEncapsedString, 1, 10, "東京")
+            Token::named(TokenType::ConstantEncapsedString, 1, 10, "\u{6771}\u{4eac}")
         );
     }
 
@@ -1604,7 +1604,7 @@ for ($i = 0; $i < 100; $i++) {}",
 
     #[test]
     fn test_handles_unexpected_char() {
-        let mut scanner = Scanner::new("<?php ć");
+        let mut scanner = Scanner::new("<?php \u{107}");
 
         assert_eq!(true, scanner.scan().is_err())
     }

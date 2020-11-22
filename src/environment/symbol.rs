@@ -63,7 +63,7 @@ impl PartialOrd for Visibility {
             return Some(std::cmp::Ordering::Greater);
         }
 
-        return Some(std::cmp::Ordering::Less);
+        Some(std::cmp::Ordering::Less)
     }
 }
 
@@ -166,20 +166,14 @@ impl PhpSymbolKind {
     }
 
     pub fn is_internal(&self) -> bool {
-        match self {
-            PhpSymbolKind::Unknown | PhpSymbolKind::Import => true,
-            _ => false,
-        }
+        matches!(self, PhpSymbolKind::Unknown | PhpSymbolKind::Import)
     }
 
     pub fn register_global(&self) -> bool {
-        match self {
-            PhpSymbolKind::Class
+        matches!(self, PhpSymbolKind::Class
             | PhpSymbolKind::Interface
             | PhpSymbolKind::Function
-            | PhpSymbolKind::Constant => true,
-            _ => false,
-        }
+            | PhpSymbolKind::Constant)
     }
 }
 
@@ -190,7 +184,7 @@ impl Symbol {
             PhpSymbolKind::Method => Some(
                 self.data_types
                     .iter()
-                    .map(|reference| reference.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<String>>()
                     .join(" | "),
             ),
@@ -203,8 +197,8 @@ impl Symbol {
             .children(arena)
             .filter(|s| !arena[*s].get().kind.is_internal())
             .map(|s| arena[s].get().to_doc_sym(arena, &s))
-            .filter(|s| s.is_some())
-            .map(|s| s.unwrap())
+            .filter(std::option::Option::is_some)
+            .map(std::option::Option::unwrap)
             .collect::<Vec<DocumentSymbol>>();
 
         let children = if children.is_empty() {
@@ -213,11 +207,7 @@ impl Symbol {
             Some(children)
         };
 
-        let kind = if let Some(kind) = self.kind.to_symbol_kind() {
-            kind
-        } else {
-            return None;
-        };
+        let kind = self.kind.to_symbol_kind()?;
 
         Some(DocumentSymbol {
             kind,

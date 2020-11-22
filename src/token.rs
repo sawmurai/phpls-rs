@@ -221,7 +221,8 @@ impl Token {
     }
 
     pub fn is_identifier(&self) -> bool {
-        match self.t {
+        matches!(
+            self.t,
             TokenType::Exit
             | TokenType::If
             | TokenType::ElseIf
@@ -310,9 +311,8 @@ impl Token {
             | TokenType::LogicAnd
             | TokenType::LogicOr
             | TokenType::LogicXor
-            | TokenType::Identifier => true,
-            _ => false,
-        }
+            | TokenType::Identifier
+        )
     }
 
     pub fn start(&self) -> (u32, u32) {
@@ -343,26 +343,25 @@ impl Token {
             return false;
         }
 
-        return col >= self.col
-            && col <= (self.col + self.label.clone().unwrap_or_default().len() as u32);
+        col >= self.col && col <= (self.col + self.label.clone().unwrap_or_default().len() as u32)
     }
 
     pub fn is_string(&self) -> bool {
-        match self.t {
-            TokenType::ConstantEncapsedString | TokenType::EncapsedAndWhitespaceString => true,
-            _ => false,
-        }
+        matches!(
+            self.t,
+            TokenType::ConstantEncapsedString | TokenType::EncapsedAndWhitespaceString
+        )
     }
 
     pub fn is_number(&self) -> bool {
-        match self.t {
+        matches!(
+            self.t,
             TokenType::BinaryNumber
-            | TokenType::DecimalNumber
-            | TokenType::ExponentialNumber
-            | TokenType::HexNumber
-            | TokenType::LongNumber => true,
-            _ => false,
-        }
+                | TokenType::DecimalNumber
+                | TokenType::ExponentialNumber
+                | TokenType::HexNumber
+                | TokenType::LongNumber
+        )
     }
 }
 
@@ -373,12 +372,12 @@ impl From<&Token> for Symbol {
 
         let range = Range {
             start: Position {
-                line: start.0 as u64,
-                character: start.1 as u64,
+                line: u64::from(start.0),
+                character: u64::from(start.1),
             },
             end: Position {
-                line: end.0 as u64,
-                character: end.1 as u64,
+                line: u64::from(end.0),
+                character: u64::from(end.1),
             },
         };
 
@@ -413,7 +412,7 @@ impl Display for Token {
             TokenType::Assignment => "=".to_owned(),
             // Variables without a label are aliased variables like $$varname
             TokenType::Variable => format!("${}", self.label.as_ref().unwrap_or(&String::from(""))),
-            TokenType::Identifier => format!("{}", self.label.as_ref().unwrap()),
+            TokenType::Identifier => self.label.as_ref().unwrap().to_string(),
             TokenType::OpenParenthesis => "(".to_owned(),
             TokenType::CloseParenthesis => ")".to_owned(),
             TokenType::OpenCurly => "{".to_owned(),
@@ -477,14 +476,14 @@ impl Display for Token {
             | TokenType::ExponentialNumber
             | TokenType::LongNumber
             | TokenType::HexNumber
-            | TokenType::BinaryNumber => format!("{}", self.label.as_ref().unwrap()),
+            | TokenType::BinaryNumber => self.label.as_ref().unwrap().to_string(),
             TokenType::ConstantEncapsedString => format!("'{}'", self.label.as_ref().unwrap()),
             TokenType::EncapsedAndWhitespaceString => {
                 format!("\"{}\"", self.label.as_ref().unwrap())
             }
             TokenType::ShellEscape => format!("`{}`", self.label.as_ref().unwrap()),
             TokenType::HereDocStart => format!("<<<{}", self.label.as_ref().unwrap()),
-            TokenType::HereDocEnd => format!("{}", self.label.as_ref().unwrap()),
+            TokenType::HereDocEnd => self.label.as_ref().unwrap().to_string(),
             TokenType::BoolCast => "(bool)".to_owned(),
             TokenType::BadCast => "".to_owned(),
             TokenType::IntCast => "(int)".to_owned(),

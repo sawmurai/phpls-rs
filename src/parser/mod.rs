@@ -1,4 +1,4 @@
-use crate::node::*;
+use crate::node::{Node, get_range};
 use crate::token::{Token, TokenType};
 use snafu::Snafu;
 
@@ -240,7 +240,7 @@ impl Parser {
             return self.alternative_block(terminator);
         }
 
-        return self.statement();
+        self.statement()
     }
 
     /// Parses a single statement (offloaded depending on which statement was encountered)

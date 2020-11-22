@@ -99,6 +99,8 @@ impl<'a> NameResolver<'a> {
         if tokens.len() == 1 {
             match tokens[0].t {
                 TokenType::TypeString
+                | TokenType::TypeSelf
+                | TokenType::Static
                 | TokenType::Mixed
                 | TokenType::TypeArray
                 | TokenType::TypeBool
@@ -119,7 +121,7 @@ impl<'a> NameResolver<'a> {
             }
         }
 
-        return false;
+        false
     }
 
     /// Return a local symbol by its name. The name is stored in the token, so its sufficient
@@ -200,14 +202,14 @@ impl<'a> NameResolver<'a> {
         }
 
         let fully_qualified =
-            tokens.len() > 0 && tokens.first().unwrap().t == TokenType::NamespaceSeparator;
+            !tokens.is_empty() && tokens.first().unwrap().t == TokenType::NamespaceSeparator;
         let tokens = tokens
             .iter()
             .filter(|t| t.label.is_some())
-            .map(|t| t.clone())
+            .cloned()
             .collect::<Vec<Token>>();
 
-        if tokens.len() == 0 {
+        if tokens.is_empty() {
             return None;
         }
 
@@ -266,7 +268,7 @@ impl<'a> NameResolver<'a> {
             } else {
                 import.to_owned()
             }
-        } else if self.current_namespace != "" {
+        } else if !self.current_namespace.is_empty() {
             // Next try the name in the current namespace
             format!("{}\\{}", self.current_namespace, name)
         } else {
@@ -457,7 +459,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             } => {
                 let data_types = if let Some(argument_type) = argument_type {
                     if let Some(type_ref) = get_type_ref(argument_type) {
-                        let type_ref_ref = SymbolReference::type_ref(type_ref.clone());
+                        let type_ref_ref = SymbolReference::type_ref(type_ref);
 
                         vec![type_ref_ref]
                     } else {
@@ -506,7 +508,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     }
                 }
 
-                return NextAction::ProcessChildren;
+                NextAction::ProcessChildren
             }
             AstNode::StaticMember { .. } | AstNode::Member { .. } => {
                 self.resolve_member_type(node, arena);
@@ -571,7 +573,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                 break (Some(node), Visibility::Private);
                             } else {
                                 // In this case we need to resolve to the type of the variable
-                                for reference in arena[node].get().data_types.iter() {
+                                for reference in &arena[node].get().data_types {
                                     if let Some(referenced_node) = reference.node {
                                         break 'root_node (
                                             // Return the referenced node
@@ -682,7 +684,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                             match child_symbol.kind {
                                 PhpSymbolKind::Property | PhpSymbolKind::Method => {
-                                    for data_type in child_symbol.data_types.iter() {
+                                    for data_type in &child_symbol.data_types {
                                         if let Some(type_ref) = data_type.type_ref.as_ref() {
                                             if let Some(resolved_type) =
                                                 self.resolver.resolve_type_ref(&type_ref, arena)

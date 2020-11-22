@@ -30,6 +30,8 @@ impl DocBlockScanner {
             "bool" | "boolean" => TokenType::TypeBool,
             "int" | "integer" => TokenType::TypeInt,
             "string" | "binary" => TokenType::TypeString,
+            "static" => TokenType::Static,
+            "self" => TokenType::TypeSelf,
             "array" => TokenType::TypeArray,
             "object" => TokenType::TypeObject,
             "float" | "double" => TokenType::TypeFloat,
@@ -217,9 +219,9 @@ impl DocBlockScanner {
         let mut name = String::new();
 
         while let Some(&c) = self.peek() {
-            if c >= 'a' && c <= 'z'
-                || c >= 'A' && c <= 'Z'
-                || c >= '0' && c <= '9'
+            if ('a'..='z').contains(&c)
+                || ('A'..='Z').contains(&c)
+                || ('0'..='9').contains(&c)
                 || c == '_'
                 || c >= 0x80 as char
             {

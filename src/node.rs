@@ -567,7 +567,7 @@ impl Node {
             }
             Node::Array { elements, .. }
             | Node::OldArray { elements, .. }
-            | Node::List { elements, .. } => (*elements).iter().map(|n| n).collect(),
+            | Node::List { elements, .. } => (*elements).iter().collect(),
             Node::ArrayElement { key, value, .. } => {
                 if let Some(key) = key {
                     vec![key, value]
@@ -578,18 +578,18 @@ impl Node {
             Node::Call {
                 callee, parameters, ..
             } => {
-                let mut children: Vec<&Node> = (*parameters).iter().map(|n| n).collect();
+                let mut children: Vec<&Node> = (*parameters).iter().collect();
 
                 children.push(callee);
 
                 children
             }
             Node::Isset { parameters, .. } | Node::Empty { parameters, .. } => {
-                (*parameters).iter().map(|n| n).collect()
+                (*parameters).iter().collect()
             }
             Node::Exit { parameters, .. } | Node::Die { parameters, .. } => {
                 if let Some(parameters) = parameters {
-                    (*parameters).iter().map(|n| n).collect()
+                    (*parameters).iter().collect()
                 } else {
                     Vec::new()
                 }
@@ -610,12 +610,12 @@ impl Node {
                     vec![array]
                 }
             }
-            Node::Static { expr, .. } => (*expr).iter().map(|n| n).collect(),
+            Node::Static { expr, .. } => (*expr).iter().collect(),
             Node::ArrowFunction {
                 arguments, body, ..
             } => {
                 if let Some(arguments) = arguments {
-                    let mut children: Vec<&Node> = (*arguments).iter().map(|n| n).collect();
+                    let mut children: Vec<&Node> = (*arguments).iter().collect();
 
                     children.push(body);
 
@@ -636,12 +636,12 @@ impl Node {
                 vec![expression]
             }
             Node::EchoStatement { expressions, .. } | Node::PrintStatement { expressions, .. } => {
-                (*expressions).iter().map(|n| n).collect()
+                (*expressions).iter().collect()
             }
-            Node::ConstStatement { constants, .. } => (*constants).iter().map(|n| n).collect(),
+            Node::ConstStatement { constants, .. } => (*constants).iter().collect(),
 
             Node::UnsetStatement { vars, .. } | Node::GlobalVariablesStatement { vars, .. } => {
-                (*vars).iter().map(|n| n).collect()
+                (*vars).iter().collect()
             }
             Node::ReturnStatement { expression, .. } => {
                 if let Some(expression) = expression {
@@ -668,10 +668,10 @@ impl Node {
                 let mut children: Vec<&Node> = Vec::new();
 
                 if let Some(arguments) = arguments {
-                    children.extend((*arguments).iter().map(|n| n).collect::<Vec<&Node>>());
+                    children.extend((*arguments).iter().collect::<Vec<&Node>>());
                 }
                 if let Some(uses) = uses {
-                    children.extend((*uses).iter().map(|n| n).collect::<Vec<&Node>>());
+                    children.extend((*uses).iter().collect::<Vec<&Node>>());
                 }
                 if let Some(return_type) = return_type {
                     children.push(return_type);
@@ -709,15 +709,15 @@ impl Node {
                 let mut children: Vec<&Node> = Vec::new();
 
                 if let Some(arguments) = arguments {
-                    children.extend((*arguments).iter().map(|n| n).collect::<Vec<&Node>>());
+                    children.extend((*arguments).iter().collect::<Vec<&Node>>());
                 }
 
                 if let Some(extends) = extends {
-                    children.extend((*extends).iter().map(|n| n).collect::<Vec<&Node>>());
+                    children.extend((*extends).iter().collect::<Vec<&Node>>());
                 }
 
                 if let Some(implements) = implements {
-                    children.extend((*implements).iter().map(|n| n).collect::<Vec<&Node>>());
+                    children.extend((*implements).iter().collect::<Vec<&Node>>());
                 }
 
                 children.push(body);
@@ -746,11 +746,11 @@ impl Node {
                 let mut children: Vec<&Node> = Vec::new();
 
                 if let Some(extends) = extends {
-                    children.extend((*extends).iter().map(|n| n).collect::<Vec<&Node>>());
+                    children.extend((*extends).iter().collect::<Vec<&Node>>());
                 }
 
                 if let Some(implements) = implements {
-                    children.extend((*implements).iter().map(|n| n).collect::<Vec<&Node>>());
+                    children.extend((*implements).iter().collect::<Vec<&Node>>());
                 }
 
                 children.push(body);
@@ -787,7 +787,7 @@ impl Node {
                 let mut children: Vec<&Node> = Vec::new();
 
                 if let Some(arguments) = arguments {
-                    children.extend((*arguments).iter().map(|n| n).collect::<Vec<&Node>>());
+                    children.extend((*arguments).iter().collect::<Vec<&Node>>());
                 }
 
                 if let Some(return_type) = return_type {
@@ -804,7 +804,7 @@ impl Node {
                 let mut children: Vec<&Node> = Vec::new();
 
                 if let Some(extends) = extends {
-                    children.extend((*extends).iter().map(|n| n).collect::<Vec<&Node>>());
+                    children.extend((*extends).iter().collect::<Vec<&Node>>());
                 }
 
                 children.push(body);
@@ -826,9 +826,9 @@ impl Node {
             } => {
                 let mut children: Vec<&Node> = Vec::new();
 
-                children.extend((*init).iter().map(|n| n).collect::<Vec<&Node>>());
-                children.extend((*condition).iter().map(|n| n).collect::<Vec<&Node>>());
-                children.extend((*step).iter().map(|n| n).collect::<Vec<&Node>>());
+                children.extend((*init).iter().collect::<Vec<&Node>>());
+                children.extend((*condition).iter().collect::<Vec<&Node>>());
+                children.extend((*step).iter().collect::<Vec<&Node>>());
                 children.push(body);
 
                 children
@@ -840,7 +840,7 @@ impl Node {
                 ..
             } => vec![collection, kv, body],
             Node::Block { statements, .. } | Node::AlternativeBlock { statements, .. } => {
-                (*statements).iter().map(|n| n).collect()
+                (*statements).iter().collect()
             }
             Node::IfBranch {
                 condition, body, ..
@@ -852,7 +852,7 @@ impl Node {
                 else_branch,
             } => {
                 let mut children: Vec<&Node> = vec![if_branch];
-                children.extend((*elseif_branches).iter().map(|n| n).collect::<Vec<&Node>>());
+                children.extend((*elseif_branches).iter().collect::<Vec<&Node>>());
                 if let Some(else_branch) = else_branch {
                     children.push(else_branch);
                 }
@@ -868,13 +868,13 @@ impl Node {
                         .map(|n| n.as_ref().unwrap())
                         .collect::<Vec<&Node>>(),
                 );
-                children.extend((*body).iter().map(|n| n).collect::<Vec<&Node>>());
+                children.extend((*body).iter().collect::<Vec<&Node>>());
 
                 children
             }
             Node::SwitchCase { expr, body, .. } => vec![expr, body],
             Node::SwitchBody { branches, .. } => {
-                (*branches).iter().map(|n| n).collect::<Vec<&Node>>()
+                (*branches).iter().collect::<Vec<&Node>>()
             }
             Node::TokenStatement { expr, .. } => {
                 if let Some(expr) = expr {
@@ -891,7 +891,7 @@ impl Node {
                 ..
             } => {
                 let mut children: Vec<&Node> = vec![try_block];
-                children.extend((*catch_blocks).iter().map(|n| n).collect::<Vec<&Node>>());
+                children.extend((*catch_blocks).iter().collect::<Vec<&Node>>());
                 if let Some(finally_block) = finally_block {
                     children.push(finally_block);
                 }
@@ -899,12 +899,12 @@ impl Node {
                 children
             }
             Node::StaticVariablesStatement { assignments, .. } => {
-                (*assignments).iter().map(|n| n).collect::<Vec<&Node>>()
+                (*assignments).iter().collect::<Vec<&Node>>()
             }
             Node::UseStatement { imports, .. }
             | Node::UseFunctionStatement { imports, .. }
             | Node::UseConstStatement { imports, .. } => {
-                (*imports).iter().map(|n| n).collect::<Vec<&Node>>()
+                (*imports).iter().collect::<Vec<&Node>>()
             }
             _ => Vec::new(),
         }
@@ -1205,14 +1205,12 @@ impl Node {
                     } else {
                         left.range()
                     }
+                } else if let Some(as_name) = as_name {
+                    (member.range().0, as_name.end())
+                } else if let Some(visibility) = visibility {
+                    (member.range().0, visibility.end())
                 } else {
-                    if let Some(as_name) = as_name {
-                        (member.range().0, as_name.end())
-                    } else if let Some(visibility) = visibility {
-                        (member.range().0, visibility.end())
-                    } else {
-                        member.range()
-                    }
+                    member.range()
                 }
             }
             Node::ClassStatement {
@@ -1299,7 +1297,7 @@ impl Node {
             } => {
                 if let Some(else_branch) = else_branch {
                     (if_branch.range().0, else_branch.range().1)
-                } else if elseif_branches.len() > 0 {
+                } else if !elseif_branches.is_empty() {
                     (
                         if_branch.range().0,
                         elseif_branches.last().unwrap().range().1,
@@ -1331,7 +1329,7 @@ impl Node {
             } => {
                 if let Some(finally_block) = finally_block {
                     (token.start(), finally_block.range().1)
-                } else if catch_blocks.len() > 0 {
+                } else if !catch_blocks.is_empty() {
                     (token.start(), catch_blocks.last().unwrap().range().1)
                 } else {
                     (token.start(), try_block.range().1)
@@ -1366,12 +1364,12 @@ pub fn get_range(coords: NodeRange) -> Range {
 
     Range {
         start: Position {
-            line: start.0 as u64,
-            character: start.1 as u64,
+            line: u64::from(start.0),
+            character: u64::from(start.1),
         },
         end: Position {
-            line: end.0 as u64,
-            character: end.1 as u64,
+            line: u64::from(end.0),
+            character: u64::from(end.1),
         },
     }
 }

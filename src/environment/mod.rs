@@ -40,7 +40,7 @@ pub fn symbol_location(arena: &Arena<Symbol>, symbol_node: &NodeId) -> Option<Lo
         symbol_node = parent;
     }
 
-    return None;
+    None
 }
 
 /// Checks if a given `position` is within a given `range`.

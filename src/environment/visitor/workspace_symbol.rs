@@ -92,7 +92,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     extends
                         .iter()
                         .map(|parent| get_type_ref(parent))
-                        .filter(|mapped| mapped.is_some())
+                        .filter(std::option::Option::is_some)
                         .map(|filtered| Reference::type_ref(filtered.unwrap()))
                         .collect()
                 } else {
@@ -139,7 +139,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     extends
                         .iter()
                         .map(|parent| get_type_ref(parent))
-                        .filter(|mapped| mapped.is_some())
+                        .filter(std::option::Option::is_some)
                         .map(|filtered| Reference::type_ref(filtered.unwrap()))
                         .collect()
                 } else {

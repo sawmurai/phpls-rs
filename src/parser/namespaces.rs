@@ -16,7 +16,7 @@ pub(crate) fn namespace_statement(parser: &mut Parser) -> ExpressionResult {
     if parser.next_token_one_of(&[TokenType::OpenCurly]) {
         Ok(Node::NamespaceBlock {
             token,
-            type_ref: type_ref,
+            type_ref,
             block: Box::new(parser.block()?),
         })
     } else if let Some(type_ref) = type_ref {
