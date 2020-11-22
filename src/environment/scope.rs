@@ -17,6 +17,26 @@ pub struct Reference {
     pub node: Option<NodeId>,
 }
 
+impl std::fmt::Display for Reference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(token) = self.token.as_ref() {
+            f.write_str(&token.to_string())?;
+        }
+
+        if let Some(type_ref) = self.type_ref.as_ref() {
+            let mut name = Vec::with_capacity(type_ref.len());
+
+            for token in type_ref.iter() {
+                name.push(token.to_string());
+            }
+
+            f.write_str(&name.join("\\"))?;
+        }
+
+        Ok(())
+    }
+}
+
 impl Reference {
     pub fn is_builtin(&self) -> bool {
         if let Some(type_ref) = self.type_ref.as_ref() {

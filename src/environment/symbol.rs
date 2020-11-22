@@ -92,7 +92,6 @@ pub struct Symbol {
     pub name: String,
     pub range: Range,
     pub selection_range: Range,
-    pub detail: Option<String>,
     pub deprecated: Option<bool>,
 
     pub imports: Option<Vec<SymbolImport>>,
@@ -131,7 +130,6 @@ impl Default for Symbol {
             kind: PhpSymbolKind::File,
             range: get_range(((0, 0), (0, 0))),
             selection_range: get_range(((0, 0), (0, 0))),
-            detail: None,
             deprecated: None,
             inherits_from: Vec::new(),
             parent: None,
@@ -195,6 +193,19 @@ impl PhpSymbolKind {
 
 /// Basically a 1:1 mapping that omits the data type
 impl Symbol {
+    pub fn detail(&self) -> Option<String> {
+        match self.kind {
+            PhpSymbolKind::Method => Some(
+                self.data_types
+                    .iter()
+                    .map(|reference| reference.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" | "),
+            ),
+            _ => None,
+        }
+    }
+
     pub fn to_doc_sym(&self, arena: &Arena<Symbol>, node: &NodeId) -> Option<DocumentSymbol> {
         let children = node
             .children(arena)
@@ -221,7 +232,7 @@ impl Symbol {
             name: self.name.clone(),
             range: self.range,
             selection_range: self.selection_range,
-            detail: self.detail.clone(),
+            detail: self.detail(),
             deprecated: self.deprecated,
 
             // Needs to be added from outside of this
