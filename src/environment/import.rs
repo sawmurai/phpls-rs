@@ -1,4 +1,4 @@
-use crate::environment::symbol::{PhpSymbolKind, Symbol};
+use crate::environment::symbol::{PhpSymbolKind, Symbol, Visibility};
 use crate::node::Node;
 use crate::token::Token;
 use tower_lsp::lsp_types::{Position, Range};
@@ -69,6 +69,8 @@ impl From<&SymbolImport> for Symbol {
             data_types: Vec::new(),
             is_static: false,
             imports: None,
+            node: None,
+            visibility: Visibility::None,
         }
     }
 }

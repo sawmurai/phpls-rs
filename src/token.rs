@@ -388,15 +388,7 @@ impl From<&Token> for Symbol {
             kind,
             range,
             selection_range: range,
-            detail: None,
-            deprecated: None,
-            inherits_from: Vec::new(),
-            parent: None,
-            references: None,
-            references_by: Vec::new(),
-            data_types: Vec::new(),
-            is_static: false,
-            imports: None,
+            ..Symbol::default()
         }
     }
 }

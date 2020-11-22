@@ -1,10 +1,14 @@
 use crate::environment;
-use crate::environment::scope::collect_symbols;
+use crate::environment::in_range;
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
-use crate::node::{get_range, Node};
+use crate::environment::traverser::traverse;
+use crate::environment::visitor::name_resolver::Reference;
+use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolver};
+use crate::environment::visitor::workspace_symbol::WorkspaceSymbolVisitor;
+use crate::node::get_range;
+use crate::node::Node as AstNode;
 use crate::parser::Parser;
 use crate::scanner::Scanner;
-use async_recursion::async_recursion;
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use std::fs;
@@ -12,89 +16,135 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{self};
 use tokio::sync::Mutex;
+use tokio::task;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
+type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
+type NodeMapMutex = Arc<Mutex<HashMap<String, NodeId>>>;
+type DiagnosticsMutex = Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>;
+type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
+
 /// Represents the backend of the language server.
 pub struct Backend {
     /// Storage arena for all symbols
-    pub arena: Arc<Mutex<Arena<Symbol>>>,
+    pub arena: ArenaMutex,
 
     /// NodeIds of entry points to files
-    pub root_symbols: Arc<Mutex<HashMap<String, NodeId>>>,
+    pub files: NodeMapMutex,
 
     /// FQDN to NodeId
-    pub global_symbols: Arc<Mutex<HashMap<String, NodeId>>>,
+    pub global_symbols: NodeMapMutex,
 
     /// Global list of all diagnostics
-    pub diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
+    pub diagnostics: DiagnosticsMutex,
+
+    /// References to symbols. Key is the filename
+    pub symbol_references: ReferenceMapMutex,
+
+    /// List of currently opened files and their AST
+    pub opened_files: AstMutex,
 }
 
 impl Backend {
     pub fn new() -> Self {
         Backend {
             arena: Arc::new(Mutex::new(Arena::new())),
-            root_symbols: Arc::new(Mutex::new(HashMap::new())),
+            files: Arc::new(Mutex::new(HashMap::new())),
             global_symbols: Arc::new(Mutex::new(HashMap::new())),
             diagnostics: Arc::new(Mutex::new(HashMap::new())),
+            symbol_references: Arc::new(Mutex::new(HashMap::new())),
+            opened_files: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-        self.reindex_folder(&PathBuf::from(
+        let mut files = self.reindex_folder(&PathBuf::from(
             "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
-        ))
-        .await?;
+        ))?;
 
+        let mut joins = Vec::new();
         if let Ok(root_path) = url.to_file_path() {
-            self.reindex_folder(&root_path).await?;
+            files.extend(self.reindex_folder(&root_path)?);
+
+            for path in files {
+                let content = match fs::read_to_string(&path) {
+                    Ok(content) => content,
+                    Err(error) => {
+                        eprintln!("{}", error);
+
+                        continue;
+                    }
+                };
+
+                let arena = self.arena.clone();
+                let global_symbols = self.global_symbols.clone();
+                let files = self.files.clone();
+                let references = self.symbol_references.clone();
+                let diagnostics = self.diagnostics.clone();
+                let path = path.clone();
+                let content = content.clone();
+
+                joins.push(task::spawn(async move {
+                    if let Ok((ast, range)) = Backend::source_to_ast(&content) {
+                        let reindex_result = Backend::reindex(
+                            &path,
+                            &ast,
+                            &range,
+                            false,
+                            true,
+                            arena,
+                            global_symbols,
+                            references,
+                            files,
+                            diagnostics,
+                        )
+                        .await;
+
+                        match reindex_result {
+                            Ok(()) => (),
+                            Err(err) => {
+                                eprintln!("{}", err);
+                            }
+                        }
+                    } else {
+                        // TODO: Publish errors as diagnostics
+                        eprintln!("Could not index {} due to syntax errors", path);
+                    }
+                }));
+            }
         } else {
             eprintln!("Error converting url to file path");
         }
 
-        let arena = self.arena.lock().await;
-        let mut diagnostics = self.diagnostics.lock().await;
-        let root_symbols = self.root_symbols.lock().await;
-
-        let mut global_table: HashMap<String, NodeId> = HashMap::new();
-        for (_file, node_id) in root_symbols.iter() {
-            for symbol_id in node_id.children(&arena) {
-                let symbol = arena[symbol_id].get();
-
-                if symbol.kind == PhpSymbolKind::Namespace {
-                    let base_name = symbol.name.clone();
-
-                    for symbol_id in symbol_id.children(&arena) {
-                        let symbol = arena[symbol_id].get();
-
-                        if symbol.kind.register_global() {
-                            global_table
-                                .insert(format!("{}\\{}", base_name, symbol.name), symbol_id);
-                        }
-                    }
-                } else {
-                    if symbol.kind.register_global() {
-                        global_table.insert(symbol.name.clone(), symbol_id);
-                    }
+        for j in joins {
+            match j.await {
+                Ok(()) => (),
+                Err(err) => {
+                    eprintln!("{}", err);
                 }
             }
         }
 
-        for (file, node_id) in root_symbols.iter() {
-            for symbol_node in node_id.descendants(&arena) {
-                let symbol = arena[symbol_node].get();
+        let arena = self.arena.lock().await;
+        let mut diagnostics = self.diagnostics.lock().await;
+        let files = self.files.lock().await;
 
-                if symbol.kind == PhpSymbolKind::Unknown
-                    && symbol
-                        .resolve(&arena, &symbol_node, &global_table, Vec::new())
-                        .is_none()
-                {
-                    diagnostics
-                        .get_mut(file)
-                        .unwrap()
-                        .push(Diagnostic::from(symbol));
+        let mut global_table: HashMap<String, NodeId> = HashMap::new();
+        for (_file, node_id) in files.iter() {
+            let mut current_namespace = String::new();
+
+            for symbol_id in node_id.children(&arena) {
+                let symbol = arena[symbol_id].get();
+
+                if symbol.kind == PhpSymbolKind::Namespace {
+                    current_namespace = symbol.name.clone();
+                } else if symbol.kind.register_global() {
+                    global_table
+                        .insert(format!("{}\\{}", current_namespace, symbol.name), symbol_id);
                 }
             }
         }
@@ -104,15 +154,17 @@ impl Backend {
         Ok(())
     }
 
-    #[async_recursion]
-    async fn reindex_folder(&self, dir: &PathBuf) -> io::Result<()> {
+    // TODO: Filter out vendor tests
+    fn reindex_folder(&self, dir: &PathBuf) -> io::Result<Vec<String>> {
+        let mut files = Vec::new();
+
         if dir.is_dir() {
             let entries = match fs::read_dir(dir) {
                 Ok(entries) => entries,
                 Err(e) => {
                     eprintln!("Error reading folder {:?}: {}", dir, e);
 
-                    return Ok(());
+                    return Ok(files);
                 }
             };
 
@@ -122,128 +174,138 @@ impl Backend {
                     Err(e) => {
                         eprintln!("- Error reading folder {:?}: {}", dir, e);
 
-                        return Ok(());
+                        return Ok(files);
                     }
                 };
                 let path = entry.path();
                 if path.is_dir() {
                     // && !path.ends_with("vendor") {
-                    self.reindex_folder(&path).await?;
+                    files.extend(self.reindex_folder(&path)?);
                 } else if let Some(ext) = path.extension() {
                     if ext == "php" {
                         let p = path.to_str().unwrap().to_string();
-                        let content = match fs::read_to_string(path) {
-                            Ok(content) => content,
-                            Err(error) => {
-                                eprintln!("{}", error);
-
-                                continue;
-                            }
-                        };
-
-                        self.reindex(&p, &content).await?;
+                        files.push(p);
                     }
                 }
             }
         }
-        Ok(())
+        Ok(files)
     }
 
-    async fn reindex(&self, path: &str, content: &str) -> io::Result<()> {
-        let mut scanner = Scanner::new(&content);
+    /// Index a source string to an ast
+    fn source_to_ast(source: &str) -> std::result::Result<(Vec<AstNode>, Range), String> {
+        let mut scanner = Scanner::new(&source);
 
         if let Err(msg) = scanner.scan() {
-            eprintln!("Could not read file {}: {}", &path, &msg);
+            eprintln!();
 
-            return Ok(());
+            return Err(format!("Could not read file: {}", &msg));
         }
 
         let range = get_range(scanner.document_range());
 
         if let Ok((ast, errors)) = Parser::ast(scanner.tokens) {
-            //eprintln!("{:#?}", ast);
-            let mut arena = self.arena.lock().await;
+            Ok((ast, range))
+        } else {
+            Err(String::from("dd"))
+        }
+    }
 
+    async fn reindex(
+        path: &str,
+        ast: &Vec<AstNode>,
+        range: &Range,
+        resolve: bool,
+        collect: bool,
+        arena: ArenaMutex,
+        global_symbols: NodeMapMutex,
+        symbol_references: ReferenceMapMutex,
+        files: NodeMapMutex,
+        diagnostics: DiagnosticsMutex,
+    ) -> io::Result<()> {
+        //eprintln!("{:#?}", ast);
+        let mut arena = arena.lock().await;
+
+        let enclosing_file = if collect {
             let enclosing_file = arena.new_node(Symbol {
-                name: path.to_owned(),
                 kind: PhpSymbolKind::File,
-                range,
-                selection_range: range,
-                detail: None,
-                deprecated: None,
-                inherits_from: Vec::new(),
-                parent: None,
-                references: None,
-                references_by: Vec::new(),
-                data_types: Vec::new(),
-                is_static: false,
-                imports: None,
+                name: path.to_owned(),
+                range: range.clone(),
+                selection_range: range.clone(),
+                ..Symbol::default()
             });
 
-            // By default, put all symbols in the file scope
-            let mut current_parent = enclosing_file;
-
+            let mut visitor = WorkspaceSymbolVisitor::new();
             let mut iter = ast.iter();
             while let Some(node) = iter.next() {
-                match node {
-                    // Once we detect a namespace statement we consider all following definitions to be
-                    // within the namespaces symbol
-                    Node::NamespaceStatement { type_ref, .. } => {
-                        let (name, selection_range) = match &**type_ref {
-                            Node::TypeRef(tokens) => (
-                                tokens
-                                    .iter()
-                                    .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
-                                    .collect::<Vec<String>>()
-                                    .join(""),
-                                // Range from first part of name until the last one
-                                get_range((
-                                    tokens.first().unwrap().range().0,
-                                    tokens.last().unwrap().range().1,
-                                )),
-                            ),
-                            _ => panic!("This should not happen"),
-                        };
+                traverse(node, &mut visitor, &mut arena, enclosing_file);
+            }
 
-                        current_parent = arena.new_node(Symbol {
-                            name,
-                            kind: PhpSymbolKind::Namespace,
-                            range,
-                            selection_range,
-                            detail: None,
-                            deprecated: None,
-                            inherits_from: Vec::new(),
-                            parent: None,
-                            references: None,
-                            references_by: Vec::new(),
-                            data_types: Vec::new(),
-                            is_static: false,
-                            imports: None,
-                        });
+            let mut global_symbols = global_symbols.lock().await;
+            let mut current_namespace = String::new();
 
-                        enclosing_file.append(current_parent, &mut arena);
+            // Deregister old children
+            if let Some(old_enclosing) = files.lock().await.insert(path.to_owned(), enclosing_file)
+            {
+                for symbol_id in old_enclosing.children(&arena) {
+                    let symbol = arena[symbol_id].get();
+
+                    if symbol.kind == PhpSymbolKind::Namespace {
+                        current_namespace = symbol.name.clone();
+                    } else if symbol.kind.register_global() {
+                        global_symbols.remove(&format!("{}\\{}", current_namespace, symbol.name));
                     }
-                    _ => {
-                        if let Err(e) = collect_symbols(&mut arena, &current_parent, &node) {
-                            eprintln!("Mööp!: {} {}", path, e);
-                        }
-                    }
+                }
+
+                old_enclosing.remove(&mut arena);
+            }
+
+            // and register new children
+            let mut current_namespace = String::new();
+
+            for symbol_id in enclosing_file.children(&arena) {
+                let symbol = arena[symbol_id].get();
+
+                if symbol.kind == PhpSymbolKind::Namespace {
+                    current_namespace = symbol.name.clone();
+                } else if symbol.kind.register_global() {
+                    global_symbols
+                        .insert(format!("{}\\{}", current_namespace, symbol.name), symbol_id);
                 }
             }
 
-            self.root_symbols
+            enclosing_file
+        } else if let Some(enclosing_file) = files.lock().await.get(path) {
+            *enclosing_file
+        } else {
+            // TODO: refactor to return an actual error
+            return Ok(());
+        };
+
+        if resolve {
+            let global_symbols = global_symbols.lock().await;
+            let mut resolver = NameResolver::new(&global_symbols, enclosing_file);
+
+            let mut visitor = NameResolveVisitor::new(&mut resolver);
+            let mut iter = ast.iter();
+            while let Some(node) = iter.next() {
+                traverse(node, &mut visitor, &mut arena, enclosing_file);
+            }
+
+            symbol_references
                 .lock()
                 .await
-                .insert(path.to_owned(), enclosing_file);
-            self.diagnostics.lock().await.insert(
-                path.to_owned(),
-                errors
-                    .iter()
-                    .map(Diagnostic::from)
-                    .collect::<Vec<Diagnostic>>(),
-            );
+                .insert(path.to_owned(), visitor.references());
         }
-
+        /*
+                diagnostics.lock().await.insert(
+                    path.to_owned(),
+                    errors
+                        .iter()
+                        .map(Diagnostic::from)
+                        .collect::<Vec<Diagnostic>>(),
+                );
+        */
         Ok(())
     }
 }
@@ -334,14 +396,20 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
+        if params.query == "" {
+            return Ok(None);
+        }
+
+        let query = params.query.to_lowercase();
+
         let mut symbols = Vec::new();
         let arena = self.arena.lock().await;
 
-        for (file_name, node) in self.root_symbols.lock().await.iter() {
-            for symbol in node.children(&arena) {
+        for (file_name, node) in self.files.lock().await.iter() {
+            for symbol in node.descendants(&arena) {
                 let symbol = arena[symbol].get();
 
-                if params.query != "" && symbol.name.starts_with(&params.query) {
+                if symbol.name.to_lowercase().starts_with(&query) {
                     if let Some(kind) = symbol.kind.to_symbol_kind() {
                         symbols.push(SymbolInformation {
                             name: symbol.name.clone(),
@@ -368,7 +436,7 @@ impl LanguageServer for Backend {
         let path = params.text_document.uri.path();
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = self.root_symbols.lock().await.get(path) {
+        if let Some(node_id) = self.files.lock().await.get(path) {
             return Ok(Some(DocumentSymbolResponse::Nested(
                 node_id
                     .children(&arena)
@@ -393,7 +461,7 @@ impl LanguageServer for Backend {
             .path();
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = self.root_symbols.lock().await.get(file) {
+        if let Some(node_id) = self.files.lock().await.get(file) {
             return Ok(environment::document_highlights(
                 &params.text_document_position_params.position,
                 &arena,
@@ -407,7 +475,7 @@ impl LanguageServer for Backend {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let file = params.text_document_position.text_document.uri.path();
 
-        if let Some(_arena) = self.root_symbols.lock().await.get(file) {
+        if let Some(_arena) = self.files.lock().await.get(file) {
         } else {
             eprintln!("File not found");
         }
@@ -421,65 +489,152 @@ impl LanguageServer for Backend {
     ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let file = uri.path();
-        let arena = self.arena.lock().await;
-        let root_symbols = self.root_symbols.lock().await;
-        let global_symbols = self.global_symbols.lock().await;
 
-        if let Some(node_id) = root_symbols.get(file) {
-            if let Some(location) = environment::definition_of_symbol_under_cursor(
-                &arena,
-                node_id,
-                &params.text_document_position_params.position,
-                &global_symbols,
-            ) {
-                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+        let local_references = self.symbol_references.lock().await;
+
+        let arena = self.arena.lock().await;
+
+        let position = &params.text_document_position_params.position;
+
+        if let Some(references) = local_references.get(file) {
+            for reference in references {
+                if in_range(position, &get_range(reference.range)) {
+                    if let Some(location) = environment::symbol_location(&arena, &reference.node) {
+                        return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                    }
+                }
             }
         }
 
         Ok(None)
     }
 
-    async fn did_change(&self, client: &Client, params: DidChangeTextDocumentParams) {
+    async fn did_save(&self, client: &Client, params: DidSaveTextDocumentParams) {
         let path = params.text_document.uri.path();
 
-        if let Err(e) = self.reindex(path, &params.content_changes[0].text).await {
-            client.log_message(MessageType::Error, e);
+        let arena = self.arena.clone();
+        let global_symbols = self.global_symbols.clone();
+        let files = self.files.clone();
+        let references = self.symbol_references.clone();
+        let diagnostics = self.diagnostics.clone();
+        let content = tokio::fs::read_to_string(path).await.unwrap();
 
-            return;
+        if let Ok((ast, range)) = Backend::source_to_ast(&content) {
+            let reindex_result = Backend::reindex(
+                path,
+                &ast,
+                &range,
+                false,
+                true,
+                arena.clone(),
+                global_symbols.clone(),
+                references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await;
+
+            self.opened_files
+                .lock()
+                .await
+                .insert(path.to_string(), (ast, range));
+
+            if let Err(e) = reindex_result {
+                client.log_message(MessageType::Error, e);
+
+                return;
+            }
         }
 
-        let root_symbols = self.root_symbols.lock().await;
-        let global_table = self.global_symbols.lock().await;
+        // Now reindex all the other current files to update references
+        for (path, (ast, range)) in self.opened_files.lock().await.iter() {
+            match Backend::reindex(
+                path,
+                &ast,
+                &range,
+                true,
+                false,
+                arena.clone(),
+                global_symbols.clone(),
+                references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            {
+                Err(err) => eprintln!("Error updating opened file after save of another: {}", err),
+                _ => (),
+            }
+        }
+
+        let files = self.files.lock().await;
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = root_symbols.get(path) {
+        if let Some(node_id) = files.get(path) {
             let mut diagnostics = Vec::new();
 
-            for symbol_node in node_id.descendants(&arena) {
-                let symbol = arena[symbol_node].get();
+            // TODO: Add resolver here and collect unresolvable for diagnostics
 
-                if symbol.kind == PhpSymbolKind::Unknown
-                    && symbol
-                        .resolve(&arena, &symbol_node, &global_table, Vec::new())
-                        .is_none()
-                {
-                    diagnostics.push(Diagnostic::from(symbol));
-                }
-            }
-
-            client.publish_diagnostics(
-                params.text_document.uri,
-                diagnostics,
-                params.text_document.version,
-            );
+            client.publish_diagnostics(params.text_document.uri, diagnostics, None);
         }
+    }
+
+    async fn did_close(&self, client: &Client, params: DidCloseTextDocumentParams) {
+        self.opened_files
+            .lock()
+            .await
+            .remove(params.text_document.uri.path());
+        self.symbol_references
+            .lock()
+            .await
+            .remove(params.text_document.uri.path());
     }
 
     async fn did_open(&self, client: &Client, params: DidOpenTextDocumentParams) {
         let path = params.text_document.uri.path();
-        let content = tokio::fs::read_to_string(path).await.unwrap();
+        let arena = self.arena.clone();
+        let global_symbols = self.global_symbols.clone();
+        let files = self.files.clone();
+        let references = self.symbol_references.clone();
+        let diagnostics = self.diagnostics.clone();
+        let mut opened_files = self.opened_files.lock().await;
 
-        if let Err(e) = self.reindex(path, &content).await {
+        if !opened_files.contains_key(path) {
+            client.log_message(MessageType::Info, "Need to freshly index");
+
+            let source = tokio::fs::read_to_string(path).await.unwrap();
+            if let Ok((ast, range)) = Backend::source_to_ast(&source) {
+                opened_files.insert(path.to_string(), (ast, range));
+            } else {
+                client.log_message(MessageType::Error, "Error indexing");
+
+                return;
+            }
+        }
+
+        let (ast, range) = if let Some((ast, range)) = opened_files.get(path) {
+            client.log_message(MessageType::Info, "Opened from cache");
+            (ast, range)
+        } else {
+            client.log_message(MessageType::Error, "Error storing reindexed");
+
+            return;
+        };
+
+        if let Err(e) = Backend::reindex(
+            path,
+            ast,
+            range,
+            true,
+            false,
+            arena,
+            global_symbols,
+            references,
+            files,
+            diagnostics,
+        )
+        .await
+        {
             client.log_message(MessageType::Error, format!("Failed to index {}", e));
 
             return;
@@ -501,23 +656,27 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let uri = params.text_document_position_params.text_document.uri;
-        let file = uri.path();
+        let file = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .path();
+        let local_references = self.symbol_references.lock().await;
         let arena = self.arena.lock().await;
-        let root_symbols = self.root_symbols.lock().await;
-        let global_symbols = self.global_symbols.lock().await;
+        let position = &params.text_document_position_params.position;
 
-        if let Some(node_id) = root_symbols.get(file) {
-            if let Some(string) = environment::hover(
-                &arena,
-                node_id,
-                &params.text_document_position_params.position,
-                &global_symbols,
-            ) {
-                return Ok(Some(Hover {
-                    contents: HoverContents::Scalar(MarkedString::String(string)),
-                    range: None,
-                }));
+        if let Some(references) = local_references.get(file) {
+            for reference in references {
+                if in_range(position, &get_range(reference.range)) {
+                    let symbol = arena[reference.node].get();
+
+                    return Ok(Some(Hover {
+                        range: Some(get_range(reference.range)),
+                        contents: HoverContents::Scalar(MarkedString::String(
+                            symbol.hover_text(&arena, &reference.node),
+                        )),
+                    }));
+                }
             }
         }
 
@@ -641,10 +800,7 @@ mod tests {
     async fn test_resolves_inherited_members() {
         let base_dir = std::env::current_dir().unwrap();
         let root = format!("{}/fixtures/small/oop", base_dir.display());
-        let file = format!(
-            "{}/fixtures/small/oop/inheritance.php",
-            base_dir.display()
-        );
+        let file = format!("{}/fixtures/small/oop/inheritance.php", base_dir.display());
 
         let backend = Backend::new();
         let uri = Url::from_file_path(root).unwrap();

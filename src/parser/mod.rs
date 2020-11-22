@@ -20,6 +20,9 @@ pub enum Error {
 
     #[snafu(display("Can not use expression in write context on line {}, col {}", token.line, token.col))]
     RValueInWriteContext { token: Token },
+
+    #[snafu(display("Unexpected end of file"))]
+    Eof,
 }
 
 impl From<&Error> for Diagnostic {
@@ -45,6 +48,11 @@ impl From<&Error> for Diagnostic {
                 message: "Can not use expression in write context".to_owned(),
                 ..Diagnostic::default()
             },
+            Error::Eof => Diagnostic {
+                range: get_range(((0, 0), (0, 0))),
+                message: "Unexpected end of file".to_owned(),
+                ..Diagnostic::default()
+            },
         }
     }
 }
@@ -54,7 +62,7 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 type ArgumentListResult = Result<Option<Vec<Node>>>;
 type ExpressionResult = Result<Node>;
 type ExpressionListResult = Result<Vec<Node>>;
-type AstResult = Result<(Vec<Node>, Vec<Error>)>;
+pub type AstResult = Result<(Vec<Node>, Vec<Error>)>;
 
 pub mod arrays;
 pub mod calls;
@@ -342,7 +350,7 @@ impl Parser {
             }
         }
 
-        panic!("Read too far!");
+        Err(Error::Eof)
     }
 
     /// Pop and return the next token, pushing doc comments on the comment stack
@@ -413,7 +421,7 @@ impl Parser {
             });
         }
 
-        panic!("Read too far!");
+        Err(Error::Eof)
     }
 
     /// Consume a Some of token of type `t` or do nothing.
@@ -442,7 +450,7 @@ impl Parser {
             });
         }
 
-        panic!("Read too far!");
+        Err(Error::Eof)
     }
 
     /// Consume an identifier or return an error
@@ -462,7 +470,7 @@ impl Parser {
             });
         }
 
-        panic!("Read too far!");
+        Err(Error::Eof)
     }
 
     /// Consume a potential member of a class / an object or return an error
@@ -478,7 +486,7 @@ impl Parser {
             });
         }
 
-        panic!("Read too far!");
+        Err(Error::Eof)
     }
 
     // Consume a token of one of the types of `types` or return an error
@@ -496,7 +504,7 @@ impl Parser {
             });
         }
 
-        panic!("Read too far!");
+        Err(Error::Eof)
     }
 
     /// Consume a token of one of the types of `types` or do nothing

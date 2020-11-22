@@ -3,7 +3,7 @@ use crate::environment::scope::{collect_symbols, Reference};
 use crate::node::{get_range, Node};
 use crate::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
-use std::collections::HashMap;
+use std::cmp::PartialOrd;
 use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Range, SymbolKind};
 
 /// An extension if the LSP-type "SymbolKind"
@@ -37,6 +37,50 @@ pub enum PhpSymbolKind {
     // Capturing all unknown enums by this lib.
     Unknown = 255,
 }
+#[derive(Clone, Debug, PartialEq)]
+pub enum Visibility {
+    None,
+    Public,
+    Protected,
+    Private,
+}
+
+impl PartialOrd for Visibility {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self == other {
+            return Some(std::cmp::Ordering::Equal);
+        }
+
+        if *self == Visibility::None || *self == Visibility::Public {
+            return Some(std::cmp::Ordering::Greater);
+        }
+
+        if *self == Visibility::Private {
+            return Some(std::cmp::Ordering::Less);
+        }
+
+        if *other == Visibility::Private {
+            return Some(std::cmp::Ordering::Greater);
+        }
+
+        return Some(std::cmp::Ordering::Less);
+    }
+}
+
+impl From<&Option<Token>> for Visibility {
+    fn from(token: &Option<Token>) -> Self {
+        if let Some(token) = token {
+            match token.t {
+                TokenType::Private => Visibility::Private,
+                TokenType::Protected => Visibility::Protected,
+                TokenType::Public => Visibility::Public,
+                _ => Visibility::None,
+            }
+        } else {
+            Visibility::None
+        }
+    }
+}
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
@@ -61,6 +105,9 @@ pub struct Symbol {
     /// Parent within a call, for example: $someObject->this;
     pub parent: Option<NodeId>,
 
+    /// Own node id
+    pub node: Option<NodeId>,
+
     /// Id of the node this node references (if it is not a definition)
     pub references: Option<Reference>,
 
@@ -72,6 +119,31 @@ pub struct Symbol {
 
     /// True if this value was declared static
     pub is_static: bool,
+
+    /// The visibility of the symbol
+    pub visibility: Visibility,
+}
+
+impl Default for Symbol {
+    fn default() -> Self {
+        Symbol {
+            name: String::new(),
+            kind: PhpSymbolKind::File,
+            range: get_range(((0, 0), (0, 0))),
+            selection_range: get_range(((0, 0), (0, 0))),
+            detail: None,
+            deprecated: None,
+            inherits_from: Vec::new(),
+            parent: None,
+            node: None,
+            references: None,
+            references_by: Vec::new(),
+            data_types: Vec::new(),
+            is_static: false,
+            imports: None,
+            visibility: Visibility::None,
+        }
+    }
 }
 
 impl PhpSymbolKind {
@@ -191,383 +263,6 @@ impl Symbol {
 
         None
     }
-
-    /// Resolve this symbol to the defining symbol (can also be itself)
-    /// Bugs
-    /// - absolute pathes like \Rofl\Copter do not work
-    pub fn resolve(
-        &self,
-        arena: &Arena<Symbol>,
-        my_node_id: &NodeId,
-        global_symbols: &HashMap<String, NodeId>,
-        visited: Vec<&NodeId>
-    ) -> Option<NodeId> {
-        if visited.contains(&my_node_id) {
-            return None;
-        }
-
-        let mut visited = visited;
-        visited.push(my_node_id);
-
-        match self.kind {
-            PhpSymbolKind::Import => {
-                // Resolve a global import
-                if let Some(node_id) = global_symbols.get(&self.name) {
-                    return Some(node_id.clone());
-                } else {
-                    eprintln!("Failed to resolve import {} in global symbols", self.name);
-                    return None;
-                }
-            }
-
-            PhpSymbolKind::Variable => {
-                // Find first instance this one was named and return it
-                // If nothing can be found, this is the definition
-                let parent_node = arena[*my_node_id].parent().unwrap();
-
-                // $this resolves to the parent class, which is the grant parent if $this (as there
-                // is a method in between)
-                // TODO Make sure only classes support $this
-                if self.name == "this" {
-                    return arena[parent_node].parent();
-                }
-
-                for symbol in parent_node.children(arena) {
-                    // Do not compare to itself
-                    if symbol == *my_node_id {
-                        continue;
-                    }
-
-                    let found_symbol = arena[symbol].get();
-
-                    if found_symbol.kind == PhpSymbolKind::Variable
-                        && found_symbol.name == self.name
-                    {
-                        return Some(symbol);
-                    }
-                }
-
-                Some(*my_node_id)
-            }
-            PhpSymbolKind::Unknown => {
-                // node is a reference
-
-                // There is a parent, so node has a parent like $object->node()
-                // parent_node is $object
-                if let Some(&parent_node) = self.parent.as_ref() {
-
-
-                    // To determine the type of node, we must first know what $object is an instance of, so we
-                    // try to resolve it to get its definition
-                    if let Some(parent_definition_node) =
-                        arena[parent_node]
-                            .get()
-                            .resolve(arena, &parent_node, global_symbols, visited.clone())
-                    {
-                        // We successfully resolved it to its definition. Now, get the associated symbol. This is a method
-                        // definition or the initialization of a variable
-                        let parent_symbol = arena[parent_definition_node].get();
-
-                        // This is the case when a static method or property was accessed
-                        if parent_symbol.kind == PhpSymbolKind::Class || parent_symbol.kind == PhpSymbolKind::Interface {
-                            let mut parent_definition_node = parent_definition_node;
-                            let mut parent_symbol = parent_symbol;
-
-                            loop {
-                                for child_node in parent_definition_node.children(arena) {
-                                    if arena[child_node].get().name == self.name {
-                                        return Some(child_node);
-                                    }
-                                }
-
-                                if parent_symbol.inherits_from.is_empty() {
-                                    return None;
-                                }
-
-                                for ancestor in parent_symbol.inherits_from.iter() {
-                                    if let Some(node) =
-                                        resolve_reference(&ancestor, arena, &parent_definition_node, global_symbols)
-                                    {
-                                        eprint!("Resolved parent_symbol {}", parent_symbol.name);
-                                        parent_definition_node = node;
-                                        parent_symbol = arena[node].get();
-                                        eprintln!(" now getting {}", parent_symbol.name);
-                                        break;
-                                    } else {
-                                        return None;
-                                    }
-                                }
-                            }
-
-                        }
-
-                        // Go through all possible data types of the symbol. Variables get the data type of the expression that
-                        // initialized them. That data_type can be a reference itself, for example if the variable was initialized
-                        // with the return value of a method call
-                        for data_type in parent_symbol.data_types.iter() {
-                            // The node itself is just a reference to another nodes data-type, usually that
-                            // is done in scenarios like this:
-                            // $o = Rofl::getInstance();
-                            // $o->namexxx;
-                            // In that scenario the type of $o is the response type of Rofl::getInstance()
-                            if let Some(data_type_node) = data_type.node {
-                                // The type is a reference itself:
-                                // The data_type of $o is the type of getInstance
-                                // The parent of getInstance is Rofl, so resolve myself in Rofl
-                                // Or, the parent of node is $object
-                                if let Some(definition_data_type) =
-                                    arena[data_type_node].get().resolve(arena, &data_type_node, global_symbols, visited.clone())
-                                {
-                                    // getInstance was found in Rofl
-                                    for data_type in
-                                        arena[definition_data_type].get().data_types.iter()
-                                    {
-                                        // Go through all the data_types of getInstance in Rofl
-                                        if let Some(result) = self.resolve_type(
-                                            arena,
-                                            &definition_data_type,
-                                            data_type,
-                                            global_symbols,
-                                        ) {
-                                            return Some(result);
-                                        }
-                                    }
-                                }
-                            } else if let Some(result) =
-                                self.resolve_type(arena, my_node_id, data_type, global_symbols)
-                            {
-                                return Some(result);
-                            }
-                        }
-
-                        return None;
-                    }
-                }
-
-                // TODO Make sure only classes support $this
-                if self.name == "self" || self.name == "static" {
-                    let parent_node = arena[*my_node_id].parent().unwrap();
-                    return Some(arena[parent_node].parent().unwrap());
-                }
-
-                // TODO Make sure only classes support $this
-                if self.name == "parent" {
-                    let parent_node = arena[*my_node_id].parent().unwrap();
-                    let parent_class = arena[arena[parent_node].parent().unwrap()].get();
-
-                    for ancestor in parent_class.inherits_from.iter() {
-                        if let Some(node) =
-                            resolve_reference(&ancestor, arena, my_node_id, global_symbols)
-                        {
-                            return Some(node);
-                        }
-                    }
-                }
-
-                if let Some(reference) = self.references.as_ref() {
-                    return resolve_reference(reference, arena, my_node_id, global_symbols);
-                }
-
-                None
-            }
-            // All else is a definition
-            _ => Some(*my_node_id),
-        }
-    }
-
-    fn resolve_type(
-        &self,
-        arena: &Arena<Symbol>,
-        node: &NodeId,
-        data_type: &Reference,
-        global_symbols: &HashMap<String, NodeId>,
-    ) -> Option<NodeId> {
-        // Try to resolve the data type, revealing the defining class for example
-        if let Some(mut current_parent_scope) =
-            resolve_reference(data_type, arena, node, global_symbols)
-        {
-            // The reference was successfully resolved
-            // Lookup loop that goes through the data_type class and its parents
-            'check_next_parent: loop {
-                // Go through this symbols children and try to find a match
-                for child in current_parent_scope.children(arena) {
-                    if arena[child].get().name == self.name {
-                        return Some(child);
-                    }
-                }
-
-                let data_type_symbol = arena[current_parent_scope].get();
-
-                // Maybe the data_type_symbol imports a trait that defines the
-                // symbol?
-                /*for import in data_type_symbol.imports.iter() {
-                    // let resolved_import =
-                    for child in data_type_symbol_node.children(arena) {
-                        if arena[child].get().name == self.name {
-                            return Some(child);
-                        }
-                    }
-                }*/
-
-                // Next chance: inheritance! Maybe the parent defines the method or property
-                // we are looking for
-                // Note again: Multi inheritance is invalid in PHP, but we want to understand
-                // what the user intended as much as possible, so we let this
-                // be a vec and only check the first entry that is resolvable
-                for inherits_from in data_type_symbol.inherits_from.iter() {
-                    // Try to resolve the class which this class inherits from
-                    if let Some(resolved_inheritance_parent) = resolve_reference(
-                        inherits_from,
-                        arena,
-                        &current_parent_scope,
-                        global_symbols,
-                    ) {
-                        current_parent_scope = resolved_inheritance_parent;
-
-                        continue 'check_next_parent;
-                    }
-                }
-
-                // Either no parents or no parent was resolvable
-                break;
-            }
-        }
-
-        None
-    }
-}
-
-fn resolve_reference(
-    reference: &Reference,
-    arena: &Arena<Symbol>,
-    node: &NodeId,
-    global_symbols: &HashMap<String, NodeId>,
-) -> Option<NodeId> {
-    let symbol_name = if let Some(token) = reference.token.as_ref() {
-        token
-            .label
-            .clone()
-            .unwrap_or_else(|| "empty 123".to_owned())
-    } else if let Some(type_ref) = reference.type_ref.as_ref() {
-        // If we are dealing with an absolute path, we can quickly check the global table and return
-        if let Some(Token {
-            t: TokenType::NamespaceSeparator,
-            ..
-        }) = type_ref.first().as_ref()
-        {
-            if let Some(node) = global_symbols.get(
-                &type_ref
-                    .iter()
-                    .filter(|tok| tok.label.is_some())
-                    .map(|tok| tok.label.clone().unwrap())
-                    .collect::<Vec<String>>()
-                    .join("\\"),
-            ) {
-                return Some(*node);
-            } else {
-                return None;
-            }
-        }
-
-        type_ref
-            .last()
-            .unwrap()
-            .label
-            .clone()
-            .unwrap_or_else(|| "le fuck".to_owned())
-    } else {
-        return None;
-    };
-
-    let mut node = arena[*node].parent().unwrap();
-
-    loop {
-        // Check imports if they exist
-        let current_node = arena[node].get();
-
-        if let Some(imports) = &current_node.imports {
-
-            for import in imports {
-                // If we are resolving a type_ref make sure that we are taking the entire namespace into account
-                // Example:
-                // use Some\Imported\Thing;
-                //
-                // $x = new Thing\Rofl();
-                // Thin needs to match!
-                if let Some(type_ref) = reference.type_ref.as_ref() {
-                    // It is a type_ref, take first part of usage (Thing) if it exists (it should, but well, this is rust)
-                    if let Some(first_part_of_usage) = type_ref.first() {
-                        // It exists ... who would have thought. Now, lets check if it has a label and if the name matches
-                        if let Some(fpos_label) = first_part_of_usage.label.as_ref() {
-                            // Yes, a match! Now construct FQN:
-                            // Some\Imported\Thing + Thing\Rofl == Some\Imported\Thing\Rofl
-                            if fpos_label == &import.name() {
-                                // TODO: Move this out of the loop to save some iterations
-                                let end_of_usage = type_ref
-                                .iter()
-                                .skip(1)
-                                .filter(|tok| tok.label.is_some())
-                                .map(|tok| tok.label.clone().unwrap())
-                                .collect::<Vec<String>>()
-                                .join("\\");
-
-                                let full_name = if end_of_usage.len() > 0 {
-                                    format!("{}\\{}", import.full_name(), end_of_usage)
-                                }   else {
-                                    import.full_name()
-                                };
-
-                                if let Some(node) = global_symbols.get(&full_name) {
-                                    //eprintln!("Found {} in imports", symbol_name);
-                                    return Some(*node);
-                                } else {
-                                    return None;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // If the current node is a namespace then the symbol could also be on the same level, it could
-        // be a sibbling in the same namespace
-        if current_node.kind == PhpSymbolKind::Namespace {
-            if let Some(node) =
-                global_symbols.get(&format!("{}\\{}", current_node.name, symbol_name))
-            {
-
-                //eprintln!("[NS] Found {} in global symbols", &format!("{}\\{}", current_node.name, symbol_name));
-                return Some(*node);
-            }
-        // If the current node is the file then the last chance would be if the symbol is a global symbol from
-        // the stdlib
-        } else if current_node.kind == PhpSymbolKind::File {
-            if let Some(global_symbol_node) = global_symbols.get(&symbol_name) {
-                //eprintln!("[F] Found {} in global symbols", symbol_name);
-                return Some(*global_symbol_node);
-            }
-        } else {
-            // Check symbols on this level
-            for symbol in node.children(arena) {
-                let found_symbol = arena[symbol].get();
-
-                // TODO: Make sure not false positives with strings etc.
-                if found_symbol.kind != PhpSymbolKind::Unknown && found_symbol.name == symbol_name {
-
-                    //eprintln!("Found {} in else", symbol_name);
-                    return Some(symbol);
-                }
-            }
-        }
-
-        if let Some(parent) = arena[node].parent() {
-            // Up we go
-            node = parent;
-        } else {
-            return None;
-        }
-    }
 }
 
 impl From<&Symbol> for Diagnostic {
@@ -608,7 +303,7 @@ pub fn document_symbol(
     arena: &mut Arena<Symbol>,
     enclosing: &NodeId,
     node: &Node,
-    parent: Option<NodeId>
+    parent: Option<NodeId>,
 ) -> Result<NodeId, String> {
     match node {
         Node::Unary { expr, .. } => document_symbol(arena, enclosing, expr, parent),
@@ -656,7 +351,11 @@ pub fn document_symbol(
         Node::New { class, .. } => document_symbol(arena, enclosing, class, parent),
         Node::Clone { object, .. } => document_symbol(arena, enclosing, object, parent),
         // Not working yet for some reason
-        Node::StaticMember { class, member, .. } => {
+        Node::StaticMember {
+            object: class,
+            member,
+            ..
+        } => {
             // Resolve the object (which can also be a callee)
             let object_node = document_symbol(arena, enclosing, class, parent)?;
             let member_node = document_symbol(arena, enclosing, member, Some(object_node))?;
@@ -751,11 +450,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -780,11 +481,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: Some(reference),
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -802,11 +505,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -847,11 +552,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types,
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -927,11 +634,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from,
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -967,11 +676,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
             enclosing.append(child, arena);
 
@@ -1005,11 +716,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from,
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
             enclosing.append(child, arena);
 
@@ -1033,11 +746,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
             enclosing.append(child, arena);
 
@@ -1071,11 +786,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from,
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
             enclosing.append(child, arena);
 
@@ -1097,11 +814,13 @@ pub fn document_symbol(
 
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
             enclosing.append(child, arena);
 
@@ -1130,11 +849,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types,
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -1184,11 +905,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types,
                 is_static: is_static.is_some(),
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -1221,11 +944,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types,
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -1263,11 +988,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types,
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);
@@ -1295,11 +1022,13 @@ pub fn document_symbol(
                 deprecated: None,
                 inherits_from: Vec::new(),
                 parent,
+                node: None,
                 references: None,
                 references_by: Vec::new(),
                 data_types: Vec::new(),
                 is_static: false,
                 imports: None,
+                visibility: Visibility::None,
             });
 
             enclosing.append(child, arena);

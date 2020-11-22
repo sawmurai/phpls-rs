@@ -14,16 +14,6 @@ version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "async-recursion"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "proc-macro2 1.0.10 (registry+https://github.com/rust-lang/crates.io-index)",
- "quote 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "syn 1.0.18 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -408,7 +398,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "phpls-rs"
 version = "0.1.0"
 dependencies = [
- "async-recursion 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "indextree 4.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "snafu 0.6.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "spmc 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -735,7 +724,6 @@ dependencies = [
 [metadata]
 "checksum ahash 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "35b909d1c126f78ace756fc337133356c499eebeefcce930fa5fb018823f2b2d"
 "checksum arc-swap 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)" = "b585a98a234c46fc563103e9278c9391fde1f4e6850334da895d27edb9580f62"
-"checksum async-recursion 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "e5444eec77a9ec2bfe4524139e09195862e981400c4358d3b760cae634e4c4ee"
 "checksum async-trait 0.1.30 (registry+https://github.com/rust-lang/crates.io-index)" = "da71fef07bc806586090247e971229289f64c210a278ee5ae419314eb386b31d"
 "checksum base64 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7d5ca2cd0adc3f48f9e9ea5a6bbdf9ccc0bfade884847e484d452414c7ccffb3"
 "checksum bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"

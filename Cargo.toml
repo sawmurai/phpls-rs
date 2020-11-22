@@ -11,5 +11,4 @@ snafu = "0.6.6"
 spmc = "0.3.0"
 tower-lsp = "0.11"
 tokio = { version = "0.2", features = ["full"] }
-async-recursion = "0.3"
 indextree = "4.0"
