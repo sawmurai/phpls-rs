@@ -228,8 +228,18 @@ impl<'a> NameResolver<'a> {
             self.document_references.push(Reference::new(range, *node));
 
             return Some(*node);
+        } else if let Some(global_symbol) = self.global_scope.get(&format!("\\{}", name)) {
+            let range = (
+                tokens.first().unwrap().start(),
+                tokens.last().unwrap().end(),
+            );
+
+            self.document_references
+                .push(Reference::new(range, *global_symbol));
+            return Some(*global_symbol);
         } else {
-            //eprintln!("ARGH: {}", joined_name);
+            // TODO: Error for unresolvable
+            eprintln!("Did not find {} ({})", name, joined_name);
         }
 
         None
