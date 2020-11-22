@@ -1,8 +1,6 @@
-use crate::environment::import::collect_uses;
-use crate::environment::symbol::{document_symbol, Symbol};
-use crate::node::{get_range, Node};
+use crate::node::get_range;
 use crate::token::{Token, TokenType};
-use indextree::{Arena, NodeId};
+use indextree::NodeId;
 use tower_lsp::lsp_types::Range;
 
 #[derive(Clone, Debug)]
@@ -61,82 +59,4 @@ impl Reference {
             node: None,
         }
     }
-}
-
-pub fn collect_symbols(
-    arena: &mut Arena<Symbol>,
-    symbol: &NodeId,
-    node: &Node,
-) -> Result<(), String> {
-    match node {
-        Node::NamespaceStatement { .. }
-        | Node::Function { .. }
-        | Node::FunctionArgument { .. }
-        | Node::Class { .. }
-        | Node::NamespaceBlock { .. }
-        | Node::ClassStatement { .. }
-        | Node::TraitStatement { .. }
-        | Node::ClassConstantDefinitionStatement { .. }
-        | Node::PropertyDefinitionStatement { .. }
-        | Node::MethodDefinitionStatement { .. }
-        | Node::FunctionDefinitionStatement { .. }
-        | Node::NamedFunctionDefinitionStatement { .. }
-        | Node::Const { .. }
-        | Node::Interface { .. }
-        | Node::Identifier(..)
-        | Node::TypeRef { .. }
-        | Node::LexicalVariable { .. }
-        | Node::Variable(..)
-        | Node::StaticVariable { .. }
-        | Node::Literal(..)
-        | Node::StaticMember { .. }
-        | Node::Member { .. } => {
-            //if !token.is_identifier() {
-            document_symbol(arena, symbol, node, None)?;
-            //}
-        }
-        Node::Binary { left, right, token } => {
-            if token.t == TokenType::Assignment {
-                let left = document_symbol(arena, symbol, left, None);
-                let right = document_symbol(arena, symbol, right, None);
-
-                // Try to parse the r-value symbol. If we get an error we go and collect its children
-                if left.is_ok() && right.is_ok() {
-                    let left = left.unwrap();
-                    let right = right.unwrap();
-
-                    let references = { arena[right].get().references.clone() };
-                    if let Some(references) = references.as_ref() {
-                        let left_symbol = arena[left].get_mut();
-                        left_symbol.data_types.push(references.clone());
-                    }
-
-                    symbol.append(left, arena);
-                    symbol.append(right, arena);
-
-                    return Ok(());
-                }
-            }
-
-            for child in node.children() {
-                collect_symbols(arena, symbol, child)?;
-            }
-        }
-        Node::Call {
-            callee, parameters, ..
-        } => {
-            document_symbol(arena, symbol, callee, None)?;
-
-            for child in parameters {
-                collect_symbols(arena, symbol, child)?;
-            }
-        }
-        _ => {
-            for child in node.children() {
-                collect_symbols(arena, symbol, child)?;
-            }
-        }
-    };
-
-    Ok(())
 }
