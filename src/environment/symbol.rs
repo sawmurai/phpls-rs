@@ -101,17 +101,11 @@ pub struct Symbol {
     /// to display meaningful error messages
     pub inherits_from: Vec<Reference>,
 
-    /// Parent within a call, for example: $someObject->this;
-    pub parent: Option<NodeId>,
-
     /// Own node id
     pub node: Option<NodeId>,
 
     /// Id of the node this node references (if it is not a definition)
     pub references: Option<Reference>,
-
-    /// Ids referencing this node
-    pub references_by: Vec<NodeId>,
 
     /// Ids of the symbols defining the possible types this symbol can have
     pub data_types: Vec<Reference>,
@@ -132,10 +126,8 @@ impl Default for Symbol {
             selection_range: get_range(((0, 0), (0, 0))),
             deprecated: None,
             inherits_from: Vec::new(),
-            parent: None,
             node: None,
             references: None,
-            references_by: Vec::new(),
             data_types: Vec::new(),
             is_static: false,
             imports: None,
@@ -241,20 +233,12 @@ impl Symbol {
     }
 
     pub fn hover_text(&self, arena: &Arena<Symbol>, me: &NodeId) -> String {
-        if let Some(parent) = self.parent {
-            format!(
-                "{}, child of {}",
-                self.name,
-                arena[parent].get().hover_text(&arena, me)
-            )
-        } else {
-            format!(
-                "{} ({:?}) < {:?}",
-                self.name,
-                self.kind,
-                arena[arena[*me].parent().unwrap()].get().kind
-            )
-        }
+        format!(
+            "{} ({:?}) < {:?}",
+            self.name,
+            self.kind,
+            arena[arena[*me].parent().unwrap()].get().kind
+        )
     }
 
     /// Find a direct descendant of node by its name
