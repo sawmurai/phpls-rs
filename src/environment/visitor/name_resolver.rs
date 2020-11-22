@@ -199,8 +199,6 @@ impl<'a> NameResolver<'a> {
             return None;
         }
 
-        eprintln!("{:?}", tokens);
-
         let fully_qualified =
             tokens.len() > 0 && tokens.first().unwrap().t == TokenType::NamespaceSeparator;
         let tokens = tokens
