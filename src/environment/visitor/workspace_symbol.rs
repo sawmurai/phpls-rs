@@ -75,6 +75,20 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 NextAction::ProcessChildren
             }
+            AstNode::Const { name, .. } => {
+                let child = arena.new_node(Symbol {
+                    name: name.clone().label.unwrap(),
+                    kind: PhpSymbolKind::Constant,
+                    range: get_range(node.range()),
+                    selection_range: get_range(node.range()),
+                    ..Symbol::default()
+                });
+
+                parent.append(child, arena);
+                arena[child].get_mut().node = Some(child);
+
+                NextAction::Abort
+            }
             AstNode::ClassStatement { name, extends, .. } => {
                 let inherits_from = if let Some(extends) = extends {
                     extends

@@ -397,8 +397,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 return NextAction::ProcessChildren;
             }
-            AstNode::StaticMember { object, member, .. }
-            | AstNode::Member { object, member, .. } => {
+            AstNode::StaticMember { .. } | AstNode::Member { .. } => {
                 self.resolve_member_type(node, arena);
 
                 NextAction::Abort
