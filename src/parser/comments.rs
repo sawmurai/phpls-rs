@@ -158,6 +158,7 @@ impl DocBlockScanner {
                         let mut type_refs = Vec::new();
                         loop {
                             let identifier = &self.collect_identifer();
+
                             type_ref_parts.push(Token::named(
                                 self.token_type(&identifier),
                                 self.line,
@@ -167,6 +168,13 @@ impl DocBlockScanner {
 
                             let n = self.advance();
                             match n {
+                                Some('|') => {
+                                    type_refs.push(Node::TypeRef(type_ref_parts.clone()));
+                                    type_ref_parts.clear();
+                                    self.advance();
+
+                                    continue;
+                                }
                                 Some(' ') | Some('\n') | None => break,
                                 _ => continue,
                             }
