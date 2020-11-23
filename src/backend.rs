@@ -309,18 +309,18 @@ impl Backend {
                 .await
                 .insert(path.to_owned(), visitor.references());
 
-            diagnostics.lock().await.insert(
-                path.to_owned(),
-                visitor
-                    .diagnostics()
-                    .iter()
-                    .map(|notification| Diagnostic {
-                        range: get_range(notification.0),
-                        message: notification.1.clone(),
+            let mut diagnostics = diagnostics.lock().await;
+
+            for notification in visitor.diagnostics().iter() {
+                diagnostics
+                    .entry(notification.0.clone())
+                    .or_insert_with(Vec::new)
+                    .push(Diagnostic {
+                        range: get_range(notification.1),
+                        message: notification.2.clone(),
                         ..Diagnostic::default()
                     })
-                    .collect::<Vec<Diagnostic>>(),
-            );
+            }
         }
 
         Ok(())

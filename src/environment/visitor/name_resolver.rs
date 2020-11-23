@@ -23,7 +23,7 @@ impl Reference {
     }
 }
 
-pub type Notification = (NodeRange, String);
+pub type Notification = (String, NodeRange, String);
 
 pub struct NameResolver<'a> {
     global_scope: &'a HashMap<String, NodeId>,
@@ -66,8 +66,8 @@ impl<'a> NameResolver<'a> {
     }
 
     /// Push a diagnotic message to the queue
-    pub fn diagnostic(&mut self, range: NodeRange, message: String) {
-        self.diagnostics.push((range, message));
+    pub fn diagnostic(&mut self, file: String, range: NodeRange, message: String) {
+        self.diagnostics.push((file, range, message));
     }
 
     /// Enter a new scope
@@ -183,6 +183,31 @@ impl<'a> NameResolver<'a> {
             return None;
         }
 
+        let mut file = *context_anchor;
+
+        let mut current_namespace = String::new();
+        let mut current_available_imports = HashMap::new();
+        let mut file_symbol;
+        loop {
+            file_symbol = arena[file].get();
+
+            if file_symbol.kind == PhpSymbolKind::File {
+                if let Some(imports) = file_symbol.imports.as_ref() {
+                    for import in imports {
+                        current_available_imports.insert(import.name(), import.full_name());
+                    }
+                }
+            } else if file_symbol.kind == PhpSymbolKind::Namespace {
+                current_namespace = file_symbol.name.clone();
+            }
+
+            if let Some(parent) = arena[file].parent() {
+                file = parent;
+            } else {
+                break;
+            }
+        }
+
         let fully_qualified =
             !tokens.is_empty() && tokens.first().unwrap().t == TokenType::NamespaceSeparator;
         let tokens = tokens
@@ -204,6 +229,7 @@ impl<'a> NameResolver<'a> {
             }
 
             self.diagnostics.push((
+                file_symbol.name.clone(),
                 (
                     tokens.first().unwrap().range().0,
                     tokens.last().unwrap().range().1,
@@ -218,36 +244,13 @@ impl<'a> NameResolver<'a> {
             }
 
             self.diagnostics.push((
+                file_symbol.name.clone(),
                 (
                     tokens.first().unwrap().range().0,
                     tokens.last().unwrap().range().1,
                 ),
                 String::from("Parent can only be used inside a class"),
             ));
-        }
-
-        let mut file = *context_anchor;
-
-        let mut current_namespace = String::new();
-        let mut current_available_imports = HashMap::new();
-        loop {
-            let file_symbol = arena[file].get();
-
-            if file_symbol.kind == PhpSymbolKind::File {
-                if let Some(imports) = file_symbol.imports.as_ref() {
-                    for import in imports {
-                        current_available_imports.insert(import.name(), import.full_name());
-                    }
-                }
-            } else if file_symbol.kind == PhpSymbolKind::Namespace {
-                current_namespace = file_symbol.name.clone();
-            }
-
-            if let Some(parent) = arena[file].parent() {
-                file = parent;
-            } else {
-                break;
-            }
         }
 
         // Class was not inside a namespace block, so go and fetch the ns of the file
@@ -320,11 +323,12 @@ impl<'a> NameResolver<'a> {
         }
 
         self.diagnostics.push((
+            file_symbol.name.clone(),
             (
                 tokens.first().unwrap().range().0,
                 tokens.last().unwrap().range().1,
             ),
-            format!("Unresolvable type '{}'", joined_name),
+            format!("Unresolvable type '{}'", name),
         ));
 
         None
@@ -666,6 +670,8 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         };
 
         if let Some(mut root_node) = root_node {
+            let orig_root = root_node;
+
             // $this (root_node) will have resolved to the definition of the class
             // of the object
             'link_loop: for link in reversed_chain.iter().rev() {
@@ -682,7 +688,13 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         if child_symbol.name == link.name() {
                             // Name must be unique, so we can bail out if we find a name that has a bad visibility
                             if child_symbol.visibility < minimal_visibility {
+                                let file_name = arena[orig_root.ancestors(arena).last().unwrap()]
+                                    .get()
+                                    .name
+                                    .clone();
+
                                 self.resolver.diagnostic(
+                                    file_name,
                                     link.range(),
                                     String::from(
                                         "Method was found but is not accessible from this scope.",
