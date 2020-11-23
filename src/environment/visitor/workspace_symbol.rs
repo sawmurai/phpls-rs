@@ -43,7 +43,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     AstNode::TypeRef(tokens) => (
                         tokens
                             .iter()
-                            .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
+                            .map(|n| n.to_string())
                             .collect::<Vec<String>>()
                             .join(""),
                         // Range from first part of name until the last one

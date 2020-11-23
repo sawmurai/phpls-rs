@@ -27,8 +27,6 @@ pub type Notification = (NodeRange, String);
 
 pub struct NameResolver<'a> {
     global_scope: &'a HashMap<String, NodeId>,
-    imports: HashMap<String, String>,
-    current_namespace: String,
 
     /// Contains locally defined variables and functions
     local_scopes: Vec<HashMap<String, NodeId>>,
@@ -49,8 +47,6 @@ impl<'a> NameResolver<'a> {
     pub fn new(global_scope: &'a HashMap<String, NodeId>, scope_container: NodeId) -> Self {
         NameResolver {
             global_scope,
-            imports: HashMap::new(),
-            current_namespace: String::new(),
             local_scopes: vec![HashMap::new()],
             current_class: None,
             document_references: Vec::new(),
@@ -167,21 +163,6 @@ impl<'a> NameResolver<'a> {
         }
     }
 
-    /// Enter a new namespace which is used to resolved symbols in the same namespace
-    /// Preload the imports with the imports of the namespace
-    pub fn enter_namespace(&mut self, namespace: &str, file: &Symbol) {
-        self.current_namespace = namespace.to_owned();
-        self.imports.clear();
-
-        if let Some(imports) = file.imports.as_ref() {
-            for import in imports {
-                self.imports.insert(import.name(), import.full_name());
-            }
-        }
-
-        eprintln!("{:?}", file);
-    }
-
     /// Resolve fully qualified
     pub fn resolve_fully_qualified(&mut self, name: &str) -> Option<NodeId> {
         if let Some(node) = self.global_scope.get(name) {
@@ -192,7 +173,12 @@ impl<'a> NameResolver<'a> {
     }
 
     /// Resolve a TypeRef `Some\Name\Space` to the node if the definition of that symbol
-    pub fn resolve_type_ref(&mut self, tokens: &[Token], arena: &Arena<Symbol>) -> Option<NodeId> {
+    pub fn resolve_type_ref(
+        &mut self,
+        tokens: &[Token],
+        arena: &Arena<Symbol>,
+        context_anchor: &NodeId,
+    ) -> Option<NodeId> {
         if self.is_builtin(tokens) {
             return None;
         }
@@ -228,7 +214,7 @@ impl<'a> NameResolver<'a> {
 
         if name == "parent" {
             if let Some(current_class) = self.current_class {
-                return self.parent_class(arena[current_class].get(), arena);
+                return self.parent_class(arena[current_class].get(), arena, context_anchor);
             }
 
             self.diagnostics.push((
@@ -238,6 +224,44 @@ impl<'a> NameResolver<'a> {
                 ),
                 String::from("Parent can only be used inside a class"),
             ));
+        }
+
+        let mut file = *context_anchor;
+
+        let mut current_namespace = String::new();
+        let mut current_available_imports = HashMap::new();
+        loop {
+            let file_symbol = arena[file].get();
+
+            if file_symbol.kind == PhpSymbolKind::File {
+                if let Some(imports) = file_symbol.imports.as_ref() {
+                    for import in imports {
+                        current_available_imports.insert(import.name(), import.full_name());
+                    }
+                }
+            } else if file_symbol.kind == PhpSymbolKind::Namespace {
+                current_namespace = file_symbol.name.clone();
+            }
+
+            if let Some(parent) = arena[file].parent() {
+                file = parent;
+            } else {
+                break;
+            }
+        }
+
+        // Class was not inside a namespace block, so go and fetch the ns of the file
+        if current_namespace.is_empty() {
+            if let Some(ns) = file.children(arena).find_map(|c| {
+                let s = arena[c].get();
+                if s.kind == PhpSymbolKind::Namespace {
+                    Some(s.name.clone())
+                } else {
+                    None
+                }
+            }) {
+                current_namespace = ns;
+            }
         }
 
         // Simple, if fully qualified do not tamper with the name
@@ -250,7 +274,7 @@ impl<'a> NameResolver<'a> {
                     .collect::<Vec<String>>()
                     .join("\\")
             )
-        } else if let Some(import) = self.imports.get(&name) {
+        } else if let Some(import) = current_available_imports.get(&name) {
             // If not fully qualified, check imports
             if tokens.len() > 1 {
                 let end = tokens
@@ -264,9 +288,9 @@ impl<'a> NameResolver<'a> {
             } else {
                 import.to_owned()
             }
-        } else if !self.current_namespace.is_empty() {
+        } else if !current_namespace.is_empty() {
             // Next try the name in the current namespace
-            format!("{}\\{}", self.current_namespace, name)
+            format!("{}\\{}", current_namespace, name)
         } else {
             // Otherwise use a fqdn but cut off the leading backslash
             tokens
@@ -300,7 +324,7 @@ impl<'a> NameResolver<'a> {
                 tokens.first().unwrap().range().0,
                 tokens.last().unwrap().range().1,
             ),
-            format!("Unresolvable type '{}'", name),
+            format!("Unresolvable type '{}'", joined_name),
         ));
 
         None
@@ -310,10 +334,11 @@ impl<'a> NameResolver<'a> {
         &mut self,
         current_class: &Symbol,
         arena: &Arena<Symbol>,
+        context_anchor: &NodeId,
     ) -> Option<NodeId> {
         let inherits_from = current_class.inherits_from.first().unwrap();
         if let Some(type_ref) = inherits_from.type_ref.as_ref() {
-            if let Some(parent_class) = self.resolve_type_ref(type_ref, arena) {
+            if let Some(parent_class) = self.resolve_type_ref(type_ref, arena, context_anchor) {
                 return Some(parent_class);
             }
         }
@@ -353,31 +378,16 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
     /// Decides if a symbol is worth collecting
     fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) -> NextAction {
         match node {
-            AstNode::NamespaceStatement { type_ref, .. } => {
-                let tokens = match &**type_ref {
-                    AstNode::TypeRef(tokens) => tokens,
-                    _ => panic!("This should not happen"),
-                };
-
-                let name = tokens
-                    .iter()
-                    .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
-                    .collect::<Vec<String>>()
-                    .join("");
-
-                self.resolver.enter_namespace(&name, arena[parent].get());
-
-                NextAction::Abort
-            }
             AstNode::TypeRef(type_ref) => {
-                self.resolver.resolve_type_ref(type_ref, arena);
+                self.resolver.resolve_type_ref(type_ref, arena, &parent);
 
                 NextAction::Abort
             }
             AstNode::ClassStatement { name, .. } => {
                 // Register $this in the current scope
                 if let Some(current_class) =
-                    self.resolver.resolve_type_ref(&vec![name.clone()], arena)
+                    self.resolver
+                        .resolve_type_ref(&vec![name.clone()], arena, &parent)
                 {
                     self.resolver.enter_class(current_class);
                 }
@@ -392,7 +402,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
                         for rt in return_type {
                             if let Some(type_ref) = get_type_ref(rt) {
-                                self.resolver.resolve_type_ref(&type_ref, arena);
+                                self.resolver.resolve_type_ref(&type_ref, arena, &parent);
                             }
                         }
                     }
@@ -477,7 +487,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             }
             AstNode::ReturnType { data_type, .. } => {
                 if let Some(type_ref) = get_type_ref(data_type) {
-                    self.resolver.resolve_type_ref(&type_ref, arena);
+                    self.resolver.resolve_type_ref(&type_ref, arena, &parent);
                 }
 
                 NextAction::Abort
@@ -511,6 +521,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 NextAction::Abort
             }
+            AstNode::NamespaceStatement { .. } => NextAction::Abort,
             _ => NextAction::ProcessChildren,
         }
     }
@@ -588,7 +599,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                         );
                                     } else if let Some(type_ref) = reference.type_ref.as_ref() {
                                         if let Some(resolved_data_type) =
-                                            self.resolver.resolve_type_ref(type_ref, arena)
+                                            self.resolver.resolve_type_ref(type_ref, arena, &node)
                                         {
                                             break 'root_node (
                                                 Some(resolved_data_type),
@@ -614,8 +625,11 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     TokenType::Parent => {
                         if let Some(current_class) = self.resolver.current_class {
                             break (
-                                self.resolver
-                                    .parent_class(arena[current_class].get(), arena),
+                                self.resolver.parent_class(
+                                    arena[current_class].get(),
+                                    arena,
+                                    &current_class,
+                                ),
                                 Visibility::Protected,
                             );
                         } else {
@@ -626,14 +640,22 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         break (None, Visibility::None);
                     }
                     _ => {
+                        let sc = self.resolver.scope_container;
+
                         break (
-                            self.resolver.resolve_type_ref(&vec![token.clone()], arena),
+                            self.resolver
+                                .resolve_type_ref(&vec![token.clone()], arena, &sc),
                             Visibility::Public,
-                        )
+                        );
                     }
                 },
                 AstNode::TypeRef(tokens) => {
-                    if let Some(node) = self.resolver.resolve_type_ref(tokens, arena) {
+                    let scope_container = self.resolver.scope_container;
+
+                    if let Some(node) =
+                        self.resolver
+                            .resolve_type_ref(tokens, arena, &scope_container)
+                    {
                         break (Some(node), Visibility::Public);
                     } else {
                         break (None, Visibility::None);
@@ -682,8 +704,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                 PhpSymbolKind::Property | PhpSymbolKind::Method => {
                                     for data_type in &child_symbol.data_types {
                                         if let Some(type_ref) = data_type.type_ref.as_ref() {
-                                            if let Some(resolved_type) =
-                                                self.resolver.resolve_type_ref(&type_ref, arena)
+                                            if let Some(resolved_type) = self
+                                                .resolver
+                                                .resolve_type_ref(&type_ref, arena, &root_node)
                                             {
                                                 root_node = resolved_type;
 
@@ -720,7 +743,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                     // Change the iterator to an iterator over the children of this parent. Maybe one of them has the name.
                     // But this time we need to be careful because we must take visibility into account
-                    if let Some(parent_class) = self.resolver.parent_class(current_class, arena) {
+                    if let Some(parent_class) =
+                        self.resolver.parent_class(current_class, arena, &root_node)
+                    {
                         minimal_visibility = Visibility::Protected;
                         root_node = parent_class;
 
