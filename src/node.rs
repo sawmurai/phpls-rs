@@ -903,6 +903,7 @@ impl Node {
             Node::UseStatement { imports, .. }
             | Node::UseFunctionStatement { imports, .. }
             | Node::UseConstStatement { imports, .. } => (*imports).iter().collect::<Vec<&Node>>(),
+            Node::DocComment { var_docs, .. } => (*var_docs).iter().collect::<Vec<&Node>>(),
             _ => Vec::new(),
         }
     }

@@ -121,13 +121,27 @@ impl Parser {
                 break;
             }
 
-            match parser.statement() {
-                Ok(statement) => statements.push(statement),
+            let new_statement = match parser.statement() {
+                Ok(statement) => statement,
                 Err(error) => {
                     parser.errors.push(error);
                     parser.error_fast_forward();
+
+                    continue;
+                }
+            };
+
+            while !parser.doc_comments.is_empty() {
+                if let Some(doc_comment) = comments::consume_optional_doc_comment(&mut parser)? {
+                    if let Node::DocComment { var_docs, .. } = doc_comment.as_ref() {
+                        for var_doc in var_docs {
+                            statements.push(var_doc.clone());
+                        }
+                    }
                 }
             }
+
+            statements.push(new_statement);
         }
 
         Ok((statements, parser.errors))
@@ -164,15 +178,28 @@ impl Parser {
 
         let oc = self.consume(TokenType::OpenCurly)?;
 
-        // TODO: Make sure namespace etc can not pop up here
         while !self.next_token_one_of(&[TokenType::CloseCurly]) && self.peek().is_some() {
-            match self.statement() {
-                Ok(statement) => statements.push(statement),
+            let new_statement = match self.statement() {
+                Ok(statement) => statement,
                 Err(error) => {
                     self.errors.push(error);
                     self.error_fast_forward();
+
+                    continue;
+                }
+            };
+
+            while !self.doc_comments.is_empty() {
+                if let Some(doc_comment) = comments::consume_optional_doc_comment(self)? {
+                    if let Node::DocComment { var_docs, .. } = doc_comment.as_ref() {
+                        for var_doc in var_docs {
+                            statements.push(var_doc.clone());
+                        }
+                    }
                 }
             }
+
+            statements.push(new_statement);
         }
 
         let cc = self.consume(TokenType::CloseCurly)?;
@@ -201,13 +228,27 @@ impl Parser {
             TokenType::EndIf,
         ]) && self.peek().is_some()
         {
-            match self.statement() {
-                Ok(statement) => statements.push(statement),
+            let new_statement = match self.statement() {
+                Ok(statement) => statement,
                 Err(error) => {
                     self.errors.push(error);
                     self.error_fast_forward();
+
+                    continue;
+                }
+            };
+
+            while !self.doc_comments.is_empty() {
+                if let Some(doc_comment) = comments::consume_optional_doc_comment(self)? {
+                    if let Node::DocComment { var_docs, .. } = doc_comment.as_ref() {
+                        for var_doc in var_docs {
+                            statements.push(var_doc.clone());
+                        }
+                    }
                 }
             }
+
+            statements.push(new_statement);
         }
 
         let terminator = self.consume(expected_terminator)?;

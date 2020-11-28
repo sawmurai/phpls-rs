@@ -137,17 +137,8 @@ impl DocBlockScanner {
                             });
                         }
                     } else if directive.eq("var") {
-                        // /** @var $rofl User */
+                        // /** @var User $rofl */
                         self.skip_blanks();
-
-                        let identifier_start = (self.line, self.col);
-                        let param_name = match self.peek() {
-                            Some('$') => {
-                                self.advance();
-                                self.collect_identifer()
-                            }
-                            _ => "".to_owned(),
-                        };
 
                         let mut type_refs = Vec::new();
                         while let Some(type_ref) = self.collect_type_ref() {
@@ -163,6 +154,15 @@ impl DocBlockScanner {
                         }
 
                         self.skip_blanks();
+
+                        let identifier_start = (self.line, self.col);
+                        let param_name = match self.peek() {
+                            Some('$') => {
+                                self.advance();
+                                self.collect_identifer()
+                            }
+                            _ => "".to_owned(),
+                        };
 
                         let mut param_descr = String::new();
                         while let Some(n) = self.advance() {

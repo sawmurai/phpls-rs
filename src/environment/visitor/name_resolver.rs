@@ -112,6 +112,12 @@ impl<'a> NameResolver<'a> {
                 | TokenType::Callable
                 | TokenType::ConstLine
                 | TokenType::ConstTrait
+                | TokenType::BinaryNumber
+                | TokenType::DecimalNumber
+                | TokenType::ExponentialNumber
+                | TokenType::HexNumber
+                | TokenType::LongNumber
+                | TokenType::Generator
                 | TokenType::Void => return true,
                 _ => return false,
             }
@@ -444,6 +450,27 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     self.resolver.scope_container.append(child, arena);
                     self.resolver.declare_local(token, child);
                 }
+
+                NextAction::Abort
+            }
+            AstNode::DocCommentVar { name, types, .. } => {
+                let mut data_types = Vec::new();
+                if let Some(types) = types {
+                    for t in types {
+                        if let Some(type_ref) = get_type_ref(t) {
+                            let type_ref_ref = SymbolReference::type_ref(type_ref);
+
+                            data_types.push(type_ref_ref);
+                        }
+                    }
+                }
+
+                let child = arena.new_node(Symbol {
+                    data_types,
+                    ..Symbol::from(name)
+                });
+                self.resolver.scope_container.append(child, arena);
+                self.resolver.declare_local(name, child);
 
                 NextAction::Abort
             }

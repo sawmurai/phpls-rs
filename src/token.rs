@@ -103,6 +103,7 @@ pub enum TokenType {
     ObjectCast,
     DoubleCast,
     UnsetCast,
+    Generator,
 
     // Keywords
     Exit,
@@ -312,6 +313,7 @@ impl Token {
             | TokenType::LogicOr
             | TokenType::LogicXor
             | TokenType::Identifier
+            | TokenType::Generator
         )
     }
 
@@ -575,6 +577,7 @@ impl Display for Token {
             TokenType::TypeSelf => "self".to_owned(),
             TokenType::Mixed => "mixed".to_owned(),
             TokenType::Parent => "parent".to_owned(),
+            TokenType::Generator => "Generator".to_owned(),
         };
 
         write!(f, "{}", dis)

@@ -589,8 +589,6 @@ impl LanguageServer for Backend {
         }
 
         if let Some(diagnostics) = self.diagnostics.lock().await.get(path) {
-            eprintln!("asdasdasdasd");
-
             // TODO: Add resolver here and collect unresolvable for diagnostics
             if
             /*file.contains("/vendor/")

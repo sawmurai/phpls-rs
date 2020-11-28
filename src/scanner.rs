@@ -982,6 +982,7 @@ impl Scanner {
             "yield" => TokenType::Yield,
             "self" => TokenType::TypeSelf,
             "parent" => TokenType::Parent,
+            "generator" => TokenType::Generator,
             _ => {
                 return None;
             }
