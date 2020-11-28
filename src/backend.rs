@@ -549,12 +549,11 @@ impl LanguageServer for Backend {
             )
             .await;
 
-            diagnostics
-                .lock()
-                .await
-                .entry(path.to_string())
-                .or_insert_with(Vec::new)
-                .extend(errors.iter().map(Diagnostic::from));
+            let mut diagnostics = diagnostics.lock().await;
+
+            let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
+            diagnostics.clear();
+            diagnostics.extend(errors.iter().map(Diagnostic::from));
 
             self.opened_files
                 .lock()

@@ -209,6 +209,7 @@ pub enum Node {
         default_value: Option<Box<Node>>,
         spread: Option<Token>,
         reference: Option<Token>,
+        doc_comment: Option<Box<Node>>,
     },
     ArgumentType {
         nullable: Option<Token>,
@@ -873,9 +874,7 @@ impl Node {
                 children
             }
             Node::SwitchCase { expr, body, .. } => vec![expr, body],
-            Node::SwitchBody { branches, .. } => {
-                (*branches).iter().collect::<Vec<&Node>>()
-            }
+            Node::SwitchBody { branches, .. } => (*branches).iter().collect::<Vec<&Node>>(),
             Node::TokenStatement { expr, .. } => {
                 if let Some(expr) = expr {
                     vec![expr]
@@ -903,9 +902,7 @@ impl Node {
             }
             Node::UseStatement { imports, .. }
             | Node::UseFunctionStatement { imports, .. }
-            | Node::UseConstStatement { imports, .. } => {
-                (*imports).iter().collect::<Vec<&Node>>()
-            }
+            | Node::UseConstStatement { imports, .. } => (*imports).iter().collect::<Vec<&Node>>(),
             _ => Vec::new(),
         }
     }

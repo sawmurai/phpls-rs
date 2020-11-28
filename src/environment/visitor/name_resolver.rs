@@ -183,11 +183,24 @@ impl<'a> NameResolver<'a> {
             return None;
         }
 
+        let fully_qualified =
+            !tokens.is_empty() && tokens.first().unwrap().t == TokenType::NamespaceSeparator;
+
+        let tokens = tokens
+            .iter()
+            .filter(|t| t.label.is_some())
+            .cloned()
+            .collect::<Vec<Token>>();
+
+        if tokens.is_empty() {
+            return None;
+        }
         let mut file = *context_anchor;
 
         let mut current_namespace = String::new();
         let mut current_available_imports = HashMap::new();
         let mut file_symbol;
+
         loop {
             file_symbol = arena[file].get();
 
@@ -206,18 +219,6 @@ impl<'a> NameResolver<'a> {
             } else {
                 break;
             }
-        }
-
-        let fully_qualified =
-            !tokens.is_empty() && tokens.first().unwrap().t == TokenType::NamespaceSeparator;
-        let tokens = tokens
-            .iter()
-            .filter(|t| t.label.is_some())
-            .cloned()
-            .collect::<Vec<Token>>();
-
-        if tokens.is_empty() {
-            return None;
         }
 
         // Maybe do the following only if the name starts with a backslash?
@@ -269,14 +270,11 @@ impl<'a> NameResolver<'a> {
 
         // Simple, if fully qualified do not tamper with the name
         let joined_name = if fully_qualified {
-            format!(
-                "\\{}",
-                tokens
-                    .iter()
-                    .map(|n| n.clone().label.unwrap())
-                    .collect::<Vec<String>>()
-                    .join("\\")
-            )
+            tokens
+                .iter()
+                .map(|n| n.clone().label.unwrap())
+                .collect::<Vec<String>>()
+                .join("\\")
         } else if let Some(import) = current_available_imports.get(&name) {
             // If not fully qualified, check imports
             if tokens.len() > 1 {
@@ -311,6 +309,14 @@ impl<'a> NameResolver<'a> {
             self.document_references.push(Reference::new(range, *node));
 
             return Some(*node);
+        } else if let Some(node) = self.global_scope.get(&format!("\\{}", joined_name)) {
+            let range = (
+                tokens.first().unwrap().start(),
+                tokens.last().unwrap().end(),
+            );
+            self.document_references.push(Reference::new(range, *node));
+
+            return Some(*node);
         } else if let Some(global_symbol) = self.global_scope.get(&format!("\\{}", name)) {
             let range = (
                 tokens.first().unwrap().start(),
@@ -328,7 +334,7 @@ impl<'a> NameResolver<'a> {
                 tokens.first().unwrap().range().0,
                 tokens.last().unwrap().range().1,
             ),
-            format!("Unresolvable type '{}'", name),
+            format!("Unresolvable type ({}) '{}'", fully_qualified, joined_name),
         ));
 
         None
@@ -465,19 +471,31 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             AstNode::FunctionArgument {
                 name,
                 argument_type,
+                doc_comment,
                 ..
             } => {
-                let data_types = if let Some(argument_type) = argument_type {
+                let mut data_types = Vec::new();
+
+                if let Some(doc_comment) = doc_comment {
+                    if let AstNode::DocCommentParam { types, .. } = doc_comment.as_ref() {
+                        if let Some(types) = types {
+                            for t in types {
+                                if let Some(type_ref) = get_type_ref(t) {
+                                    data_types.push(SymbolReference::type_ref(type_ref.clone()));
+                                    self.resolver.resolve_type_ref(&type_ref, arena, &parent);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(argument_type) = argument_type {
                     if let Some(type_ref) = get_type_ref(argument_type) {
                         let type_ref_ref = SymbolReference::type_ref(type_ref);
 
-                        vec![type_ref_ref]
-                    } else {
-                        Vec::new()
+                        data_types.push(type_ref_ref);
                     }
-                } else {
-                    Vec::new()
-                };
+                }
 
                 let child = arena.new_node(Symbol {
                     data_types,
@@ -793,7 +811,9 @@ fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
             }
         }
         AstNode::TypeRef(items) => Some(items.clone()),
-        AstNode::DocCommentVar { types, .. } | AstNode::DocCommentReturn { types, .. } => {
+        AstNode::DocCommentVar { types, .. }
+        | AstNode::DocCommentReturn { types, .. }
+        | AstNode::DocCommentParam { types, .. } => {
             if let Some(types) = types {
                 for t in types {
                     if let AstNode::TypeRef(items) = t {

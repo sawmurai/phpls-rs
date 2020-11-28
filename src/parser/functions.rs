@@ -1,4 +1,5 @@
 use crate::node::Node;
+use crate::parser::comments;
 use crate::parser::types;
 use crate::parser::variables;
 use crate::parser::{
@@ -14,7 +15,10 @@ use crate::token::{Token, TokenType};
 ///     echo "Hello!";
 /// }
 /// ```
-pub(crate) fn argument_list(parser: &mut Parser) -> ArgumentListResult {
+pub(crate) fn argument_list(
+    parser: &mut Parser,
+    doc_comment: &Option<Box<Node>>,
+) -> ArgumentListResult {
     let mut arguments = Vec::new();
 
     if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
@@ -34,6 +38,13 @@ pub(crate) fn argument_list(parser: &mut Parser) -> ArgumentListResult {
             None
         };
 
+        let doc_comment = if let Some(doc_comment) = comments::param_comment_for(doc_comment, &name)
+        {
+            Some(Box::new(doc_comment))
+        } else {
+            None
+        };
+
         arguments.push(Node::FunctionArgument {
             argument_type,
             name,
@@ -41,6 +52,7 @@ pub(crate) fn argument_list(parser: &mut Parser) -> ArgumentListResult {
             reference,
             has_default,
             default_value,
+            doc_comment,
         });
 
         if parser.next_token_one_of(&[TokenType::Comma]) {
@@ -106,12 +118,15 @@ pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Box<Node>>> {
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn named_function(parser: &mut Parser) -> ExpressionResult {
+pub(crate) fn named_function(
+    parser: &mut Parser,
+    doc_comment: &Option<Box<Node>>,
+) -> ExpressionResult {
     Ok(Node::NamedFunctionDefinitionStatement {
         token: parser.consume(TokenType::Function)?,
         by_ref: parser.consume_or_ignore(TokenType::BinaryAnd),
         name: parser.consume_identifier()?,
-        function: Box::new(anonymous_function_statement(parser)?),
+        function: Box::new(anonymous_function_statement(parser, doc_comment)?),
     })
 }
 
@@ -126,9 +141,12 @@ pub(crate) fn named_function(parser: &mut Parser) -> ExpressionResult {
 /// }
 /// /** to here **/
 /// ```
-pub(crate) fn anonymous_function_statement(parser: &mut Parser) -> ExpressionResult {
+pub(crate) fn anonymous_function_statement(
+    parser: &mut Parser,
+    doc_comment: &Option<Box<Node>>,
+) -> ExpressionResult {
     let op = parser.consume(TokenType::OpenParenthesis)?;
-    let arguments = argument_list(parser)?;
+    let arguments = argument_list(parser, doc_comment)?;
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
     let return_type = return_type(parser)?;
@@ -159,7 +177,7 @@ pub(crate) fn arrow_function(parser: &mut Parser, is_static: Option<Token>) -> E
     let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
 
     let op = parser.consume(TokenType::OpenParenthesis)?;
-    let arguments = argument_list(parser)?;
+    let arguments = argument_list(parser, &None)?;
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
     let return_type = return_type(parser)?;
@@ -188,7 +206,7 @@ pub(crate) fn anonymous_function(
     let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
 
     let op = parser.consume(TokenType::OpenParenthesis)?;
-    let arguments = argument_list(parser)?;
+    let arguments = argument_list(parser, &None)?;
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
     let uses = if parser.next_token_one_of(&[TokenType::Use]) {

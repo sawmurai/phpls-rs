@@ -158,7 +158,10 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
                 name,
                 visibility,
                 is_abstract,
-                function: Box::new(functions::anonymous_function_statement(parser)?),
+                function: Box::new(functions::anonymous_function_statement(
+                    parser,
+                    &doc_comment,
+                )?),
                 is_static,
                 doc_comment,
             });

@@ -192,7 +192,9 @@ impl Visitor for WorkspaceSymbolVisitor {
                     if let AstNode::DocComment { var_docs, .. } = doc_comment.as_ref() {
                         for rt in var_docs {
                             if let Some(type_ref) = get_type_ref(rt) {
-                                data_types.push(Reference::type_ref(type_ref));
+                                if !type_ref.is_empty() {
+                                    data_types.push(Reference::type_ref(type_ref));
+                                }
                             }
                         }
                     }
@@ -324,7 +326,9 @@ fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
             }
         }
         AstNode::TypeRef(items) => Some(items.clone()),
-        AstNode::DocCommentVar { types, .. } | AstNode::DocCommentReturn { types, .. } => {
+        AstNode::DocCommentVar { types, .. }
+        | AstNode::DocCommentReturn { types, .. }
+        | AstNode::DocCommentParam { types, .. } => {
             if let Some(types) = types {
                 for t in types {
                     if let AstNode::TypeRef(items) = t {

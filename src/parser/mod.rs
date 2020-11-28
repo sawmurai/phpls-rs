@@ -262,7 +262,7 @@ impl Parser {
                         token: token.clone(),
                     })
                 }
-                TokenType::Function => return functions::named_function(self),
+                TokenType::Function => return functions::named_function(self, &None),
                 TokenType::Namespace => return namespaces::namespace_statement(self),
                 TokenType::Use => {
                     let token = self.consume(TokenType::Use)?;

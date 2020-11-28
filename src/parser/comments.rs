@@ -54,46 +54,40 @@ impl DocBlockScanner {
                     self.skip_blanks();
 
                     if directive.eq("param") {
-                        let mut param_descr = String::new();
+                        // /** @param string|int $param The param is niiiice */
                         self.skip_blanks();
 
-                        let mut type_ref_parts = Vec::new();
                         let mut type_refs = Vec::new();
-                        loop {
-                            let identifier = &self.collect_identifer();
-                            type_ref_parts.push(Token::named(
-                                self.token_type(&identifier),
-                                self.line,
-                                self.col,
-                                identifier,
-                            ));
+                        while let Some(type_ref) = self.collect_type_ref() {
+                            type_refs.push(type_ref);
 
-                            let n = self.advance();
-                            match n {
-                                Some(' ') | Some('\n') | None => break,
-                                _ => continue,
+                            match self.peek() {
+                                Some('|') => {
+                                    self.advance();
+                                    continue;
+                                }
+                                _ => break,
                             }
                         }
 
-                        self.advance();
-                        let param_name = self.collect_identifer();
-                        let identifer = (self.col, self.line);
+                        self.skip_blanks();
 
+                        let identifer = (self.line, self.col);
+                        let param_name = match self.peek() {
+                            Some('$') => {
+                                self.advance();
+                                self.collect_identifer()
+                            }
+                            _ => "".to_owned(),
+                        };
+
+                        let mut param_descr = String::new();
                         while let Some(n) = self.advance() {
                             match n {
-                                '|' => {
-                                    type_refs.push(Node::TypeRef(type_ref_parts.clone()));
-                                    type_ref_parts.clear();
-
-                                    continue;
-                                }
                                 '\n' => break,
                                 _ => param_descr.push(n),
                             }
                         }
-
-                        type_refs.push(Node::TypeRef(type_ref_parts.clone()));
-                        type_ref_parts.clear();
 
                         params.push(Node::DocCommentParam {
                             name: Token::named(
@@ -106,84 +100,71 @@ impl DocBlockScanner {
                             description: param_descr,
                         });
                     } else if directive.eq("return") {
-                        let mut return_descr = String::new();
                         self.skip_blanks();
 
-                        let mut type_ref_parts = Vec::new();
                         let mut type_refs = Vec::new();
-                        'outer: loop {
-                            let identifier = &self.collect_identifer();
+                        while let Some(type_ref) = self.collect_type_ref() {
+                            type_refs.push(type_ref);
 
-                            type_ref_parts.push(Token::named(
-                                self.token_type(&identifier),
-                                self.line,
-                                self.col,
-                                identifier,
-                            ));
-
-                            let n = self.peek();
-                            match n {
+                            match self.peek() {
                                 Some('|') => {
-                                    type_refs.push(Node::TypeRef(type_ref_parts.clone()));
-                                    type_ref_parts.clear();
                                     self.advance();
-
                                     continue;
                                 }
-                                Some('\n') | None => break,
-                                _ => (),
-                            }
-
-                            while let Some(n) = self.advance() {
-                                match n {
-                                    '\n' => break 'outer,
-                                    _ => return_descr.push(n),
-                                }
+                                _ => break,
                             }
                         }
 
-                        type_refs.push(Node::TypeRef(type_ref_parts.clone()));
-                        type_ref_parts.clear();
+                        self.skip_blanks();
 
-                        return_type.push(Node::DocCommentReturn {
-                            types: Some(type_refs),
-                            description: return_descr,
-                        });
+                        let mut return_descr = String::new();
+                        while let Some(n) = self.advance() {
+                            match n {
+                                '\n' => break,
+                                _ => return_descr.push(n),
+                            }
+                        }
+
+                        if type_refs.is_empty() {
+                            return_type.push(Node::DocCommentReturn {
+                                types: None,
+                                description: return_descr,
+                            });
+                        } else {
+                            return_type.push(Node::DocCommentReturn {
+                                types: Some(type_refs),
+                                description: return_descr,
+                            });
+                        }
                     } else if directive.eq("var") {
                         // /** @var $rofl User */
-                        let mut param_descr = String::new();
                         self.skip_blanks();
 
-                        let mut type_ref_parts = Vec::new();
+                        let identifier_start = (self.line, self.col);
+                        let param_name = match self.peek() {
+                            Some('$') => {
+                                self.advance();
+                                self.collect_identifer()
+                            }
+                            _ => "".to_owned(),
+                        };
+
                         let mut type_refs = Vec::new();
-                        loop {
-                            let identifier = &self.collect_identifer();
+                        while let Some(type_ref) = self.collect_type_ref() {
+                            type_refs.push(type_ref);
 
-                            type_ref_parts.push(Token::named(
-                                self.token_type(&identifier),
-                                self.line,
-                                self.col,
-                                identifier,
-                            ));
-
-                            let n = self.advance();
-                            match n {
+                            match self.peek() {
                                 Some('|') => {
-                                    type_refs.push(Node::TypeRef(type_ref_parts.clone()));
-                                    type_ref_parts.clear();
                                     self.advance();
-
                                     continue;
                                 }
-                                Some(' ') | Some('\n') | None => break,
-                                _ => continue,
+                                _ => break,
                             }
                         }
 
-                        self.advance();
-                        let param_name = self.collect_identifer();
-                        let identifer = (self.col, self.line);
+                        self.skip_blanks();
 
+                        let mut param_descr = String::new();
                         while let Some(n) = self.advance() {
                             match n {
                                 '\n' => break,
@@ -191,14 +172,11 @@ impl DocBlockScanner {
                             }
                         }
 
-                        type_refs.push(Node::TypeRef(type_ref_parts.clone()));
-                        type_ref_parts.clear();
-
                         var_docs.push(Node::DocCommentVar {
                             name: Token::named(
                                 TokenType::Variable,
-                                identifer.0,
-                                identifer.1,
+                                identifier_start.0,
+                                identifier_start.1,
                                 &param_name,
                             ),
                             types: Some(type_refs),
@@ -222,6 +200,41 @@ impl DocBlockScanner {
         })))
     }
 
+    fn collect_type_ref(&mut self) -> Option<Node> {
+        let mut type_ref_parts = Vec::new();
+        let current_start = (self.line, self.col);
+
+        loop {
+            let identifier = &self.collect_identifer();
+            if !identifier.is_empty() {
+                type_ref_parts.push(Token::named(
+                    self.token_type(&identifier),
+                    current_start.0,
+                    current_start.1,
+                    identifier,
+                ));
+            }
+
+            let n = self.peek();
+            match n {
+                Some('\\') => type_ref_parts.push(Token::new(
+                    TokenType::NamespaceSeparator,
+                    current_start.0,
+                    current_start.1,
+                )),
+                _ => {
+                    if !type_ref_parts.is_empty() {
+                        return Some(Node::TypeRef(type_ref_parts.clone()));
+                    } else {
+                        return None;
+                    }
+                }
+            }
+
+            self.advance();
+        }
+    }
+
     fn collect_identifer(&mut self) -> String {
         let mut name = String::new();
 
@@ -243,18 +256,13 @@ impl DocBlockScanner {
         name
     }
 
-    /// Pop and return the next token
-    fn next(&mut self) -> Option<char> {
-        self.chars.pop()
-    }
-
     /// Return the next token without popping it off the stream
     fn peek(&self) -> Option<&char> {
         self.chars.last()
     }
 
     fn advance(&mut self) -> Option<char> {
-        if let Some(c) = self.next() {
+        if let Some(c) = self.chars.pop() {
             if c == '\n' || c == '\r' {
                 self.line += 1;
                 self.col = 0;
@@ -290,4 +298,20 @@ pub(crate) fn consume_optional_doc_comment(parser: &mut Parser) -> Result<Option
     let mut scanner = DocBlockScanner::new(comment);
 
     scanner.scan()
+}
+
+pub(crate) fn param_comment_for(doc_comment: &Option<Box<Node>>, p_name: &Token) -> Option<Node> {
+    if let Some(doc_comment) = doc_comment {
+        if let Node::DocComment { params, .. } = doc_comment.as_ref() {
+            for param in params {
+                if let Node::DocCommentParam { name, .. } = param {
+                    if name.label.is_some() && name.label == p_name.label {
+                        return Some(param.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
