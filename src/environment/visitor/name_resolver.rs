@@ -399,7 +399,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 NextAction::Abort
             }
-            AstNode::ClassStatement { name, .. } => {
+            AstNode::ClassStatement { name, .. } | AstNode::TraitStatement { name, .. } => {
                 // Register $this in the current scope
                 if let Some(current_class) =
                     self.resolver
@@ -789,6 +789,71 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             continue 'link_loop;
                         }
                     }
+
+                    let root_symbol = arena[root_node].get();
+
+                    // Go through all used traits
+                    if let Some(imports) = root_symbol.imports.as_ref() {
+                        for import in imports.iter() {
+                            if let Some(used_trait) =
+                                self.resolver
+                                    .resolve_type_ref(&import.path, arena, &root_node)
+                            {
+                                for trait_child in used_trait.children(arena) {
+                                    let trait_child_symbol = arena[trait_child].get();
+
+                                    if trait_child_symbol.name == link.name() {
+                                        match link.as_ref() {
+                                            AstNode::Literal(token) => {
+                                                // Register reference here
+                                                self.resolver.reference_local(&token, &trait_child);
+                                            }
+                                            _ => (),
+                                        }
+
+                                        match trait_child_symbol.kind {
+                                            PhpSymbolKind::Property | PhpSymbolKind::Method => {
+                                                for data_type in &trait_child_symbol.data_types {
+                                                    if let Some(type_ref) =
+                                                        data_type.type_ref.as_ref()
+                                                    {
+                                                        if let Some(resolved_type) =
+                                                            self.resolver.resolve_type_ref(
+                                                                &type_ref, arena, &root_node,
+                                                            )
+                                                        {
+                                                            root_node = resolved_type;
+
+                                                            // Got a match, stop and proceeed with the next link
+                                                            continue 'link_loop;
+                                                        }
+                                                    }
+                                                }
+
+                                                // No data type resolveable ... no way to proceed
+                                                eprintln!("Failed, no resolvable data type");
+
+                                                return None;
+                                            }
+                                            _ => {
+                                                root_node = trait_child;
+                                            }
+                                        }
+
+                                        // Done. Get the next link. Remain in the context of where this link was resolved
+                                        // This might actually be a trait use by the object that the current root_node started
+                                        // as
+                                        continue 'link_loop;
+                                    }
+                                }
+                            }
+
+                            if import.name() == link.name() {
+                                eprintln!("Found the link in the imports!");
+                            }
+                        }
+                    }
+                    // End of trait usage
 
                     let current_class = arena[root_node].get();
 

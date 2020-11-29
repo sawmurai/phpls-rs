@@ -903,6 +903,9 @@ impl Node {
             Node::UseStatement { imports, .. }
             | Node::UseFunctionStatement { imports, .. }
             | Node::UseConstStatement { imports, .. } => (*imports).iter().collect::<Vec<&Node>>(),
+            Node::UseTraitStatement { traits_usages, .. } => {
+                (*traits_usages).iter().collect::<Vec<&Node>>()
+            }
             Node::DocComment { var_docs, .. } => (*var_docs).iter().collect::<Vec<&Node>>(),
             _ => Vec::new(),
         }
@@ -1231,7 +1234,6 @@ impl Node {
             Node::ClassConstantDefinitionStatement { name, value, .. } => {
                 (name.start(), value.range().1)
             }
-            // TODO: Extend
             Node::PropertyDefinitionStatement { name, .. } => name.range(),
             Node::MethodDefinitionStatement {
                 is_abstract,

@@ -18,6 +18,7 @@ impl Visitor for WorkspaceSymbolVisitor {
         match node {
             AstNode::UseFunctionStatement { .. } => NextAction::ProcessChildren,
             AstNode::UseStatement { .. } => NextAction::ProcessChildren,
+            AstNode::UseTraitStatement { .. } => NextAction::ProcessChildren,
             AstNode::GroupedUse { .. }
             | AstNode::UseDeclaration { .. }
             | AstNode::UseFunction { .. }
@@ -33,6 +34,20 @@ impl Visitor for WorkspaceSymbolVisitor {
                     imports.extend(collect_uses(node, &Vec::new()));
                 } else {
                     file_symbol.imports = Some(collect_uses(node, &Vec::new()));
+                }
+
+                NextAction::Abort
+            }
+            AstNode::UseTraitAlterationBlock { .. }
+            | AstNode::UseTraitInsteadOf { .. }
+            | AstNode::UseTraitAs { .. }
+            | AstNode::UseTrait { .. } => {
+                let mut class_symbol = arena[parent].get_mut();
+
+                if let Some(imports) = class_symbol.imports.as_mut() {
+                    imports.extend(collect_uses(node, &Vec::new()));
+                } else {
+                    class_symbol.imports = Some(collect_uses(node, &Vec::new()));
                 }
 
                 NextAction::Abort
