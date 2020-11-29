@@ -20,14 +20,14 @@ use tokio::sync::Mutex;
 use tokio::task;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionParams, CompletionResponse, Diagnostic, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentHighlight,
-    DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse, ExecuteCommandOptions,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
-    InitializeParams, InitializeResult, InitializedParams, Location, MarkedString, MessageType,
-    Range, ReferenceParams, ServerCapabilities, SymbolInformation, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url, WorkspaceCapability, WorkspaceFolderCapability,
-    WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
+    CompletionItem, CompletionParams, CompletionResponse, Diagnostic, DidChangeWatchedFilesParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
+    ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, InitializeParams, InitializeResult, InitializedParams, Location, MarkedString,
+    MessageType, Range, ReferenceParams, ServerCapabilities, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceCapability,
+    WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -522,6 +522,47 @@ impl LanguageServer for Backend {
         }
 
         Ok(None)
+    }
+
+    async fn did_change_watched_files(&self, client: &Client, params: DidChangeWatchedFilesParams) {
+        for change in params.changes {
+            let path = change.uri.path();
+
+            let arena = self.arena.clone();
+            let global_symbols = self.global_symbols.clone();
+            let files = self.files.clone();
+            let references = self.symbol_references.clone();
+            let diagnostics = self.diagnostics.clone();
+            let content = tokio::fs::read_to_string(path).await.unwrap();
+
+            if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
+                let reindex_result = Backend::reindex(
+                    path,
+                    &ast,
+                    &range,
+                    false,
+                    true,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await;
+
+                let mut diagnostics = diagnostics.lock().await;
+
+                let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
+                diagnostics.clear();
+                diagnostics.extend(errors.iter().map(Diagnostic::from));
+
+                if let Err(e) = reindex_result {
+                    client.log_message(MessageType::Error, e);
+
+                    return;
+                }
+            }
+        }
     }
 
     async fn did_save(&self, client: &Client, params: DidSaveTextDocumentParams) {
