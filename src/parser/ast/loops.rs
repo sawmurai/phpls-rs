@@ -1,7 +1,7 @@
 use super::super::node::Node;
 use super::super::token::TokenType;
-use crate::parser::arrays;
-use crate::parser::{expressions, ExpressionResult, Parser};
+use super::super::{ExpressionResult, Parser};
+use super::{arrays, expressions};
 
 /// Parses a for loop
 ///

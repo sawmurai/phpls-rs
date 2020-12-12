@@ -1,6 +1,6 @@
 use super::super::node::Node;
 use super::super::token::{Token, TokenType};
-use crate::parser::{expressions, ExpressionListResult, ExpressionResult, Parser};
+use super::super::{expressions, ExpressionListResult, ExpressionResult, Parser};
 
 pub(crate) fn variable(parser: &mut Parser) -> ExpressionResult {
     let variable = parser.consume(TokenType::Variable)?;

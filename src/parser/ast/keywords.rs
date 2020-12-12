@@ -1,7 +1,7 @@
 use super::super::node::Node;
 use super::super::token::TokenType;
-use crate::parser::{arrays, functions};
-use crate::parser::{expressions, ExpressionResult, Parser};
+use super::super::{ExpressionResult, Parser};
+use super::{arrays, expressions, functions};
 
 /// Parses declare statements
 pub(crate) fn declare_statement(parser: &mut Parser) -> ExpressionResult {

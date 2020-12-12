@@ -1,7 +1,7 @@
 use super::super::node::Node;
 use super::super::token::TokenType;
-use crate::parser::{arrays, calls, classes, functions, keywords, types, variables};
-use crate::parser::{Error, ExpressionResult, Parser};
+use super::super::{Error, ExpressionResult, Parser};
+use super::{arrays, calls, classes, functions, keywords, types, variables};
 
 pub(crate) fn expression_statement(parser: &mut Parser) -> ExpressionResult {
     let value = expression(parser)?;

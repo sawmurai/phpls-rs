@@ -1,7 +1,7 @@
 use super::super::node::Node;
 use super::super::token::{Token, TokenType};
-use crate::parser::Parser;
-use crate::parser::Result;
+use super::super::Parser;
+use super::super::Result;
 
 struct DocBlockScanner {
     col: u32,

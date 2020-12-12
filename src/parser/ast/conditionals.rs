@@ -1,6 +1,6 @@
 use super::super::node::Node;
 use super::super::token::{Token, TokenType};
-use crate::parser::{expressions, ExpressionResult, Parser, Result};
+use super::super::{expressions, ExpressionResult, Parser, Result};
 
 /// Parses an if statement
 ///

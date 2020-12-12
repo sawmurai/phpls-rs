@@ -1,8 +1,7 @@
 use super::super::node::Node;
 use super::super::token::{Token, TokenType};
-use crate::parser::comments;
-use crate::parser::{expressions, functions, types};
-use crate::parser::{ExpressionListResult, ExpressionResult, Parser};
+use super::super::{ExpressionListResult, ExpressionResult, Parser};
+use super::{comments, expressions, functions, types};
 
 // abstract_class -> "abstract" class
 pub(crate) fn abstract_class_statement(parser: &mut Parser) -> ExpressionResult {

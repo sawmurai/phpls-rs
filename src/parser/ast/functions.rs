@@ -1,11 +1,10 @@
 use super::super::node::Node;
 use super::super::token::{Token, TokenType};
-use crate::parser::comments;
-use crate::parser::types;
-use crate::parser::variables;
-use crate::parser::{
-    expressions, ArgumentListResult, ExpressionListResult, ExpressionResult, Parser, Result,
-};
+use super::super::{ArgumentListResult, ExpressionListResult, ExpressionResult, Parser, Result};
+use super::comments;
+use super::expressions;
+use super::types;
+use super::variables;
 
 /// Parses the argument list of a function, excluding the parenthesis
 ///

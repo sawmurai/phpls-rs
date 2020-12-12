@@ -1,7 +1,7 @@
 use super::super::node::Node;
 use super::super::token::{Token, TokenType};
-use crate::parser::types;
-use crate::parser::{Error, ExpressionListResult, ExpressionResult, Parser};
+use super::super::{Error, ExpressionListResult, ExpressionResult, Parser};
+use super::types;
 
 /// Parses a single namespace statement or namespace block
 ///

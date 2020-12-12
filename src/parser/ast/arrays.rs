@@ -1,8 +1,8 @@
 use super::super::node::Node;
 use super::super::token::TokenType;
-use crate::parser::expressions;
-use crate::parser::variables;
-use crate::parser::{Error, ExpressionResult, Parser};
+use super::super::{Error, ExpressionResult, Parser};
+use super::expressions;
+use super::variables;
 
 /// Parses an array surounded by regular brackets. To parse an array according to the old syntax
 /// like `array(1, 2, 3)` use `arrays::old_array`.
