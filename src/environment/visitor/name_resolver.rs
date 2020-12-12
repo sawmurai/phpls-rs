@@ -201,6 +201,7 @@ impl<'a> NameResolver<'a> {
         if tokens.is_empty() {
             return None;
         }
+
         let mut file = *context_anchor;
 
         let mut current_namespace = String::new();
@@ -394,6 +395,24 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
     /// Decides if a symbol is worth collecting
     fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) -> NextAction {
         match node {
+            AstNode::UseStatement { .. } => NextAction::ProcessChildren,
+            AstNode::UseDeclaration { declaration, .. } => {
+                if let AstNode::TypeRef(type_ref) = declaration.as_ref() {
+                    let name = type_ref
+                        .iter()
+                        .map(|t| t.to_string())
+                        .collect::<Vec<String>>()
+                        .join("");
+                    let range = node.range();
+                    if let Some(resolved) = self.resolver.resolve_fully_qualified(&name) {
+                        self.resolver
+                            .document_references
+                            .push(Reference::new(range, resolved));
+                    }
+                }
+
+                NextAction::Abort
+            }
             AstNode::TypeRef(type_ref) => {
                 self.resolver.resolve_type_ref(type_ref, arena, &parent);
 
