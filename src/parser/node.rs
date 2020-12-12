@@ -345,6 +345,7 @@ pub enum Node {
         type_ref: Box<Node>,
     },
     UseTraitAlterationBlock {
+        alteration_group_type_refs: Vec<Node>,
         oc: Token,
         alterations: Vec<Node>,
         cc: Token,
@@ -389,6 +390,7 @@ pub enum Node {
         doc_comment: Option<Box<Node>>,
     },
     ClassConstantDefinitionStatement {
+        token: Token,
         name: Token,
         visibility: Option<Token>,
         value: Box<Node>,
@@ -403,6 +405,7 @@ pub enum Node {
         is_static: Option<Token>,
         doc_comment: Option<Box<Node>>,
     },
+    /// Method definition inside a class, interface or trait
     MethodDefinitionStatement {
         token: Token,
         is_final: Option<Token>,
@@ -1355,6 +1358,25 @@ impl Node {
     pub fn name(&self) -> String {
         match self {
             Node::Variable(token) | Node::Literal(token) => format!("{}", token),
+            _ => String::new(),
+        }
+    }
+}
+
+impl From<&Node> for String {
+    fn from(node: &Node) -> Self {
+        match node {
+            Node::ClassStatement {
+                token, name, body, ..
+            } => format!("{} {}{}", token, name, String::from(&**body)),
+            Node::Block { oc, cc, statements } => {
+                format!(
+                    "{}{}{}",
+                    oc,
+                    statements.iter().map(String::from).collect::<String>(),
+                    cc
+                )
+            }
             _ => String::new(),
         }
     }

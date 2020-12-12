@@ -129,12 +129,12 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
             is_static = parser.consume_or_ignore(TokenType::Static);
         }
 
-        if parser.next_token_one_of(&[TokenType::Const]) {
-            parser.next();
+        if let Some(token) = parser.consume_or_ignore(TokenType::Const) {
             let name = parser.consume_identifier()?;
 
             parser.consume_or_err(TokenType::Assignment)?;
             statements.push(Node::ClassConstantDefinitionStatement {
+                token,
                 name,
                 visibility,
                 value: Box::new(expressions::expression(parser)?),
@@ -273,24 +273,28 @@ pub(crate) fn use_trait_statement(parser: &mut Parser) -> ExpressionResult {
 /// Parses a list of trait usages, which can either be a simple identifier or a more complicated block
 fn trait_usages(parser: &mut Parser) -> ExpressionListResult {
     let mut usages = Vec::new();
+    let mut type_refs = Vec::new();
 
     while !parser.next_token_one_of(&[TokenType::Semicolon]) {
         let type_ref = types::non_empty_type_ref(parser)?;
+        type_refs.push(type_ref);
 
         if parser.next_token_one_of(&[TokenType::OpenCurly]) {
-            usages.push(trait_usage_alteration_group(parser)?);
+            usages.push(trait_usage_alteration_group(parser, type_refs)?);
 
             // Early return as there will be no semicolon after the use statment to be consumed.
             return Ok(usages);
-        } else {
-            usages.push(Node::UseTrait {
-                type_ref: Box::new(type_ref),
-            });
         }
 
         if parser.consume_or_ignore(TokenType::Comma).is_some() {
             continue;
         }
+    }
+
+    for type_ref in type_refs.drain(0..) {
+        usages.push(Node::UseTrait {
+            type_ref: Box::new(type_ref),
+        });
     }
 
     parser.consume_end_of_statement()?;
@@ -299,7 +303,10 @@ fn trait_usages(parser: &mut Parser) -> ExpressionListResult {
 }
 
 /// Parses a trait usage alteration group
-fn trait_usage_alteration_group(parser: &mut Parser) -> ExpressionResult {
+fn trait_usage_alteration_group(
+    parser: &mut Parser,
+    alteration_group_type_refs: Vec<Node>,
+) -> ExpressionResult {
     let oc = parser.consume(TokenType::OpenCurly)?;
     let mut alterations = Vec::new();
 
@@ -324,35 +331,23 @@ fn trait_usage_alteration_group(parser: &mut Parser) -> ExpressionResult {
                 TokenType::Protected,
             ]);
 
-            if visibility.is_some() {
-                if !parser.next_token_one_of(&[TokenType::Semicolon]) {
-                    alterations.push(Node::UseTraitAs {
-                        left: class_name,
-                        paa,
-                        member,
-                        as_token,
-                        visibility,
-                        as_name: Some(parser.consume_identifier()?),
-                    });
-                } else {
-                    alterations.push(Node::UseTraitAs {
-                        left: class_name,
-                        paa,
-                        member,
-                        as_token,
-                        visibility,
-                        as_name: None,
-                    });
-                }
-            } else {
-                // TODO: Parse modifier (private etc.)
+            if !parser.next_token_one_of(&[TokenType::Semicolon]) {
                 alterations.push(Node::UseTraitAs {
                     left: class_name,
                     paa,
                     member,
                     as_token,
-                    visibility: None,
+                    visibility,
                     as_name: Some(parser.consume_identifier()?),
+                });
+            } else {
+                alterations.push(Node::UseTraitAs {
+                    left: class_name,
+                    paa,
+                    member,
+                    as_token,
+                    visibility,
+                    as_name: None,
                 });
             }
         } else if let Some(insteadof) = parser.consume_or_ignore(TokenType::Insteadof) {
@@ -369,6 +364,7 @@ fn trait_usage_alteration_group(parser: &mut Parser) -> ExpressionResult {
     }
 
     Ok(Node::UseTraitAlterationBlock {
+        alteration_group_type_refs,
         oc,
         alterations,
         cc: parser.consume(TokenType::CloseCurly)?,
@@ -378,8 +374,12 @@ fn trait_usage_alteration_group(parser: &mut Parser) -> ExpressionResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::token::{Token, TokenType};
+    use crate::formatter::{format, FormatterOptions};
     use crate::parser::Parser;
+    use crate::parser::{
+        scanner::Scanner,
+        token::{Token, TokenType},
+    };
 
     #[test]
     fn test_parses_trait_that_uses_trait() {
@@ -409,8 +409,330 @@ mod tests {
             tokens,
         };
 
-        // TODO: Find a way to compare the return value that is not creating the AST from scratch
-        // since nobody can read that
         trait_statement(&mut parser).unwrap();
+    }
+
+    #[test]
+    fn test_parses_class_statement_with_method() {
+        let mut scanner = Scanner::new("<?php class Test { public static function test() {} } ?>");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+class Test {
+    public static function test() {
+
+    }
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_class_statement_with_const() {
+        let mut scanner = Scanner::new("<?php class Test { public const ROFL = 'test'; } ?>");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+class Test {
+    public const ROFL = 'test';
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_class_statement_with_property() {
+        let mut scanner = Scanner::new("<?php class Test { public $rofl = 1; } ?>");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+class Test {
+    public $rofl = 1;
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_abstract_class_statement() {
+        let mut scanner =
+            Scanner::new("<?php abstract class Test { public static function test() {} } ?>");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+abstract class Test {
+    public static function test() {
+
+    }
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_final_class_statement() {
+        let mut scanner =
+            Scanner::new("<?php final class Test { public static function test() {} } ?>");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+final class Test {
+    public static function test() {
+
+    }
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_class_that_extends_and_implements() {
+        let mut scanner =
+            Scanner::new("<?php class Test extends ParentC implements Treatable { } ?>");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+class Test extends ParentC implements Treatable {
+
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_class_with_traits() {
+        let original = "<?php
+class Aliased_Talker {
+    use Some;
+    use A, B {
+        B::smallTalk insteadof A;
+        A::bigTalk insteadof B;
+        B::bigTalk as talk;
+        B::test as private;
+        unique as protected stillUnique;
+    }
+}";
+        let mut scanner = Scanner::new(original);
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+        let expected = "\
+class Aliased_Talker {
+    use Some;
+    use A, B {
+        B::smallTalk insteadof A;
+        A::bigTalk insteadof B;
+        B::bigTalk as talk;
+        B::test as private;
+        unique as protected stillUnique;
+    }
+}";
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_anonymous_class() {
+        let mut scanner =
+            Scanner::new("<?php $o = new class { public static function test() {} } ?>");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+$o = new class {
+    public static function test() {
+
+    }
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_anonymous_class_that_extends_and_implements() {
+        let mut scanner =
+            Scanner::new("<?php $o = new class extends ParentC implements Treatable { public static function test() {} } ?>");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+$o = new class extends ParentC implements Treatable {
+    public static function test() {
+
+    }
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_anonymous_class_with_arguments() {
+        let mut scanner =
+            Scanner::new("<?php $o = new class($variable) { public static function test() {} } ?>");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+$o = new class($variable) {
+    public static function test() {
+
+    }
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_interface() {
+        let mut scanner =
+            Scanner::new("<?php interface Treatable { public function callMe(); } ?>");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+interface Treatable {
+    public function callMe();
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_interface_that_extends() {
+        let mut scanner = Scanner::new(
+            "<?php interface Treatable extends OtherInterface, BestInterface { public function callMe(); } ?>",
+        );
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+interface Treatable extends OtherInterface, BestInterface {
+    public function callMe();
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
     }
 }

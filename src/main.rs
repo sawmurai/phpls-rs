@@ -5,6 +5,7 @@ use tower_lsp::{LspService, Server};
 
 pub mod backend;
 pub mod environment;
+pub mod formatter;
 pub mod parser;
 
 #[tokio::main]
