@@ -1,7 +1,7 @@
 use super::visitor::NextAction;
 use super::visitor::Visitor;
 use super::Symbol;
-use crate::node::Node as AstNode;
+use crate::parser::node::Node as AstNode;
 use indextree::{Arena, NodeId};
 
 pub fn traverse<T>(node: &AstNode, visitor: &mut T, arena: &mut Arena<Symbol>, parent: NodeId)

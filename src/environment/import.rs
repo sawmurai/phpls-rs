@@ -1,6 +1,6 @@
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
-use crate::node::Node;
-use crate::token::Token;
+use crate::parser::node::Node;
+use crate::parser::token::Token;
 use tower_lsp::lsp_types::{Position, Range};
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -145,7 +145,7 @@ pub fn collect_uses(node: &Node, prefix: &[Token]) -> Vec<SymbolImport> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::token::{Token, TokenType};
+    use crate::parser::token::{Token, TokenType};
 
     #[test]
     fn test_collects_use_statement() {

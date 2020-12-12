@@ -1,7 +1,7 @@
-use crate::node::Node;
+use super::super::node::Node;
+use super::super::token::{Token, TokenType};
 use crate::parser::types;
 use crate::parser::{Error, ExpressionListResult, ExpressionResult, Parser};
-use crate::token::{Token, TokenType};
 
 /// Parses a single namespace statement or namespace block
 ///
@@ -252,9 +252,9 @@ pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::Node;
-    use crate::scanner::Scanner;
-    use crate::token::Token;
+    use crate::parser::node::Node;
+    use crate::parser::scanner::Scanner;
+    use crate::parser::token::Token;
 
     #[test]
     fn test_parses_namespace_declaration() {

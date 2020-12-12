@@ -1,7 +1,7 @@
-use crate::node::Node;
+use super::super::node::Node;
+use super::super::token::TokenType;
 use crate::parser::{expressions, variables};
 use crate::parser::{ExpressionResult, Parser};
-use crate::token::TokenType;
 
 /// Parses class-member access and array access. This also includes non-method call member access!
 pub(crate) fn call(parser: &mut Parser) -> ExpressionResult {

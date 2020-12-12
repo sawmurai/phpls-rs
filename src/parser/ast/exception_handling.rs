@@ -1,6 +1,6 @@
-use crate::node::Node;
+use super::super::node::Node;
+use super::super::token::TokenType;
 use crate::parser::{expressions, types, ExpressionResult, Parser};
-use crate::token::TokenType;
 
 /// Parses a try catch statement
 ///

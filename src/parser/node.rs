@@ -1,4 +1,4 @@
-use crate::token::Token;
+use super::token::Token;
 
 #[derive(Debug, PartialEq, Clone)]
 /// Represents a node in the AST

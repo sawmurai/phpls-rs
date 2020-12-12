@@ -1,5 +1,5 @@
 use super::get_range;
-use crate::token::Token;
+use crate::parser::token::Token;
 use indextree::NodeId;
 use tower_lsp::lsp_types::Range;
 

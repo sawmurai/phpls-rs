@@ -1,6 +1,6 @@
-use crate::node::Node;
+use super::super::node::Node;
+use super::super::token::{Token, TokenType};
 use crate::parser::{ExpressionListResult, ExpressionResult, Parser, Result};
-use crate::token::{Token, TokenType};
 
 pub(crate) fn type_ref_list(parser: &mut Parser) -> ExpressionListResult {
     let mut type_refs = Vec::new();

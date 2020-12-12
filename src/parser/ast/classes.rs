@@ -1,8 +1,8 @@
-use crate::node::Node;
+use super::super::node::Node;
+use super::super::token::{Token, TokenType};
 use crate::parser::comments;
 use crate::parser::{expressions, functions, types};
 use crate::parser::{ExpressionListResult, ExpressionResult, Parser};
-use crate::token::{Token, TokenType};
 
 // abstract_class -> "abstract" class
 pub(crate) fn abstract_class_statement(parser: &mut Parser) -> ExpressionResult {
@@ -379,8 +379,8 @@ fn trait_usage_alteration_group(parser: &mut Parser) -> ExpressionResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::token::{Token, TokenType};
     use crate::parser::Parser;
-    use crate::token::{Token, TokenType};
 
     #[test]
     fn test_parses_trait_that_uses_trait() {

@@ -1,8 +1,8 @@
-use crate::node::Node;
+use super::super::node::Node;
+use super::super::token::TokenType;
 use crate::parser::expressions;
 use crate::parser::variables;
 use crate::parser::{Error, ExpressionResult, Parser};
-use crate::token::TokenType;
 
 /// Parses an array surounded by regular brackets. To parse an array according to the old syntax
 /// like `array(1, 2, 3)` use `arrays::old_array`.
@@ -85,8 +85,8 @@ pub(crate) fn array_pair(parser: &mut Parser) -> ExpressionResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::token::{Token, TokenType};
     use crate::parser::Parser;
-    use crate::token::{Token, TokenType};
 
     #[test]
     fn test_parses_an_array() {

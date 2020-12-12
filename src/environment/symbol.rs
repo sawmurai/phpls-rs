@@ -1,7 +1,7 @@
 use super::get_range;
 use crate::environment::import::SymbolImport;
 use crate::environment::scope::Reference;
-use crate::token::{Token, TokenType};
+use crate::parser::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
 use std::cmp::PartialOrd;
 use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Range, SymbolKind};

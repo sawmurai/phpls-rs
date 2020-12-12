@@ -5,8 +5,8 @@ use super::Symbol;
 use super::Visitor;
 use crate::environment::scope::Reference;
 use crate::environment::symbol::{PhpSymbolKind, Visibility};
-use crate::node::Node as AstNode;
-use crate::token::Token;
+use crate::parser::node::Node as AstNode;
+use crate::parser::token::Token;
 
 use indextree::{Arena, NodeId};
 

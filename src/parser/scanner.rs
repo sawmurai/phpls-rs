@@ -1,5 +1,5 @@
-use crate::node::NodeRange;
-use crate::token::{Token, TokenType};
+use super::node::NodeRange;
+use super::token::{Token, TokenType};
 
 /// Enum to represent the current scanner context. Can either be within a code block (`InScript`),
 /// within a comment within a code block (`InComment`), or between code blocks (`OutScript`). An

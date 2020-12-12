@@ -1,5 +1,5 @@
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
-use crate::node::NodeRange;
+use crate::parser::node::NodeRange;
 use indextree::{Arena, NodeId};
 use tower_lsp::lsp_types::{DocumentHighlight, Location, Position, Range, Url};
 

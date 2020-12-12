@@ -1,8 +1,7 @@
 use crate::environment::get_range;
-use crate::parser::ast::*;
-use node::Node;
+use crate::node::Node;
+use crate::token::{Token, TokenType};
 use snafu::Snafu;
-use token::{Token, TokenType};
 
 use tower_lsp::lsp_types::Diagnostic;
 
@@ -66,10 +65,19 @@ type ExpressionResult = Result<Node>;
 type ExpressionListResult = Result<Vec<Node>>;
 pub type AstResult = Result<(Vec<Node>, Vec<Error>)>;
 
-pub mod ast;
-pub mod node;
-pub mod scanner;
-pub mod token;
+pub mod arrays;
+pub mod calls;
+pub mod classes;
+pub mod comments;
+pub mod conditionals;
+pub mod exception_handling;
+pub mod expressions;
+pub mod functions;
+pub mod keywords;
+pub mod loops;
+pub mod namespaces;
+pub mod types;
+pub mod variables;
 
 /// Inspired by https://craftinginterpreters.com/statements-and-state.html
 ///
@@ -570,8 +578,8 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::scanner::Scanner;
     use crate::parser::Parser;
+    use crate::scanner::Scanner;
 
     #[test]
     fn test_creates_ast_for_addition() {

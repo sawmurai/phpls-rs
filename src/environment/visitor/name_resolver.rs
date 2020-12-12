@@ -3,8 +3,8 @@ use super::Visitor;
 use super::{super::PhpSymbolKind, Symbol};
 use crate::environment::scope::Reference as SymbolReference;
 use crate::environment::symbol::Visibility;
-use crate::node::{Node as AstNode, NodeRange};
-use crate::token::{Token, TokenType};
+use crate::parser::node::{Node as AstNode, NodeRange};
+use crate::parser::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 

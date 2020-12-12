@@ -1,13 +1,13 @@
-use crate::node::Node as AstNode;
 use super::Symbol;
+use crate::parser::node::Node as AstNode;
 use indextree::{Arena, NodeId};
 
-pub mod workspace_symbol;
 pub mod name_resolver;
+pub mod workspace_symbol;
 
 pub enum NextAction {
     Abort,
-    ProcessChildren
+    ProcessChildren,
 }
 
 pub trait Visitor {

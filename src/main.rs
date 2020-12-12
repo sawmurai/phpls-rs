@@ -5,10 +5,7 @@ use tower_lsp::{LspService, Server};
 
 pub mod backend;
 pub mod environment;
-pub mod node;
 pub mod parser;
-pub mod scanner;
-pub mod token;
 
 #[tokio::main]
 async fn main() {

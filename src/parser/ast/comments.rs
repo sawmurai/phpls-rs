@@ -1,7 +1,7 @@
-use crate::node::Node;
+use super::super::node::Node;
+use super::super::token::{Token, TokenType};
 use crate::parser::Parser;
 use crate::parser::Result;
-use crate::token::{Token, TokenType};
 
 struct DocBlockScanner {
     col: u32,
