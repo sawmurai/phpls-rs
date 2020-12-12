@@ -24,10 +24,11 @@ use tower_lsp::lsp_types::{
     DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverContents, HoverParams, InitializeParams, InitializeResult, InitializedParams,
-    Location, MarkedString, MessageType, Range, ReferenceParams, ServerCapabilities,
-    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceCapability,
-    WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
+    Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, Location, MarkedString, MessageType, Range, ReferenceParams,
+    ServerCapabilities, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    WorkspaceCapability, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
+    WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -39,6 +40,9 @@ type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
 
 /// Represents the backend of the language server.
 pub struct Backend {
+    /// LSP client
+    client: Client,
+
     /// Storage arena for all symbols
     pub arena: ArenaMutex,
 
@@ -59,8 +63,9 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn new() -> Self {
+    pub fn new(client: Client) -> Self {
         Backend {
+            client,
             arena: Arc::new(Mutex::new(Arena::new())),
             files: Arc::new(Mutex::new(HashMap::new())),
             global_symbols: Arc::new(Mutex::new(HashMap::new())),
@@ -329,11 +334,7 @@ impl Backend {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(
-        &self,
-        _client: &Client,
-        params: InitializeParams,
-    ) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         if let Some(url) = params.root_uri {
             eprintln!("{:?}", url);
             match self.init_workspace(&url).await {
@@ -352,7 +353,7 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::Full,
                 )),
-                hover_provider: Some(true),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![".".to_string()]),
@@ -385,7 +386,7 @@ impl LanguageServer for Backend {
         })
     }
 
-    async fn initialized(&self, client: &Client, _params: InitializedParams) {
+    async fn initialized(&self, _params: InitializedParams) {
         let mut diagnostics = self.diagnostics.lock().await;
 
         for (file, diagnostics) in diagnostics.iter() {
@@ -397,11 +398,13 @@ impl LanguageServer for Backend {
                 continue;
             }
 
-            client.publish_diagnostics(
-                Url::from_file_path(file).unwrap(),
-                diagnostics.clone(),
-                None,
-            );
+            self.client
+                .publish_diagnostics(
+                    Url::from_file_path(file).unwrap(),
+                    diagnostics.clone(),
+                    None,
+                )
+                .await;
         }
 
         diagnostics.clear();
@@ -524,7 +527,7 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
-    async fn did_change_watched_files(&self, client: &Client, params: DidChangeWatchedFilesParams) {
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         for change in params.changes {
             let path = change.uri.path();
 
@@ -557,7 +560,7 @@ impl LanguageServer for Backend {
                 diagnostics.extend(errors.iter().map(Diagnostic::from));
 
                 if let Err(e) = reindex_result {
-                    client.log_message(MessageType::Error, e);
+                    self.client.log_message(MessageType::Error, e).await;
 
                     return;
                 }
@@ -565,7 +568,7 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn did_save(&self, client: &Client, params: DidSaveTextDocumentParams) {
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let path = params.text_document.uri.path();
 
         let arena = self.arena.clone();
@@ -602,7 +605,7 @@ impl LanguageServer for Backend {
                 .insert(path.to_string(), (ast.to_owned(), range));
 
             if let Err(e) = reindex_result {
-                client.log_message(MessageType::Error, e);
+                self.client.log_message(MessageType::Error, e).await;
 
                 return;
             }
@@ -639,11 +642,13 @@ impl LanguageServer for Backend {
                 return;
             }
 
-            client.publish_diagnostics(params.text_document.uri, diagnostics.clone(), None);
+            self.client
+                .publish_diagnostics(params.text_document.uri, diagnostics.clone(), None)
+                .await;
         }
     }
 
-    async fn did_close(&self, _client: &Client, params: DidCloseTextDocumentParams) {
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.opened_files
             .lock()
             .await
@@ -654,7 +659,7 @@ impl LanguageServer for Backend {
             .remove(params.text_document.uri.path());
     }
 
-    async fn did_open(&self, client: &Client, params: DidOpenTextDocumentParams) {
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let path = params.text_document.uri.path();
         let arena = self.arena.clone();
         let global_symbols = self.global_symbols.clone();
@@ -664,7 +669,9 @@ impl LanguageServer for Backend {
         let mut opened_files = self.opened_files.lock().await;
 
         if !opened_files.contains_key(path) {
-            client.log_message(MessageType::Info, "Need to freshly index");
+            self.client
+                .log_message(MessageType::Info, "Need to freshly index")
+                .await;
 
             let source = tokio::fs::read_to_string(path).await.unwrap();
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
@@ -672,17 +679,23 @@ impl LanguageServer for Backend {
                 diagnostics.lock().await.insert(path.to_owned(), diags);
                 opened_files.insert(path.to_string(), (ast.to_owned(), range));
             } else {
-                client.log_message(MessageType::Error, "Error indexing");
+                self.client
+                    .log_message(MessageType::Error, "Error indexing")
+                    .await;
 
                 return;
             }
         }
 
         let (ast, range) = if let Some((ast, range)) = opened_files.get(path) {
-            client.log_message(MessageType::Info, "Opened from cache");
+            self.client
+                .log_message(MessageType::Info, "Opened from cache")
+                .await;
             (ast, range)
         } else {
-            client.log_message(MessageType::Error, "Error storing reindexed");
+            self.client
+                .log_message(MessageType::Error, "Error storing reindexed")
+                .await;
 
             return;
         };
@@ -701,7 +714,9 @@ impl LanguageServer for Backend {
         )
         .await
         {
-            client.log_message(MessageType::Error, format!("Failed to index {}", e));
+            self.client
+                .log_message(MessageType::Error, format!("Failed to index {}", e))
+                .await;
 
             return;
         }
@@ -713,11 +728,13 @@ impl LanguageServer for Backend {
                 return;
             }
 
-            client.publish_diagnostics(
-                params.text_document.uri,
-                diagnostics.clone(),
-                Some(params.text_document.version),
-            );
+            self.client
+                .publish_diagnostics(
+                    params.text_document.uri,
+                    diagnostics.clone(),
+                    Some(params.text_document.version),
+                )
+                .await;
         }
     }
 

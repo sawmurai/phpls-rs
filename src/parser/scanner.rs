@@ -24,7 +24,7 @@ pub struct Scanner {
     chars: Vec<char>,
 }
 
-/// Inspired by https://craftinginterpreters.com/statements-and-state.html
+/// Inspired by <https://craftinginterpreters.com/statements-and-state.html>
 impl Scanner {
     /// Constructs a new `Scanner` without actually scanning anything.
     ///

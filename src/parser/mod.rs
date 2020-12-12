@@ -71,7 +71,7 @@ pub mod node;
 pub mod scanner;
 pub mod token;
 
-/// Inspired by https://craftinginterpreters.com/statements-and-state.html
+/// Inspired by <https://craftinginterpreters.com/statements-and-state.html>
 ///
 /// Parses a token stream of a `Scanner` and generates an Abstract Syntax Tree
 #[derive(Debug)]
