@@ -8,6 +8,7 @@ use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolve
 use crate::environment::visitor::workspace_symbol::WorkspaceSymbolVisitor;
 use crate::parser::node::Node as AstNode;
 use crate::parser::scanner::Scanner;
+use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
 use indextree::{Arena, NodeId};
@@ -25,7 +26,7 @@ use tower_lsp::lsp_types::{
     DidSaveTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MarkedString, MessageType, Range, ReferenceParams,
+    InitializedParams, Location, MarkedString, MessageType, Position, Range, ReferenceParams,
     ServerCapabilities, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
     WorkspaceCapability, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
     WorkspaceSymbolParams,
@@ -60,6 +61,69 @@ pub struct Backend {
 
     /// List of currently opened files and their AST
     pub opened_files: AstMutex,
+}
+
+impl From<&ParserError> for Diagnostic {
+    fn from(e: &ParserError) -> Diagnostic {
+        match e {
+            ParserError::WrongTokenError { token, expected } => Diagnostic {
+                range: get_range(token.range()),
+                message: format!("Wrong token {:?}, expected one of {:?}", token.t, expected),
+                ..Diagnostic::default()
+            },
+            ParserError::UnexpectedTokenError { token, .. } => Diagnostic {
+                range: get_range(token.range()),
+                message: format!("Unexpected token {:?}", token.t),
+                ..Diagnostic::default()
+            },
+            ParserError::IllegalOffsetType { expr, .. } => Diagnostic {
+                range: get_range(expr.range()),
+                message: "Illegal offset type".to_owned(),
+                ..Diagnostic::default()
+            },
+            ParserError::RValueInWriteContext { token, .. } => Diagnostic {
+                range: get_range(token.range()),
+                message: "Can not use expression in write context".to_owned(),
+                ..Diagnostic::default()
+            },
+            ParserError::Eof => Diagnostic {
+                range: get_range(((0, 0), (0, 0))),
+                message: "Unexpected end of file".to_owned(),
+                ..Diagnostic::default()
+            },
+        }
+    }
+}
+
+impl From<&Token> for Symbol {
+    fn from(token: &Token) -> Symbol {
+        let start = token.start();
+        let end = token.end();
+
+        let range = Range {
+            start: Position {
+                line: u64::from(start.0),
+                character: u64::from(start.1),
+            },
+            end: Position {
+                line: u64::from(end.0),
+                character: u64::from(end.1),
+            },
+        };
+
+        let kind = match token.t {
+            TokenType::Variable => PhpSymbolKind::Variable,
+            _ => PhpSymbolKind::Unknown,
+        };
+
+        Symbol {
+            name: token.clone().label.unwrap_or_else(|| "Unknown".to_owned()),
+            kind,
+            range,
+            selection_range: range,
+            ..Symbol::default()
+        }
+    }
 }
 
 impl Backend {

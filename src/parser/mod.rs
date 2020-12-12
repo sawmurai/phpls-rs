@@ -1,10 +1,7 @@
-use crate::environment::get_range;
 use crate::parser::ast::*;
 use node::Node;
 use snafu::Snafu;
 use token::{Token, TokenType};
-
-use tower_lsp::lsp_types::Diagnostic;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -27,38 +24,6 @@ pub enum Error {
     Eof,
 }
 
-impl From<&Error> for Diagnostic {
-    fn from(e: &Error) -> Diagnostic {
-        match e {
-            Error::WrongTokenError { token, expected } => Diagnostic {
-                range: get_range(token.range()),
-                message: format!("Wrong token {:?}, expected one of {:?}", token.t, expected),
-                ..Diagnostic::default()
-            },
-            Error::UnexpectedTokenError { token, .. } => Diagnostic {
-                range: get_range(token.range()),
-                message: format!("Unexpected token {:?}", token.t),
-                ..Diagnostic::default()
-            },
-            Error::IllegalOffsetType { expr, .. } => Diagnostic {
-                range: get_range(expr.range()),
-                message: "Illegal offset type".to_owned(),
-                ..Diagnostic::default()
-            },
-            Error::RValueInWriteContext { token, .. } => Diagnostic {
-                range: get_range(token.range()),
-                message: "Can not use expression in write context".to_owned(),
-                ..Diagnostic::default()
-            },
-            Error::Eof => Diagnostic {
-                range: get_range(((0, 0), (0, 0))),
-                message: "Unexpected end of file".to_owned(),
-                ..Diagnostic::default()
-            },
-        }
-    }
-}
-
 // Overwrite result
 type Result<T, E = Error> = std::result::Result<T, E>;
 type ArgumentListResult = Result<Option<Vec<Node>>>;
@@ -66,9 +31,16 @@ type ExpressionResult = Result<Node>;
 type ExpressionListResult = Result<Vec<Node>>;
 pub type AstResult = Result<(Vec<Node>, Vec<Error>)>;
 
+/// Representation of the Abstract Syntax Tree used by the parser
 pub mod ast;
+
+/// The node type
 pub mod node;
+
+/// The scanner used to generate tokens from source files
 pub mod scanner;
+
+/// The token type
 pub mod token;
 
 /// Inspired by <https://craftinginterpreters.com/statements-and-state.html>

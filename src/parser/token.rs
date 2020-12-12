@@ -1,6 +1,4 @@
-use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use std::fmt::{Display, Formatter, Result};
-use tower_lsp::lsp_types::{Position, Range};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
@@ -364,37 +362,6 @@ impl Token {
                 | TokenType::HexNumber
                 | TokenType::LongNumber
         )
-    }
-}
-
-impl From<&Token> for Symbol {
-    fn from(token: &Token) -> Symbol {
-        let start = token.start();
-        let end = token.end();
-
-        let range = Range {
-            start: Position {
-                line: u64::from(start.0),
-                character: u64::from(start.1),
-            },
-            end: Position {
-                line: u64::from(end.0),
-                character: u64::from(end.1),
-            },
-        };
-
-        let kind = match token.t {
-            TokenType::Variable => PhpSymbolKind::Variable,
-            _ => PhpSymbolKind::Unknown,
-        };
-
-        Symbol {
-            name: token.clone().label.unwrap_or_else(|| "Unknown".to_owned()),
-            kind,
-            range,
-            selection_range: range,
-            ..Symbol::default()
-        }
     }
 }
 
