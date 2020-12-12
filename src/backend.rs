@@ -1,11 +1,11 @@
 use crate::environment;
+use crate::environment::get_range;
 use crate::environment::in_range;
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use crate::environment::traverser::traverse;
 use crate::environment::visitor::name_resolver::Reference;
 use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolver};
 use crate::environment::visitor::workspace_symbol::WorkspaceSymbolVisitor;
-use crate::node::get_range;
 use crate::node::Node as AstNode;
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
@@ -20,13 +20,13 @@ use tokio::sync::Mutex;
 use tokio::task;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionParams, CompletionResponse, Diagnostic, DidChangeWatchedFilesParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
-    ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, InitializeParams, InitializeResult, InitializedParams, Location, MarkedString,
-    MessageType, Range, ReferenceParams, ServerCapabilities, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceCapability,
+    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
+    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
+    DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverContents, HoverParams, InitializeParams, InitializeResult, InitializedParams,
+    Location, MarkedString, MessageType, Range, ReferenceParams, ServerCapabilities,
+    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceCapability,
     WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
@@ -353,12 +353,12 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::Full,
                 )),
                 hover_provider: Some(true),
-                /*completion_provider: Some(CompletionOptions {
+                completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![".".to_string()]),
                     work_done_progress_options: Default::default(),
                 }),
-                signature_help_provider: Some(SignatureHelpOptions {
+                /*signature_help_provider: Some(SignatureHelpOptions {
                     trigger_characters: None,
                     retrigger_characters: None,
                     work_done_progress_options: Default::default(),

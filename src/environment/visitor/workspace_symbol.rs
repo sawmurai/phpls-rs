@@ -1,10 +1,10 @@
+use super::super::get_range;
 use super::super::import::collect_uses;
 use super::NextAction;
 use super::Symbol;
 use super::Visitor;
 use crate::environment::scope::Reference;
 use crate::environment::symbol::{PhpSymbolKind, Visibility};
-use crate::node::get_range;
 use crate::node::Node as AstNode;
 use crate::token::Token;
 

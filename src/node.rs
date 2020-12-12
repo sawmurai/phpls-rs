@@ -1,9 +1,9 @@
 use crate::token::Token;
 
-use tower_lsp::lsp_types::{Position, Range};
-
 #[derive(Debug, PartialEq, Clone)]
+/// Represents a node in the AST
 pub enum Node {
+    /// Represents a doc comment
     DocComment {
         return_type: Vec<Node>,
         description: String,
@@ -11,6 +11,7 @@ pub enum Node {
         params: Vec<Node>,
         var_docs: Vec<Node>,
     },
+    /// Represents a @param inside of a doc comment
     DocCommentParam {
         name: Token,
 
@@ -900,6 +901,7 @@ impl Node {
             Node::StaticVariablesStatement { assignments, .. } => {
                 (*assignments).iter().collect::<Vec<&Node>>()
             }
+            Node::UseDeclaration { declaration, .. } => vec![declaration],
             Node::UseStatement { imports, .. }
             | Node::UseFunctionStatement { imports, .. }
             | Node::UseConstStatement { imports, .. } => (*imports).iter().collect::<Vec<&Node>>(),
@@ -1355,21 +1357,5 @@ impl Node {
             Node::Variable(token) | Node::Literal(token) => format!("{}", token),
             _ => String::new(),
         }
-    }
-}
-
-pub fn get_range(coords: NodeRange) -> Range {
-    let start = coords.0;
-    let end = coords.1;
-
-    Range {
-        start: Position {
-            line: u64::from(start.0),
-            character: u64::from(start.1),
-        },
-        end: Position {
-            line: u64::from(end.0),
-            character: u64::from(end.1),
-        },
     }
 }

@@ -1,4 +1,4 @@
-use crate::node::get_range;
+use super::get_range;
 use crate::token::Token;
 use indextree::NodeId;
 use tower_lsp::lsp_types::Range;

@@ -1,4 +1,5 @@
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
+use crate::node::NodeRange;
 use indextree::{Arena, NodeId};
 use tower_lsp::lsp_types::{DocumentHighlight, Location, Position, Range, Url};
 
@@ -41,6 +42,23 @@ pub fn symbol_location(arena: &Arena<Symbol>, symbol_node: &NodeId) -> Option<Lo
     }
 
     None
+}
+
+/// Convert a node range into a Range understood by tower lsp
+pub fn get_range(coords: NodeRange) -> Range {
+    let start = coords.0;
+    let end = coords.1;
+
+    Range {
+        start: Position {
+            line: u64::from(start.0),
+            character: u64::from(start.1),
+        },
+        end: Position {
+            line: u64::from(end.0),
+            character: u64::from(end.1),
+        },
+    }
 }
 
 /// Checks if a given `position` is within a given `range`.
