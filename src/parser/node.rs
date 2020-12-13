@@ -157,19 +157,16 @@ pub enum Node {
     Member {
         object: Box<Node>,
         arrow: Token,
+        oc: Option<Token>,
         member: Box<Node>,
+        cc: Option<Token>,
     },
     StaticMember {
         object: Box<Node>,
         pn: Token,
+        oc: Option<Token>,
         member: Box<Node>,
-    },
-    StaticMethod {
-        class: Box<Node>,
-        pn: Token,
-        oc: Token,
-        method: Box<Node>,
-        cc: Token,
+        cc: Option<Token>,
     },
     Field {
         array: Box<Node>,
@@ -607,7 +604,6 @@ impl Node {
                 member,
                 ..
             } => vec![class, member],
-            Node::StaticMethod { class, method, .. } => vec![class, method],
             Node::Field { array, index, .. } => {
                 if let Some(index) = index {
                     vec![array, index]
@@ -1004,9 +1000,15 @@ impl Node {
             Node::StaticMember {
                 object: class,
                 member,
+                cc,
                 ..
-            } => (class.range().0, member.range().1),
-            Node::StaticMethod { class, method, .. } => (class.range().0, method.range().1),
+            } => {
+                if let Some(cc) = cc {
+                    (class.range().0, cc.range().1)
+                } else {
+                    (class.range().0, member.range().1)
+                }
+            }
             Node::Field { array, cb, .. } => (array.range().0, cb.end()),
             Node::Static { token, expr } => (token.start(), expr.last().unwrap().range().1),
             Node::Function {

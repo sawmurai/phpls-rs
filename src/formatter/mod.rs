@@ -232,9 +232,14 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
             Node::TypeRef(type_ref) => parts.push(format_node(node, line, col, options)),
 
             Node::ExpressionStatement { expression } => {
-                parts.push(format_node(expression, line, col, options))
+                parts.push(format_node(expression, line, col, options));
+                parts.push(";\n".to_string());
             }
-            _ => {}
+            Node::InlineHtml { start, end } => {
+                parts.push(start.to_string());
+                push_unpadded_if_some!(end, parts);
+            }
+            _ => unimplemented!("{:?}", node),
         }
     }
 
@@ -296,11 +301,97 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
                 format_node(body, line, col, options)
             )
         }
+        Node::Field {
+            array,
+            cb,
+            index,
+            ob,
+        } => {
+            if let Some(index) = index {
+                format!(
+                    "{}{}{}{}",
+                    format_node(array, line, col, options),
+                    ob,
+                    format_node(index, line, col, options),
+                    cb
+                )
+            } else {
+                format!("{}{}{}", format_node(array, line, col, options), ob, cb)
+            }
+        }
+        Node::Member {
+            object,
+            oc,
+            member,
+            cc,
+            arrow,
+        } => {
+            if let Some(oc) = oc {
+                format!(
+                    "{}{}{}{}{}",
+                    format_node(object, line, col, options),
+                    arrow,
+                    oc,
+                    format_node(member, line, col, options),
+                    cc.as_ref().unwrap()
+                )
+            } else {
+                format!(
+                    "{}{}{}",
+                    format_node(object, line, col, options),
+                    arrow,
+                    format_node(member, line, col, options)
+                )
+            }
+        }
+        Node::StaticMember {
+            object,
+            member,
+            pn,
+            oc,
+            cc,
+        } => {
+            if let Some(oc) = oc {
+                format!(
+                    "{}{}{}{}{}",
+                    format_node(object, line, col, options),
+                    pn,
+                    oc,
+                    format_node(member, line, col, options),
+                    cc.as_ref().unwrap()
+                )
+            } else {
+                format!(
+                    "{}{}{}",
+                    format_node(object, line, col, options),
+                    pn,
+                    format_node(member, line, col, options)
+                )
+            }
+        }
+        Node::Call {
+            callee,
+            cp,
+            parameters,
+            op,
+        } => {
+            format!(
+                "{}{}{}{}",
+                format_node(callee, line, col, options),
+                op,
+                parameters
+                    .iter()
+                    .map(|p| format_node(p, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(", "),
+                cp,
+            )
+        }
         Node::Identifier(token) | Node::Literal(token) | Node::Variable(token) => token.to_string(),
         Node::TypeRef(tokens) => tokens
             .iter()
             .map(|n| n.clone().to_string())
             .collect::<String>(),
-        _ => String::from(""),
+        _ => unimplemented!("{:?}", node),
     }
 }

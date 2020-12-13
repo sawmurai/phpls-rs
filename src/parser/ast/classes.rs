@@ -414,7 +414,7 @@ mod tests {
 
     #[test]
     fn test_parses_class_statement_with_method() {
-        let mut scanner = Scanner::new("<?php class Test { public static function test() {} } ?>");
+        let mut scanner = Scanner::new("<?php class Test { public static function test() {} }");
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
@@ -440,7 +440,7 @@ class Test {
 
     #[test]
     fn test_parses_class_statement_with_const() {
-        let mut scanner = Scanner::new("<?php class Test { public const ROFL = 'test'; } ?>");
+        let mut scanner = Scanner::new("<?php class Test { public const ROFL = 'test'; }");
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
@@ -464,7 +464,7 @@ class Test {
 
     #[test]
     fn test_parses_class_statement_with_property() {
-        let mut scanner = Scanner::new("<?php class Test { public $rofl = 1; } ?>");
+        let mut scanner = Scanner::new("<?php class Test { public $rofl = 1; }");
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
@@ -489,7 +489,7 @@ class Test {
     #[test]
     fn test_parses_abstract_class_statement() {
         let mut scanner =
-            Scanner::new("<?php abstract class Test { public static function test() {} } ?>");
+            Scanner::new("<?php abstract class Test { public static function test() {} }");
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
@@ -516,7 +516,7 @@ abstract class Test {
     #[test]
     fn test_parses_final_class_statement() {
         let mut scanner =
-            Scanner::new("<?php final class Test { public static function test() {} } ?>");
+            Scanner::new("<?php final class Test { public static function test() {} }");
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
@@ -542,8 +542,7 @@ final class Test {
 
     #[test]
     fn test_parses_class_that_extends_and_implements() {
-        let mut scanner =
-            Scanner::new("<?php class Test extends ParentC implements Treatable { } ?>");
+        let mut scanner = Scanner::new("<?php class Test extends ParentC implements Treatable { }");
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
@@ -607,7 +606,7 @@ class Aliased_Talker {
     #[test]
     fn test_parses_anonymous_class() {
         let mut scanner =
-            Scanner::new("<?php $o = new class { public static function test() {} } ?>");
+            Scanner::new("<?php $o = new class { public static function test() {} };");
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
@@ -625,7 +624,8 @@ $o = new class {
     public static function test() {
 
     }
-}"
+};
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -634,7 +634,7 @@ $o = new class {
     #[test]
     fn test_parses_anonymous_class_that_extends_and_implements() {
         let mut scanner =
-            Scanner::new("<?php $o = new class extends ParentC implements Treatable { public static function test() {} } ?>");
+            Scanner::new("<?php $o = new class extends ParentC implements Treatable { public static function test() {} };");
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
@@ -652,7 +652,8 @@ $o = new class extends ParentC implements Treatable {
     public static function test() {
 
     }
-}"
+};
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -661,7 +662,7 @@ $o = new class extends ParentC implements Treatable {
     #[test]
     fn test_parses_anonymous_class_with_arguments() {
         let mut scanner =
-            Scanner::new("<?php $o = new class($variable) { public static function test() {} } ?>");
+            Scanner::new("<?php $o = new class($variable) { public static function test() {} };");
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
@@ -679,7 +680,8 @@ $o = new class($variable) {
     public static function test() {
 
     }
-}"
+};
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -687,8 +689,7 @@ $o = new class($variable) {
 
     #[test]
     fn test_parses_interface() {
-        let mut scanner =
-            Scanner::new("<?php interface Treatable { public function callMe(); } ?>");
+        let mut scanner = Scanner::new("<?php interface Treatable { public function callMe(); }");
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
@@ -713,7 +714,7 @@ interface Treatable {
     #[test]
     fn test_parses_interface_that_extends() {
         let mut scanner = Scanner::new(
-            "<?php interface Treatable extends OtherInterface, BestInterface { public function callMe(); } ?>",
+            "<?php interface Treatable extends OtherInterface, BestInterface { public function callMe(); }",
         );
         scanner.scan().unwrap();
 
