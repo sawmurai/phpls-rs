@@ -3,7 +3,7 @@ use node::Node;
 use snafu::Snafu;
 use token::{Token, TokenType};
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, PartialEq)]
 pub enum Error {
     #[snafu(display("Unexpected token {:?}, expected on of [{:?}] on line {}, col {}", token.t, expected, token.line, token.col))]
     WrongTokenError {
@@ -543,7 +543,10 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use crate::parser::scanner::Scanner;
+    use crate::parser::Error;
     use crate::parser::Parser;
+    use crate::parser::Token;
+    use crate::parser::TokenType;
 
     #[test]
     fn test_creates_ast_for_addition() {
@@ -579,7 +582,32 @@ mod tests {
         let tokens = scanner.scan().unwrap();
 
         assert_eq!(true, Parser::ast(tokens.clone()).is_ok());
+    }
 
-        //println!("{:#?}", parser.unwrap().0);
+    #[test]
+    fn test_expects_identifier_after_object_operator() {
+        let code = "<?php
+        class Test {
+            public function method() {
+                $this->
+            }
+        }
+        ";
+
+        let mut scanner = Scanner::new(code);
+        let tokens = scanner.scan().unwrap();
+        let ast_result = Parser::ast(tokens.clone());
+
+        let expected = Error::WrongTokenError {
+            expected: vec![TokenType::Identifier],
+            token: Token {
+                col: 12,
+                line: 4,
+                t: TokenType::CloseCurly,
+                label: None,
+            },
+        };
+
+        assert_eq!(&expected, ast_result.unwrap().1.first().unwrap());
     }
 }

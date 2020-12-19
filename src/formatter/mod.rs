@@ -229,7 +229,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 parts.push(format!("{};\n", format_node(type_ref, line, col, options)))
             }
 
-            Node::TypeRef(type_ref) => parts.push(format_node(node, line, col, options)),
+            Node::TypeRef(..) => parts.push(format_node(node, line, col, options)),
 
             Node::ExpressionStatement { expression } => {
                 parts.push(format_node(expression, line, col, options));

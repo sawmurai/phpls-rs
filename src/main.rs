@@ -7,6 +7,7 @@ pub mod backend;
 pub mod environment;
 pub mod formatter;
 pub mod parser;
+pub mod suggester;
 
 #[tokio::main]
 async fn main() {

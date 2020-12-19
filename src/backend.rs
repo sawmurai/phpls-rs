@@ -11,6 +11,7 @@ use crate::parser::scanner::Scanner;
 use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
+use crate::suggester::suggest;
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use std::fs;
@@ -35,9 +36,10 @@ use tower_lsp::{Client, LanguageServer};
 
 type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
 type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
-type NodeMapMutex = Arc<Mutex<HashMap<String, NodeId>>>;
+pub(crate) type NodeMapMutex = Arc<Mutex<HashMap<String, NodeId>>>;
 type DiagnosticsMutex = Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>;
 type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
+type InFlightFileMutex = Arc<Mutex<HashMap<Url, String>>>;
 
 /// Represents the backend of the language server.
 pub struct Backend {
@@ -61,6 +63,9 @@ pub struct Backend {
 
     /// List of currently opened files and their AST
     pub opened_files: AstMutex,
+
+    /// Map of latest edits on files
+    pub latest_version_of_file: InFlightFileMutex,
 }
 
 impl From<&ParserError> for Diagnostic {
@@ -136,6 +141,7 @@ impl Backend {
             diagnostics: Arc::new(Mutex::new(HashMap::new())),
             symbol_references: Arc::new(Mutex::new(HashMap::new())),
             opened_files: Arc::new(Mutex::new(HashMap::new())),
+            latest_version_of_file: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -304,7 +310,6 @@ impl Backend {
         files: NodeMapMutex,
         diagnostics: DiagnosticsMutex,
     ) -> io::Result<()> {
-        //eprintln!("{:#?}", ast);
         let mut arena = arena.lock().await;
 
         let enclosing_file = if collect {
@@ -834,11 +839,27 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
-    async fn completion(&self, _params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        Ok(Some(CompletionResponse::Array(vec![
-            CompletionItem::new_simple("Hello".to_string(), "Some detail".to_string()),
-            CompletionItem::new_simple("Bye".to_string(), "More detail".to_string()),
-        ])))
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let global_symbols = self.global_symbols.clone();
+        global_symbols.lock().await;
+
+        let opened_file = params.text_document_position.text_document.uri;
+        let mut suggestions = suggest(
+            self.latest_version_of_file
+                .lock()
+                .await
+                .get(&opened_file)
+                .unwrap_or(&String::new()),
+            params.text_document_position.position.line,
+            params.text_document_position.position.character,
+            global_symbols,
+        );
+        Ok(Some(CompletionResponse::Array(
+            suggestions
+                .drain(1..)
+                .map(|s| CompletionItem::new_simple(s, "Some detail".to_string()))
+                .collect(),
+        )))
     }
 }
 

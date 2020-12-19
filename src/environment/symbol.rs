@@ -229,24 +229,6 @@ impl Symbol {
             arena[arena[*me].parent().unwrap()].get().kind
         )
     }
-
-    /// Find a direct descendant of node by its name
-    pub fn find_child_by_name(
-        &self,
-        arena: &Arena<Symbol>,
-        node: &NodeId,
-        name: &str,
-    ) -> Option<NodeId> {
-        for child in node.children(arena) {
-            if arena[child].get().name == name {
-                return Some(child);
-            } else {
-                eprintln!("{} != {}", arena[child].get().name, name);
-            }
-        }
-
-        None
-    }
 }
 
 impl From<&Symbol> for Diagnostic {
