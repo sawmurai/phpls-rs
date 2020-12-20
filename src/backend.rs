@@ -11,7 +11,8 @@ use crate::parser::scanner::Scanner;
 use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
-use crate::suggester::suggest;
+use crate::suggester;
+use crate::suggester::suggest_variables;
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use std::fs;
@@ -20,7 +21,6 @@ use std::sync::Arc;
 use tokio::io::{self};
 use tokio::sync::Mutex;
 use tokio::task;
-use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -32,6 +32,7 @@ use tower_lsp::lsp_types::{
     WorkspaceCapability, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
     WorkspaceSymbolParams,
 };
+use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
 
 type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
@@ -39,7 +40,7 @@ type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
 pub(crate) type NodeMapMutex = Arc<Mutex<HashMap<String, NodeId>>>;
 type DiagnosticsMutex = Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>;
 type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
-type InFlightFileMutex = Arc<Mutex<HashMap<Url, String>>>;
+type InFlightFileMutex = Arc<Mutex<HashMap<String, String>>>;
 
 /// Represents the backend of the language server.
 pub struct Backend {
@@ -420,6 +421,14 @@ impl LanguageServer for Backend {
             };
         }
 
+        let mut trigger_characters = ('a'..'z')
+            .into_iter()
+            .map(|c| String::from(c))
+            .collect::<Vec<String>>();
+        trigger_characters.push(String::from("$"));
+        trigger_characters.push(String::from("_"));
+        trigger_characters.push(String::from("\\"));
+
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
@@ -429,7 +438,7 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec![".".to_string()]),
+                    trigger_characters: Some(trigger_characters),
                     work_done_progress_options: Default::default(),
                 }),
                 /*signature_help_provider: Some(SignatureHelpOptions {
@@ -654,6 +663,19 @@ impl LanguageServer for Backend {
         }
     }
 
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let _ = params;
+        let file_path = params.text_document.uri.to_file_path().unwrap();
+        let path = normalize_path(&file_path);
+
+        if let Some(changes) = params.content_changes.first() {
+            self.latest_version_of_file
+                .lock()
+                .await
+                .insert(path, changes.text.clone());
+        }
+    }
+
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let file_path = params.text_document.uri.to_file_path().unwrap();
         let path = normalize_path(&file_path);
@@ -730,6 +752,7 @@ impl LanguageServer for Backend {
         let p = normalize_path(&params.text_document.uri.to_file_path().unwrap());
         self.opened_files.lock().await.remove(&p);
         self.symbol_references.lock().await.remove(&p);
+        self.latest_version_of_file.lock().await.remove(&p);
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -748,6 +771,11 @@ impl LanguageServer for Backend {
                 .await;
 
             let source = fs::read_to_string(file_path).unwrap();
+            self.latest_version_of_file
+                .lock()
+                .await
+                .insert(path.clone(), source.clone());
+
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
                 let diags = errors.iter().map(Diagnostic::from).collect();
                 diagnostics.lock().await.insert(path.to_owned(), diags);
@@ -844,26 +872,85 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let global_symbols = self.global_symbols.clone();
-        global_symbols.lock().await;
+        let global_symbols = self.global_symbols.lock().await;
 
-        let opened_file = params.text_document_position.text_document.uri;
-        let mut suggestions = suggest(
+        let opened_file = normalize_path(
+            &params
+                .text_document_position
+                .text_document
+                .uri
+                .to_file_path()
+                .unwrap(),
+        );
+        let file_ast = Backend::source_to_ast(
             self.latest_version_of_file
                 .lock()
                 .await
                 .get(&opened_file)
                 .unwrap_or(&String::new()),
-            params.text_document_position.position.line,
-            params.text_document_position.position.character,
-            global_symbols,
         );
-        Ok(Some(CompletionResponse::Array(
-            suggestions
-                .drain(1..)
-                .map(|s| CompletionItem::new_simple(s, "Some detail".to_string()))
-                .collect(),
-        )))
+
+        let trigger = if let Some(context) = params.context {
+            if let Some(tc) = context.trigger_character {
+                tc.chars().nth(0)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut pos = params.text_document_position.position;
+        pos.character -= 1;
+
+        if let Ok(file_ast) = file_ast {
+            let ast = file_ast.0;
+
+            let (node, ancestors) = if let Some((node, ancestors)) = ast
+                .iter()
+                .filter_map(|n| suggester::find(n, &pos, Vec::new()))
+                .nth(0)
+            {
+                (node, ancestors)
+            } else {
+                return Ok(None);
+            };
+
+            eprintln!("{:?}", node);
+
+            let mut suggestions = Vec::new();
+
+            match trigger {
+                Some('$') => suggestions.extend(suggest_variables(ancestors)),
+                None => {
+                    suggestions.extend(suggest_variables(ancestors));
+                    suggestions.extend(
+                        global_symbols
+                            .keys()
+                            .map(|s| s.clone())
+                            .filter(|name| name.starts_with(&node.name()))
+                            .collect::<Vec<String>>(),
+                    )
+                }
+                _ => suggestions.extend(
+                    global_symbols
+                        .keys()
+                        .into_iter()
+                        .map(|s| s.clone())
+                        .filter(|name| name.starts_with(&node.name()))
+                        .collect::<Vec<String>>(),
+                ),
+            };
+
+            Ok(Some(CompletionResponse::Array(
+                suggestions
+                    .drain(0..)
+                    .map(|s| CompletionItem::new_simple(s, "Some detail".to_string()))
+                    .collect(),
+            )))
+        } else {
+            Ok(None)
+        }
     }
 }
 

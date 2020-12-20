@@ -908,6 +908,7 @@ impl Node {
                 (*traits_usages).iter().collect::<Vec<&Node>>()
             }
             Node::DocComment { var_docs, .. } => (*var_docs).iter().collect::<Vec<&Node>>(),
+            Node::Grouping(node) => vec![node],
             _ => Vec::new(),
         }
     }
@@ -1352,16 +1353,45 @@ impl Node {
                 tokens.first().unwrap().range().0,
                 tokens.last().unwrap().range().1,
             ),
-            Node::Literal(token) => token.range(),
-            _ => ((1, 1), (1, 1)),
+            Node::Literal(token) | Node::Variable(token) => token.range(),
+            _ => {
+                eprintln!("Implement range for {:?}!", self);
+                ((1, 1), (1, 1))
+            }
         }
     }
 
     pub fn name(&self) -> String {
         match self {
             Node::Variable(token) | Node::Literal(token) => format!("{}", token),
+            Node::TypeRef(type_ref) => type_ref
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<String>>()
+                .join(""),
             _ => String::new(),
         }
+    }
+
+    // TODO: Add other boundaries
+    pub fn scope_boundary(&self) -> bool {
+        match self {
+            Node::Function { .. } => true,
+
+            _ => false,
+        }
+    }
+
+    /// Returns all descendants of this node in a DFS manner
+    pub fn descendants<'a>(&'a self) -> Vec<&'a Node> {
+        let mut descendants = Vec::new();
+
+        for c in self.children() {
+            descendants.push(c);
+            descendants.extend(c.descendants());
+        }
+
+        descendants
     }
 }
 
