@@ -16,7 +16,7 @@
                 "RUST_BACKTRACE": "1"
             },
             "preLaunchTask": "build",
-            //"trace": true
+            "trace": true,
             //"cwd": "${workspaceRoot}/client"
         },
         {

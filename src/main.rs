@@ -14,7 +14,8 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, messages) = LspService::new(|client| Backend::new(client));
+    let (service, messages) =
+        LspService::new(|client| Backend::new(client, std::env::args().nth(2).unwrap()));
     Server::new(stdin, stdout)
         .interleave(messages)
         .serve(service)

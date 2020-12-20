@@ -22,15 +22,15 @@
 	"contributes": {
 		"configuration": {
 			"type": "object",
-			"title": "Example configuration",
+			"title": "phplsrs",
 			"properties": {
-				"languageServerExample.maxNumberOfProblems": {
-					"scope": "resource",
-					"type": "number",
-					"default": 100,
-					"description": "Controls the maximum number of problems produced by the server."
+				"phplsrs.stubs": {
+					"scope": "machine",
+					"type": "string",
+					"default": ".",
+					"description": "Path to the PHPStorm language stubs."
 				},
-				"languageServerExample.trace.server": {
+				"phplsrs.trace.server": {
 					"scope": "window",
 					"type": "string",
 					"enum": [
@@ -38,8 +38,8 @@
 						"messages",
 						"verbose"
 					],
-					"default": "off",
-					"description": "Traces the communication between VS Code and the language server."
+					"default": "messages",
+					"description": "Traces the communication between VS Code and the awesome language server."
 				}
 			}
 		}

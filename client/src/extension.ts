@@ -53,6 +53,10 @@ export function activate(context: ExtensionContext) {
 	const run: Executable = {
 		command: serverModule,
 		options: { cwd: "." },
+		args: [
+			'--stubs',
+			workspace.getConfiguration('phplsrs').get('stubs')
+		]
 	};
 
 	let serverOptions: ServerOptions = {
@@ -68,7 +72,7 @@ export function activate(context: ExtensionContext) {
 	};
 
 	client = new LanguageClient(
-		'phplsRs',
+		'phplsrs',
 		'PHP Language Server',
 		serverOptions,
 		clientOptions
