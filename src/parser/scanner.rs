@@ -797,9 +797,11 @@ impl Scanner {
         self.pos += 1;
 
         if let Some(c) = self.next() {
-            if c == '\n' || c == '\r' {
+            if c == '\n' {
                 self.line += 1;
                 self.col = 0;
+            } else if c == '\r' {
+                return self.advance();
             } else {
                 self.col += 1;
             }

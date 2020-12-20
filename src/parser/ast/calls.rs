@@ -139,11 +139,8 @@ fn finish_call(parser: &mut Parser, expr: Node) -> ExpressionResult {
 #[cfg(test)]
 mod tests {
     use crate::formatter::{format, FormatterOptions};
+    use crate::parser::scanner::Scanner;
     use crate::parser::Parser;
-    use crate::parser::{
-        scanner::Scanner,
-        token::{Token, TokenType},
-    };
 
     #[test]
     fn test_parses_array_access() {

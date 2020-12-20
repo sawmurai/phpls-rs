@@ -66,6 +66,9 @@ pub struct Backend {
 
     /// Map of latest edits on files
     pub latest_version_of_file: InFlightFileMutex,
+
+    /// Path to stdlib
+    stdlib: String,
 }
 
 impl From<&ParserError> for Diagnostic {
@@ -131,8 +134,12 @@ impl From<&Token> for Symbol {
     }
 }
 
+fn normalize_path(path: &PathBuf) -> String {
+    path.to_str().unwrap().to_owned()
+}
+
 impl Backend {
-    pub fn new(client: Client) -> Self {
+    pub fn new(client: Client, stdlib: String) -> Self {
         Backend {
             client,
             arena: Arc::new(Mutex::new(Arena::new())),
@@ -142,14 +149,13 @@ impl Backend {
             symbol_references: Arc::new(Mutex::new(HashMap::new())),
             opened_files: Arc::new(Mutex::new(HashMap::new())),
             latest_version_of_file: Arc::new(Mutex::new(HashMap::new())),
+            stdlib,
         }
     }
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-        let mut files = self.reindex_folder(&PathBuf::from(
-            "/home/sawmurai/develop/rust/phpls-rs/fixtures/phpstorm-stubs",
-        ))?;
+        let mut files = self.reindex_folder(&PathBuf::from(&self.stdlib))?;
 
         let mut joins = Vec::new();
         if let Ok(root_path) = url.to_file_path() {
@@ -172,9 +178,11 @@ impl Backend {
                 let diagnostics = self.diagnostics.clone();
 
                 joins.push(task::spawn(async move {
+                    let p = normalize_path(&path);
+
                     if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
                         let reindex_result = Backend::reindex(
-                            &path,
+                            &p,
                             &ast,
                             &range,
                             false,
@@ -195,10 +203,10 @@ impl Backend {
                         }
 
                         let diags = errors.iter().map(Diagnostic::from).collect();
-                        diagnostics.lock().await.insert(path, diags);
+                        diagnostics.lock().await.insert(p, diags);
                     } else {
                         // TODO: Publish errors as diagnostics
-                        eprintln!("Could not index {} due to syntax errors", path);
+                        eprintln!("Could not index {} due to syntax errors", p);
                     }
                 }));
             }
@@ -240,7 +248,7 @@ impl Backend {
     }
 
     // TODO: Filter out vendor tests
-    fn reindex_folder(&self, dir: &PathBuf) -> io::Result<Vec<String>> {
+    fn reindex_folder(&self, dir: &PathBuf) -> io::Result<Vec<PathBuf>> {
         let mut files = Vec::new();
 
         if dir.is_dir() {
@@ -268,8 +276,7 @@ impl Backend {
                     files.extend(self.reindex_folder(&path)?);
                 } else if let Some(ext) = path.extension() {
                     if ext == "php" {
-                        let p = path.to_str().unwrap().to_string();
-                        files.push(p);
+                        files.push(path);
                     }
                 }
             }
@@ -284,8 +291,6 @@ impl Backend {
         let mut scanner = Scanner::new(&source);
 
         if let Err(msg) = scanner.scan() {
-            eprintln!();
-
             return Err(format!("Could not read file: {}", &msg));
         }
 
@@ -405,7 +410,6 @@ impl Backend {
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         if let Some(url) = params.root_uri {
-            eprintln!("{:?}", url);
             match self.init_workspace(&url).await {
                 Ok(()) => {
                     eprintln!("Indexed root");
@@ -467,6 +471,8 @@ impl LanguageServer for Backend {
                 continue;
             }
 
+            eprintln!("{:?}", Url::from_file_path(file).unwrap());
+
             self.client
                 .publish_diagnostics(
                     Url::from_file_path(file).unwrap(),
@@ -520,10 +526,10 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let path = params.text_document.uri.path();
+        let file_path = normalize_path(&params.text_document.uri.to_file_path().unwrap());
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = self.files.lock().await.get(path) {
+        if let Some(node_id) = self.files.lock().await.get(&file_path) {
             return Ok(Some(DocumentSymbolResponse::Nested(
                 node_id
                     .children(&arena)
@@ -541,14 +547,17 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentHighlightParams,
     ) -> Result<Option<Vec<DocumentHighlight>>> {
-        let file = params
-            .text_document_position_params
-            .text_document
-            .uri
-            .path();
+        let file = normalize_path(
+            &params
+                .text_document_position_params
+                .text_document
+                .uri
+                .to_file_path()
+                .unwrap(),
+        );
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = self.files.lock().await.get(file) {
+        if let Some(node_id) = self.files.lock().await.get(&file) {
             return Ok(environment::document_highlights(
                 &params.text_document_position_params.position,
                 &arena,
@@ -560,9 +569,16 @@ impl LanguageServer for Backend {
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let file = params.text_document_position.text_document.uri.path();
+        let file = normalize_path(
+            &params
+                .text_document_position
+                .text_document
+                .uri
+                .to_file_path()
+                .unwrap(),
+        );
 
-        if let Some(_arena) = self.files.lock().await.get(file) {
+        if let Some(_arena) = self.files.lock().await.get(&file) {
         } else {
             eprintln!("File not found");
         }
@@ -575,7 +591,7 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
-        let file = uri.path();
+        let file = normalize_path(&uri.to_file_path().unwrap());
 
         let local_references = self.symbol_references.lock().await;
 
@@ -583,7 +599,7 @@ impl LanguageServer for Backend {
 
         let position = &params.text_document_position_params.position;
 
-        if let Some(references) = local_references.get(file) {
+        if let Some(references) = local_references.get(&file) {
             for reference in references {
                 if in_range(position, &get_range(reference.range)) {
                     if let Some(location) = environment::symbol_location(&arena, &reference.node) {
@@ -598,18 +614,19 @@ impl LanguageServer for Backend {
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         for change in params.changes {
-            let path = change.uri.path();
+            let file_path = change.uri.to_file_path().unwrap();
+            let path = normalize_path(&file_path);
 
             let arena = self.arena.clone();
             let global_symbols = self.global_symbols.clone();
             let files = self.files.clone();
             let references = self.symbol_references.clone();
             let diagnostics = self.diagnostics.clone();
-            let content = tokio::fs::read_to_string(path).await.unwrap();
+            let content = fs::read_to_string(file_path).unwrap();
 
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
                 let reindex_result = Backend::reindex(
-                    path,
+                    &path,
                     &ast,
                     &range,
                     false,
@@ -638,18 +655,19 @@ impl LanguageServer for Backend {
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        let path = params.text_document.uri.path();
+        let file_path = params.text_document.uri.to_file_path().unwrap();
+        let path = normalize_path(&file_path);
 
         let arena = self.arena.clone();
         let global_symbols = self.global_symbols.clone();
         let files = self.files.clone();
         let references = self.symbol_references.clone();
         let diagnostics = self.diagnostics.clone();
-        let content = tokio::fs::read_to_string(path).await.unwrap();
+        let content = fs::read_to_string(file_path).unwrap();
 
         if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
             let reindex_result = Backend::reindex(
-                path,
+                &path,
                 &ast,
                 &range,
                 false,
@@ -701,16 +719,7 @@ impl LanguageServer for Backend {
             }
         }
 
-        if let Some(diagnostics) = self.diagnostics.lock().await.get(path) {
-            // TODO: Add resolver here and collect unresolvable for diagnostics
-            if
-            /*file.contains("/vendor/")
-            || file.contains("/phpstorm-stubs/")
-            || */
-            diagnostics.is_empty() {
-                return;
-            }
-
+        if let Some(diagnostics) = self.diagnostics.lock().await.get(&path) {
             self.client
                 .publish_diagnostics(params.text_document.uri, diagnostics.clone(), None)
                 .await;
@@ -718,18 +727,14 @@ impl LanguageServer for Backend {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.opened_files
-            .lock()
-            .await
-            .remove(params.text_document.uri.path());
-        self.symbol_references
-            .lock()
-            .await
-            .remove(params.text_document.uri.path());
+        let p = normalize_path(&params.text_document.uri.to_file_path().unwrap());
+        self.opened_files.lock().await.remove(&p);
+        self.symbol_references.lock().await.remove(&p);
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let path = params.text_document.uri.path();
+        let file_path = params.text_document.uri.to_file_path().unwrap();
+        let path = normalize_path(&file_path);
         let arena = self.arena.clone();
         let global_symbols = self.global_symbols.clone();
         let files = self.files.clone();
@@ -737,12 +742,12 @@ impl LanguageServer for Backend {
         let diagnostics = self.diagnostics.clone();
         let mut opened_files = self.opened_files.lock().await;
 
-        if !opened_files.contains_key(path) {
+        if !opened_files.contains_key(&path) {
             self.client
                 .log_message(MessageType::Info, "Need to freshly index")
                 .await;
 
-            let source = tokio::fs::read_to_string(path).await.unwrap();
+            let source = fs::read_to_string(file_path).unwrap();
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
                 let diags = errors.iter().map(Diagnostic::from).collect();
                 diagnostics.lock().await.insert(path.to_owned(), diags);
@@ -756,7 +761,7 @@ impl LanguageServer for Backend {
             }
         }
 
-        let (ast, range) = if let Some((ast, range)) = opened_files.get(path) {
+        let (ast, range) = if let Some((ast, range)) = opened_files.get(&path) {
             self.client
                 .log_message(MessageType::Info, "Opened from cache")
                 .await;
@@ -770,7 +775,7 @@ impl LanguageServer for Backend {
         };
 
         if let Err(e) = Backend::reindex(
-            path,
+            &path,
             ast,
             range,
             true,
@@ -792,11 +797,7 @@ impl LanguageServer for Backend {
 
         let diagnostics = self.diagnostics.lock().await;
 
-        if let Some(diagnostics) = diagnostics.get(path) {
-            if diagnostics.is_empty() {
-                return;
-            }
-
+        if let Some(diagnostics) = diagnostics.get(&path) {
             self.client
                 .publish_diagnostics(
                     params.text_document.uri,
@@ -808,16 +809,19 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let file = params
-            .text_document_position_params
-            .text_document
-            .uri
-            .path();
+        let file = normalize_path(
+            &params
+                .text_document_position_params
+                .text_document
+                .uri
+                .to_file_path()
+                .unwrap(),
+        );
         let local_references = self.symbol_references.lock().await;
         let arena = self.arena.lock().await;
         let position = &params.text_document_position_params.position;
 
-        if let Some(references) = local_references.get(file) {
+        if let Some(references) = local_references.get(&file) {
             for reference in references {
                 if in_range(position, &get_range(reference.range)) {
                     let symbol = arena[reference.node].get();
