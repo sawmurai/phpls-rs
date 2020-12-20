@@ -443,7 +443,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     }
                 }
 
-                let method_name = format!("{}", name);
+                let method_name = name.to_string();
 
                 if let Some(current_class) = self.resolver.current_class {
                     for method in current_class.children(arena) {
