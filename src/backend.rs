@@ -499,6 +499,8 @@ impl LanguageServer for Backend {
         trigger_characters.push(String::from("$"));
         trigger_characters.push(String::from("_"));
         trigger_characters.push(String::from("\\"));
+        trigger_characters.push(String::from(":"));
+        trigger_characters.push(String::from(">"));
 
         Ok(InitializeResult {
             server_info: None,
@@ -697,6 +699,11 @@ impl LanguageServer for Backend {
             let file_path = change.uri.to_file_path().unwrap();
             let path = normalize_path(&file_path);
 
+            // If the file is currently opened we don't have to refresh
+            if self.opened_files.lock().await.contains_key(&path) {
+                return;
+            }
+
             let arena = self.arena.clone();
             let global_symbols = self.global_symbols.clone();
             let files = self.files.clone();
@@ -752,7 +759,7 @@ impl LanguageServer for Backend {
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
         let content = fs::read_to_string(uri.to_file_path().unwrap()).unwrap();
-        self.refresh_file(uri, &content).await;
+        //self.refresh_file(uri, &content).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -908,7 +915,7 @@ impl LanguageServer for Backend {
         if let Some((file_ast, _range)) = file_ast {
             let ast = file_ast;
 
-            let (node, ancestors) = if let Some((node, ancestors)) = ast
+            let (node, mut ancestors) = if let Some((node, ancestors)) = ast
                 .iter()
                 .filter_map(|n| suggester::find(n, &pos, Vec::new()))
                 .nth(0)
@@ -918,37 +925,113 @@ impl LanguageServer for Backend {
                 return Ok(None);
             };
 
-            eprintln!("{:?}", node);
-
             let mut suggestions = Vec::new();
+
+            match node {
+                AstNode::Missing(..) | AstNode::Literal(..) => {
+                    let parent = ancestors.pop();
+
+                    if let Some(parent) = ancestors.pop() {
+                        let mut range = parent.range();
+
+                        // Find the parent reference
+                        if let AstNode::Member { object, .. } = parent {
+                            if let AstNode::Call { callee, .. } = &**object {
+                                if let AstNode::Member { member, .. } = &**callee {
+                                    range = member.range();
+                                }
+                            }
+                        }
+                        let pos = Position {
+                            line: range.0 .0 as u64,
+                            character: range.0 .1 as u64,
+                        };
+
+                        let arena = self.arena.lock().await;
+                        let local_references = self.symbol_references.lock().await;
+
+                        if let Some(references) = local_references.get(&opened_file) {
+                            for reference in references {
+                                if in_range(&pos, &get_range(reference.range)) {
+                                    let resolved_object_variable = arena[reference.node].get();
+
+                                    // Direct children ($this, parent, self ...)
+                                    if resolved_object_variable.kind == PhpSymbolKind::Class {
+                                        reference.node.children(&arena).for_each(|child| {
+                                            suggestions.push(arena[child].get().name.clone());
+                                        });
+                                    }
+
+                                    // Children of data types with nodes
+                                    resolved_object_variable
+                                        .data_types
+                                        .iter()
+                                        .filter_map(|dt| dt.node)
+                                        .for_each(|node: NodeId| {
+                                            for child in node.children(&arena) {
+                                                suggestions.push(arena[child].get().name.clone());
+                                            }
+                                        });
+
+                                    // Children of data types that are merely type refs. Jump to the type ref and find its reference
+                                    resolved_object_variable
+                                        .data_types
+                                        .iter()
+                                        .filter_map(|dt| dt.type_ref.clone())
+                                        .for_each(|type_ref| {
+                                            let range = type_ref.first().unwrap().start();
+                                            let pos = Position {
+                                                line: range.0 as u64,
+                                                character: range.1 as u64,
+                                            };
+
+                                            for reference in references {
+                                                if in_range(&pos, &get_range(reference.range)) {
+                                                    for child in reference.node.children(&arena) {
+                                                        suggestions
+                                                            .push(arena[child].get().name.clone());
+                                                    }
+
+                                                    break;
+                                                }
+                                            }
+                                        });
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => (),
+            }
 
             match trigger {
                 Some('$') => suggestions.extend(suggest_variables(ancestors)),
+                Some('>') => (),
                 None => {
                     suggestions.extend(suggest_variables(ancestors));
                     suggestions.extend(
                         global_symbols
                             .keys()
                             .map(|s| s.trim_start_matches("\\").to_owned())
-                            .filter(|name| name.starts_with(&node.name()))
                             .collect::<Vec<String>>(),
                     )
                 }
                 _ => suggestions.extend(
                     global_symbols
                         .keys()
-                        .into_iter()
                         .map(|s| s.trim_start_matches("\\").to_owned())
-                        .filter(|name| name.starts_with(&node.name()))
                         .collect::<Vec<String>>(),
                 ),
             };
 
+            let prefix = node.name();
             Ok(Some(CompletionResponse::Array(
                 suggestions
                     .drain(0..)
+                    //.map(|s| s.trim_start_matches("\\").to_string())
+                    .filter(|s| s.to_string().starts_with(&prefix))
                     .map(|s| CompletionItem::new_simple(s, "Some detail".to_string()))
-                    .collect(),
+                    .collect::<Vec<CompletionItem>>(),
             )))
         } else {
             Ok(None)

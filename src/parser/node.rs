@@ -60,6 +60,8 @@ pub enum Node {
         colon: Token,
         false_arm: Box<Node>,
     },
+    /// Used as a placeholder for missing nodes. The token acts as an anchor
+    Missing(Token),
     Literal(Token),
     Variable(Token),
     LexicalVariable {
@@ -1354,6 +1356,7 @@ impl Node {
                 tokens.last().unwrap().range().1,
             ),
             Node::Literal(token) | Node::Variable(token) => token.range(),
+            Node::Missing(token) => token.range(),
             _ => {
                 eprintln!("Implement range for {:?}!", self);
                 ((1, 1), (1, 1))

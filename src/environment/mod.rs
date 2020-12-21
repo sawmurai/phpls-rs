@@ -99,7 +99,7 @@ mod tests {
                 character: 100,
             },
             end: Position {
-                line: 1,
+                line: 2,
                 character: 200,
             },
         };

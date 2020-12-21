@@ -392,6 +392,7 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
             .iter()
             .map(|n| n.clone().to_string())
             .collect::<String>(),
+        Node::Missing(..) => "<Missing>".to_string(),
         _ => unimplemented!("{:?}", node),
     }
 }
