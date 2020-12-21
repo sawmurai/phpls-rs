@@ -405,6 +405,77 @@ impl Backend {
 
         Ok(())
     }
+
+    async fn refresh_file(&self, uri: Url, src: &str) {
+        let file_path = uri.to_file_path().unwrap();
+        let path = normalize_path(&file_path);
+
+        let arena = self.arena.clone();
+        let global_symbols = self.global_symbols.clone();
+        let files = self.files.clone();
+        let references = self.symbol_references.clone();
+        let diagnostics = self.diagnostics.clone();
+
+        if let Ok((ast, range, errors)) = Backend::source_to_ast(&src) {
+            let reindex_result = Backend::reindex(
+                &path,
+                &ast,
+                &range,
+                false,
+                true,
+                arena.clone(),
+                global_symbols.clone(),
+                references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await;
+
+            let mut diagnostics = diagnostics.lock().await;
+
+            let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
+            diagnostics.clear();
+            diagnostics.extend(errors.iter().map(Diagnostic::from));
+
+            self.opened_files
+                .lock()
+                .await
+                .insert(path.to_string(), (ast.to_owned(), range));
+
+            if let Err(e) = reindex_result {
+                self.client.log_message(MessageType::Error, e).await;
+
+                return;
+            }
+        }
+
+        // Now reindex all the other current files to update references
+        for (path, (ast, range)) in self.opened_files.lock().await.iter() {
+            match Backend::reindex(
+                path,
+                &ast,
+                &range,
+                true,
+                false,
+                arena.clone(),
+                global_symbols.clone(),
+                references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            {
+                Err(err) => eprintln!("Error updating opened file after save of another: {}", err),
+                _ => (),
+            }
+        }
+
+        if let Some(diagnostics) = self.diagnostics.lock().await.get(&path) {
+            self.client
+                .publish_diagnostics(uri, diagnostics.clone(), None)
+                .await;
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -664,8 +735,8 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let _ = params;
-        let file_path = params.text_document.uri.to_file_path().unwrap();
+        let uri = params.text_document.uri;
+        let file_path = uri.to_file_path().unwrap();
         let path = normalize_path(&file_path);
 
         if let Some(changes) = params.content_changes.first() {
@@ -673,79 +744,15 @@ impl LanguageServer for Backend {
                 .lock()
                 .await
                 .insert(path, changes.text.clone());
+
+            self.refresh_file(uri, &changes.text).await;
         }
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        let file_path = params.text_document.uri.to_file_path().unwrap();
-        let path = normalize_path(&file_path);
-
-        let arena = self.arena.clone();
-        let global_symbols = self.global_symbols.clone();
-        let files = self.files.clone();
-        let references = self.symbol_references.clone();
-        let diagnostics = self.diagnostics.clone();
-        let content = fs::read_to_string(file_path).unwrap();
-
-        if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-            let reindex_result = Backend::reindex(
-                &path,
-                &ast,
-                &range,
-                false,
-                true,
-                arena.clone(),
-                global_symbols.clone(),
-                references.clone(),
-                files.clone(),
-                diagnostics.clone(),
-            )
-            .await;
-
-            let mut diagnostics = diagnostics.lock().await;
-
-            let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
-            diagnostics.clear();
-            diagnostics.extend(errors.iter().map(Diagnostic::from));
-
-            self.opened_files
-                .lock()
-                .await
-                .insert(path.to_string(), (ast.to_owned(), range));
-
-            if let Err(e) = reindex_result {
-                self.client.log_message(MessageType::Error, e).await;
-
-                return;
-            }
-        }
-
-        // Now reindex all the other current files to update references
-        for (path, (ast, range)) in self.opened_files.lock().await.iter() {
-            match Backend::reindex(
-                path,
-                &ast,
-                &range,
-                true,
-                false,
-                arena.clone(),
-                global_symbols.clone(),
-                references.clone(),
-                files.clone(),
-                diagnostics.clone(),
-            )
-            .await
-            {
-                Err(err) => eprintln!("Error updating opened file after save of another: {}", err),
-                _ => (),
-            }
-        }
-
-        if let Some(diagnostics) = self.diagnostics.lock().await.get(&path) {
-            self.client
-                .publish_diagnostics(params.text_document.uri, diagnostics.clone(), None)
-                .await;
-        }
+        let uri = params.text_document.uri;
+        let content = fs::read_to_string(uri.to_file_path().unwrap()).unwrap();
+        self.refresh_file(uri, &content).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -873,6 +880,7 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let global_symbols = self.global_symbols.lock().await;
+        let opened_files = self.opened_files.lock().await;
 
         let opened_file = normalize_path(
             &params
@@ -882,13 +890,7 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-        let file_ast = Backend::source_to_ast(
-            self.latest_version_of_file
-                .lock()
-                .await
-                .get(&opened_file)
-                .unwrap_or(&String::new()),
-        );
+        let file_ast = opened_files.get(&opened_file);
 
         let trigger = if let Some(context) = params.context {
             if let Some(tc) = context.trigger_character {
@@ -903,8 +905,8 @@ impl LanguageServer for Backend {
         let mut pos = params.text_document_position.position;
         pos.character -= 1;
 
-        if let Ok(file_ast) = file_ast {
-            let ast = file_ast.0;
+        if let Some((file_ast, _range)) = file_ast {
+            let ast = file_ast;
 
             let (node, ancestors) = if let Some((node, ancestors)) = ast
                 .iter()
@@ -927,7 +929,7 @@ impl LanguageServer for Backend {
                     suggestions.extend(
                         global_symbols
                             .keys()
-                            .map(|s| s.clone())
+                            .map(|s| s.trim_start_matches("\\").to_owned())
                             .filter(|name| name.starts_with(&node.name()))
                             .collect::<Vec<String>>(),
                     )
@@ -936,7 +938,7 @@ impl LanguageServer for Backend {
                     global_symbols
                         .keys()
                         .into_iter()
-                        .map(|s| s.clone())
+                        .map(|s| s.trim_start_matches("\\").to_owned())
                         .filter(|name| name.starts_with(&node.name()))
                         .collect::<Vec<String>>(),
                 ),

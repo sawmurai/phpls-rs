@@ -65,7 +65,7 @@ impl<'a> NameResolver<'a> {
         self.diagnostics.clone()
     }
 
-    /// Push a diagnotic message to the queue
+    /// Push a diagnostic message to the queue
     pub fn diagnostic(&mut self, file: String, range: NodeRange, message: String) {
         self.diagnostics.push((file, range, message));
     }
@@ -733,9 +733,18 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
             }
         };
 
-        if let Some(mut root_node) = root_node {
-            let orig_root = root_node;
+        // Store the name of the currently viewed file to be able to display diagnostics
+        let file_name = arena[self
+            .resolver
+            .scope_container
+            .ancestors(arena)
+            .last()
+            .unwrap()]
+        .get()
+        .name
+        .clone();
 
+        if let Some(mut root_node) = root_node {
             // $this (root_node) will have resolved to the definition of the class
             // of the object
             'link_loop: for link in reversed_chain.iter().rev() {
@@ -752,11 +761,6 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         if child_symbol.name == link.name() {
                             // Name must be unique, so we can bail out if we find a name that has a bad visibility
                             if child_symbol.visibility < minimal_visibility {
-                                let file_name = arena[orig_root.ancestors(arena).last().unwrap()]
-                                    .get()
-                                    .name
-                                    .clone();
-
                                 self.resolver.diagnostic(
                                     file_name,
                                     link.range(),
@@ -878,7 +882,6 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                     // No parents, so no luck
                     if current_class.inherits_from.is_empty() {
-                        eprintln!("Failed, no parents");
                         break;
                     }
 
@@ -893,12 +896,18 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         continue;
                     }
 
-                    eprintln!("Failed, no resolvable parents");
+                    //Failed, no resolvable parents
+                    self.resolver.diagnostic(
+                        file_name,
+                        link.range(),
+                        "Unresolvable symbol".to_owned(),
+                    );
+
                     return None;
                 }
 
-                // Nothing found :(
-                eprintln!("Failed, link {} unresolvable", link.name());
+                self.resolver
+                    .diagnostic(file_name, link.range(), "Unresolvable symbol".to_owned());
                 return None;
             }
 
