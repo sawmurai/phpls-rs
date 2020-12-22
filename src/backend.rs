@@ -12,7 +12,6 @@ use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
 use crate::suggester;
-use crate::suggester::suggest_variables;
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use std::fs;
@@ -449,7 +448,7 @@ impl Backend {
             }
         }
 
-        // Now reindex all the other current files to update references
+        // Now reindex all the other currently opened files to update references
         for (path, (ast, range)) in self.opened_files.lock().await.iter() {
             match Backend::reindex(
                 path,
@@ -510,7 +509,7 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(false),
+                    resolve_provider: Some(true),
                     trigger_characters: Some(trigger_characters),
                     work_done_progress_options: Default::default(),
                 }),
@@ -888,6 +887,7 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let global_symbols = self.global_symbols.lock().await;
         let opened_files = self.opened_files.lock().await;
+        let arena = self.arena.lock().await;
 
         let opened_file = normalize_path(
             &params
@@ -909,133 +909,34 @@ impl LanguageServer for Backend {
             None
         };
 
-        let mut pos = params.text_document_position.position;
-        pos.character -= 1;
-
         if let Some((file_ast, _range)) = file_ast {
             let ast = file_ast;
 
-            let (node, mut ancestors) = if let Some((node, ancestors)) = ast
-                .iter()
-                .filter_map(|n| suggester::find(n, &pos, Vec::new()))
-                .nth(0)
-            {
-                (node, ancestors)
-            } else {
-                return Ok(None);
-            };
+            let local_references = self.symbol_references.lock().await;
+            if let Some(references) = local_references.get(&opened_file) {
+                let mut suggestions = suggester::get_suggestions_at(
+                    trigger,
+                    params.text_document_position.position,
+                    ast,
+                    &arena,
+                    &global_symbols,
+                    references,
+                );
 
-            let mut suggestions = Vec::new();
-
-            match node {
-                AstNode::Missing(..) | AstNode::Literal(..) => {
-                    let parent = ancestors.pop();
-
-                    if let Some(parent) = ancestors.pop() {
-                        let mut range = parent.range();
-
-                        // Find the parent reference
-                        if let AstNode::Member { object, .. } = parent {
-                            if let AstNode::Call { callee, .. } = &**object {
-                                if let AstNode::Member { member, .. } = &**callee {
-                                    range = member.range();
-                                }
-                            }
-                        }
-                        let pos = Position {
-                            line: range.0 .0 as u64,
-                            character: range.0 .1 as u64,
-                        };
-
-                        let arena = self.arena.lock().await;
-                        let local_references = self.symbol_references.lock().await;
-
-                        if let Some(references) = local_references.get(&opened_file) {
-                            for reference in references {
-                                if in_range(&pos, &get_range(reference.range)) {
-                                    let resolved_object_variable = arena[reference.node].get();
-
-                                    // Direct children ($this, parent, self ...)
-                                    if resolved_object_variable.kind == PhpSymbolKind::Class {
-                                        reference.node.children(&arena).for_each(|child| {
-                                            suggestions.push(arena[child].get().name.clone());
-                                        });
-                                    }
-
-                                    // Children of data types with nodes
-                                    resolved_object_variable
-                                        .data_types
-                                        .iter()
-                                        .filter_map(|dt| dt.node)
-                                        .for_each(|node: NodeId| {
-                                            for child in node.children(&arena) {
-                                                suggestions.push(arena[child].get().name.clone());
-                                            }
-                                        });
-
-                                    // Children of data types that are merely type refs. Jump to the type ref and find its reference
-                                    resolved_object_variable
-                                        .data_types
-                                        .iter()
-                                        .filter_map(|dt| dt.type_ref.clone())
-                                        .for_each(|type_ref| {
-                                            let range = type_ref.first().unwrap().start();
-                                            let pos = Position {
-                                                line: range.0 as u64,
-                                                character: range.1 as u64,
-                                            };
-
-                                            for reference in references {
-                                                if in_range(&pos, &get_range(reference.range)) {
-                                                    for child in reference.node.children(&arena) {
-                                                        suggestions
-                                                            .push(arena[child].get().name.clone());
-                                                    }
-
-                                                    break;
-                                                }
-                                            }
-                                        });
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => (),
+                return Ok(Some(CompletionResponse::Array(
+                    suggestions
+                        .drain(0..)
+                        .map(|s| CompletionItem::new_simple(s.label, s.description))
+                        .collect::<Vec<CompletionItem>>(),
+                )));
             }
-
-            match trigger {
-                Some('$') => suggestions.extend(suggest_variables(ancestors)),
-                Some('>') => (),
-                None => {
-                    suggestions.extend(suggest_variables(ancestors));
-                    suggestions.extend(
-                        global_symbols
-                            .keys()
-                            .map(|s| s.trim_start_matches("\\").to_owned())
-                            .collect::<Vec<String>>(),
-                    )
-                }
-                _ => suggestions.extend(
-                    global_symbols
-                        .keys()
-                        .map(|s| s.trim_start_matches("\\").to_owned())
-                        .collect::<Vec<String>>(),
-                ),
-            };
-
-            let prefix = node.name();
-            Ok(Some(CompletionResponse::Array(
-                suggestions
-                    .drain(0..)
-                    //.map(|s| s.trim_start_matches("\\").to_string())
-                    .filter(|s| s.to_string().starts_with(&prefix))
-                    .map(|s| CompletionItem::new_simple(s, "Some detail".to_string()))
-                    .collect::<Vec<CompletionItem>>(),
-            )))
-        } else {
-            Ok(None)
         }
+
+        Ok(None)
+    }
+
+    async fn completion_resolve(&self, params: CompletionItem) -> Result<CompletionItem> {
+        Ok(params)
     }
 }
 

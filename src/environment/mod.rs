@@ -89,7 +89,7 @@ pub fn in_range(position: &Position, range: &Range) -> bool {
 #[cfg(test)]
 mod tests {
     use super::get_range;
-    use tower_lsp::lsp_types::{DocumentHighlight, Location, Position, Range, Url};
+    use tower_lsp::lsp_types::{Position, Range};
 
     #[test]
     fn test_converts_ranges() {

@@ -1,9 +1,9 @@
 use super::get_range;
-use crate::environment::import::SymbolImport;
 use crate::environment::scope::Reference;
 use crate::parser::token::{Token, TokenType};
+use crate::{environment::import::SymbolImport, parser::ast::types};
 use indextree::{Arena, NodeId};
-use std::cmp::PartialOrd;
+use std::{cmp::PartialOrd, fmt::Display};
 use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Range, SymbolKind};
 
 /// An extension if the LSP-type "SymbolKind"
@@ -43,6 +43,21 @@ pub enum Visibility {
     Public,
     Protected,
     Private,
+}
+
+impl Display for Visibility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Visibility::None => "",
+                Visibility::Public => "public",
+                Visibility::Protected => "protected",
+                Visibility::Private => "private",
+            },
+        )
+    }
 }
 
 impl PartialOrd for Visibility {
@@ -101,9 +116,6 @@ pub struct Symbol {
     /// to display meaningful error messages
     pub inherits_from: Vec<Reference>,
 
-    /// Id of the node this node references (if it is not a definition)
-    pub references: Option<Reference>,
-
     /// Ids of the symbols defining the possible types this symbol can have
     pub data_types: Vec<Reference>,
 
@@ -123,7 +135,6 @@ impl Default for Symbol {
             selection_range: get_range(((0, 0), (0, 0))),
             deprecated: None,
             inherits_from: Vec::new(),
-            references: None,
             data_types: Vec::new(),
             is_static: false,
             imports: None,
@@ -180,13 +191,19 @@ impl PhpSymbolKind {
 impl Symbol {
     pub fn detail(&self) -> Option<String> {
         match self.kind {
-            PhpSymbolKind::Method => Some(
-                self.data_types
+            PhpSymbolKind::Method => {
+                let types = self
+                    .data_types
                     .iter()
                     .map(std::string::ToString::to_string)
                     .collect::<Vec<String>>()
-                    .join(" | "),
-            ),
+                    .join(" | ");
+
+                Some(format!(
+                    "{} function {}(): {}",
+                    self.visibility, self.name, types
+                ))
+            }
             _ => None,
         }
     }

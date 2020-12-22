@@ -178,7 +178,7 @@ impl<'a> NameResolver<'a> {
         }
     }
 
-    /// Resolve a TypeRef `Some\Name\Space` to the node if the definition of that symbol
+    /// Resolve a TypeRef `Some\Name\Space` to the node of the definition of that symbol
     pub fn resolve_type_ref(
         &mut self,
         tokens: &[Token],
