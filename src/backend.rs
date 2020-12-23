@@ -163,7 +163,7 @@ impl Backend {
             files.extend(self.reindex_folder(&root_path)?);
 
             for path in files {
-                let content = match fs::read_to_string(&path) {
+                let content = match tokio::fs::read_to_string(&path).await {
                     Ok(content) => content,
                     Err(error) => {
                         eprintln!("{}", error);
@@ -709,7 +709,7 @@ impl LanguageServer for Backend {
             let files = self.files.clone();
             let references = self.symbol_references.clone();
             let diagnostics = self.diagnostics.clone();
-            let content = fs::read_to_string(file_path).unwrap();
+            let content = tokio::fs::read_to_string(file_path).await.unwrap();
 
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
                 let reindex_result = Backend::reindex(
@@ -758,7 +758,9 @@ impl LanguageServer for Backend {
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
-        let content = fs::read_to_string(uri.to_file_path().unwrap()).unwrap();
+        let content = tokio::fs::read_to_string(uri.to_file_path().unwrap())
+            .await
+            .unwrap();
         //self.refresh_file(uri, &content).await;
     }
 
@@ -784,7 +786,7 @@ impl LanguageServer for Backend {
                 .log_message(MessageType::Info, "Need to freshly index")
                 .await;
 
-            let source = fs::read_to_string(file_path).unwrap();
+            let source = tokio::fs::read_to_string(file_path).await.unwrap();
             self.latest_version_of_file
                 .lock()
                 .await
