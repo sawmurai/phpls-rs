@@ -256,12 +256,18 @@ pub fn get_suggestions_at(
 
 #[cfg(test)]
 mod tests {
+    use crate::environment::symbol::{PhpSymbolKind, Symbol};
+
     use super::super::backend::NodeMapMutex;
     use super::super::parser::scanner::Scanner;
     use super::super::parser::Parser;
 
     #[test]
-    fn test_suggest_global_symbol_for_start_of_new_token() {
-        assert!(false)
+    fn test_suggest_members_of_class_and_its_parents() {
+        let animal = Symbol {
+            kind: PhpSymbolKind::Class,
+            name: "Cat".to_owned(),
+            ..Symbol::default()
+        };
     }
 }

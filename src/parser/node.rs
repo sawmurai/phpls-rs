@@ -227,7 +227,7 @@ pub enum Node {
     Class {
         token: Token,
         arguments: Option<Vec<Node>>,
-        extends: Option<Vec<Node>>,
+        extends: Option<Box<Node>>,
         implements: Option<Vec<Node>>,
         body: Box<Node>,
     },
@@ -371,7 +371,7 @@ pub enum Node {
         is_abstract: Option<Token>,
         is_final: Option<Token>,
         implements: Option<Vec<Node>>,
-        extends: Option<Vec<Node>>,
+        extends: Option<Box<Node>>,
         body: Box<Node>,
         doc_comment: Option<Box<Node>>,
     },
@@ -384,7 +384,7 @@ pub enum Node {
     Interface {
         token: Token,
         name: Token,
-        extends: Option<Vec<Node>>,
+        extends: Option<Box<Node>>,
         body: Box<Node>,
         doc_comment: Option<Box<Node>>,
     },
@@ -716,7 +716,7 @@ impl Node {
                 }
 
                 if let Some(extends) = extends {
-                    children.extend((*extends).iter().collect::<Vec<&Node>>());
+                    children.push(&**extends);
                 }
 
                 if let Some(implements) = implements {
@@ -749,7 +749,7 @@ impl Node {
                 let mut children: Vec<&Node> = Vec::new();
 
                 if let Some(extends) = extends {
-                    children.extend((*extends).iter().collect::<Vec<&Node>>());
+                    children.push(&**extends);
                 }
 
                 if let Some(implements) = implements {
@@ -807,7 +807,7 @@ impl Node {
                 let mut children: Vec<&Node> = Vec::new();
 
                 if let Some(extends) = extends {
-                    children.extend((*extends).iter().collect::<Vec<&Node>>());
+                    children.push(&**extends);
                 }
 
                 children.push(body);

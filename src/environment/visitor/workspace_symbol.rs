@@ -98,14 +98,13 @@ impl Visitor for WorkspaceSymbolVisitor {
             }
             AstNode::ClassStatement { name, extends, .. } => {
                 let inherits_from = if let Some(extends) = extends {
-                    extends
-                        .iter()
-                        .map(|parent| get_type_ref(parent))
-                        .filter(std::option::Option::is_some)
-                        .map(|filtered| Reference::type_ref(filtered.unwrap()))
-                        .collect()
+                    if let Some(extends) = get_type_ref(extends) {
+                        Some(Reference::type_ref(extends))
+                    } else {
+                        None
+                    }
                 } else {
-                    Vec::new()
+                    None
                 };
                 let selection_range = get_range(name.range());
                 let name = name.clone().label.unwrap();
@@ -145,14 +144,13 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let name = name.clone().label.unwrap();
                 let range = get_range(node.range());
                 let inherits_from = if let Some(extends) = extends {
-                    extends
-                        .iter()
-                        .map(|parent| get_type_ref(parent))
-                        .filter(std::option::Option::is_some)
-                        .map(|filtered| Reference::type_ref(filtered.unwrap()))
-                        .collect()
+                    if let Some(extends) = get_type_ref(extends) {
+                        Some(Reference::type_ref(extends))
+                    } else {
+                        None
+                    }
                 } else {
-                    Vec::new()
+                    None
                 };
 
                 let child = arena.new_node(Symbol {
@@ -311,7 +309,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                     kind: PhpSymbolKind::Function,
                     range: get_range(node.range()),
                     selection_range: get_range(name.range()),
-                    inherits_from: Vec::new(),
                     data_types,
                     ..Symbol::default()
                 });

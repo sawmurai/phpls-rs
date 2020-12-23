@@ -114,7 +114,7 @@ pub struct Symbol {
     /// Parent symbol(s) (used for inheritance)
     /// While multi inheritance is not supported in PHP, we still collect all parents
     /// to display meaningful error messages
-    pub inherits_from: Vec<Reference>,
+    pub inherits_from: Option<Reference>,
 
     /// Ids of the symbols defining the possible types this symbol can have
     pub data_types: Vec<Reference>,
@@ -134,7 +134,7 @@ impl Default for Symbol {
             range: get_range(((0, 0), (0, 0))),
             selection_range: get_range(((0, 0), (0, 0))),
             deprecated: None,
-            inherits_from: Vec::new(),
+            inherits_from: None,
             data_types: Vec::new(),
             is_static: false,
             imports: None,

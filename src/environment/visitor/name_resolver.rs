@@ -353,10 +353,11 @@ impl<'a> NameResolver<'a> {
         arena: &Arena<Symbol>,
         context_anchor: &NodeId,
     ) -> Option<NodeId> {
-        let inherits_from = current_class.inherits_from.first().unwrap();
-        if let Some(type_ref) = inherits_from.type_ref.as_ref() {
-            if let Some(parent_class) = self.resolve_type_ref(type_ref, arena, context_anchor) {
-                return Some(parent_class);
+        if let Some(inherits_from) = current_class.inherits_from.as_ref() {
+            if let Some(type_ref) = inherits_from.type_ref.as_ref() {
+                if let Some(parent_class) = self.resolve_type_ref(type_ref, arena, context_anchor) {
+                    return Some(parent_class);
+                }
             }
         }
 
@@ -881,7 +882,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     let current_class = arena[root_node].get();
 
                     // No parents, so no luck
-                    if current_class.inherits_from.is_empty() {
+                    if current_class.inherits_from.is_none() {
                         break;
                     }
 
