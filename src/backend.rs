@@ -12,12 +12,11 @@ use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
 use crate::suggester;
-use environment::symbol::Visibility;
 use indextree::{Arena, NodeId};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::{collections::HashMap, thread::current};
 use suggester::Suggestion;
 use tokio::io::{self};
 use tokio::sync::Mutex;
@@ -36,12 +35,12 @@ use tower_lsp::lsp_types::{
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
 
-type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
-type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
+pub(crate) type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
+pub(crate) type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
 pub(crate) type NodeMapMutex = Arc<Mutex<HashMap<String, NodeId>>>;
-type DiagnosticsMutex = Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>;
-type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
-type InFlightFileMutex = Arc<Mutex<HashMap<String, String>>>;
+pub(crate) type DiagnosticsMutex = Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>;
+pub(crate) type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
+pub(crate) type InFlightFileMutex = Arc<Mutex<HashMap<String, String>>>;
 
 /// Represents the backend of the language server.
 pub struct Backend {
@@ -305,7 +304,7 @@ impl Backend {
         }
     }
 
-    async fn reindex(
+    pub(crate) async fn reindex(
         path: &str,
         ast: &[AstNode],
         range: &Range,
@@ -938,7 +937,7 @@ impl LanguageServer for Backend {
 
                 return Ok(Some(CompletionResponse::Array(
                     suggestions
-                        .drain(0..)
+                        .drain(..)
                         .map(|s| {
                             let s = arena[s].get();
                             let s = Suggestion::from(s);

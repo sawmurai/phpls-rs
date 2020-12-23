@@ -291,7 +291,7 @@ fn trait_usages(parser: &mut Parser) -> ExpressionListResult {
         }
     }
 
-    for type_ref in type_refs.drain(0..) {
+    for type_ref in type_refs.drain(..) {
         usages.push(Node::UseTrait {
             type_ref: Box::new(type_ref),
         });

@@ -88,6 +88,11 @@ fn suggest_variables(ancestors: Vec<&AstNode>) -> Vec<Suggestion> {
     suggestions
 }
 
+/// Collect the members of a class
+///
+/// * referenced_node: The node representing the class whose members to collect
+/// * arena: A reference to the memory arena
+/// * global_symbols: The lookup table of globally registered symbols
 fn members_of(
     referenced_node: NodeId,
     arena: &Arena<Symbol>,
@@ -103,7 +108,7 @@ fn members_of(
     // Direct children ($this, parent, self ...)
     if resolved_object_variable.kind == PhpSymbolKind::Class {
         suggestions
-            .extend(members_of_parents_of(referenced_node, &arena, &global_symbols).drain(0..));
+            .extend(members_of_parents_of(referenced_node, &arena, &global_symbols).drain(..));
 
         referenced_node.children(&arena).for_each(|child| {
             suggestions.push(child);
@@ -120,7 +125,7 @@ fn members_of(
         .filter_map(|dt| dt.node)
         .for_each(|node: NodeId| {
             eprintln!("Reference has a node");
-            suggestions.extend(members_of(node, &arena, &global_symbols).drain(0..));
+            suggestions.extend(members_of(node, &arena, &global_symbols).drain(..));
         });
 
     // Children of data types that are merely type refs. Jump to the type ref and find its reference
@@ -133,14 +138,18 @@ fn members_of(
 
             let mut resolver = NameResolver::new(&global_symbols, referenced_node);
             if let Some(node) = resolver.resolve_type_ref(&type_ref, &arena, &referenced_node) {
-                suggestions.extend(members_of_parents_of(node, &arena, &global_symbols).drain(0..));
+                suggestions.extend(members_of_parents_of(node, &arena, &global_symbols).drain(..));
             }
         });
 
     suggestions
 }
 
-/// Suggest members of the referenced node and its parents
+/// Collect the members of a classes ancestors
+///
+/// * referenced_node: The node representing the class whose members to collect
+/// * arena: A reference to the memory arena
+/// * global_symbols: The lookup table of globally registered symbols
 fn members_of_parents_of(
     reference_node: NodeId,
     arena: &Arena<Symbol>,
@@ -152,16 +161,26 @@ fn members_of_parents_of(
 
     let mut resolver = NameResolver::new(&global_symbols, reference_node);
     if let Some(parent) = dt_class.get_parent_node(&reference_node, &mut resolver, arena) {
+        eprintln!("which could be resolved");
         parent.children(&arena).for_each(|child| {
             suggestions.push(child);
         });
 
-        suggestions.extend(members_of_parents_of(parent, arena, global_symbols).drain(0..));
+        suggestions.extend(members_of_parents_of(parent, arena, global_symbols).drain(..));
     }
 
     suggestions
 }
 
+/// Get suggestions for a given position in the code
+///
+/// * trigger: Optionally, a character that triggered the completion request
+/// * pos: The cursor position
+/// * symbol_under_cursor: The current symbol under the cursor. Can be a method body, a class body, a file or a variable
+/// * ast: A full AST of the current source. Required since the symbols are only stored in a reduced manner
+/// * arena: A reference to the memory arena storing all the symbols
+/// * global_symbols: A lookup table to globally available symbols
+/// * references: Collected references in the current document
 pub fn get_suggestions_at(
     trigger: Option<char>,
     mut pos: Position,
@@ -182,6 +201,7 @@ pub fn get_suggestions_at(
         ancestors.pop();
         (node, ancestors)
     } else {
+        eprintln!("Did not find the node");
         return Vec::new();
     };
 
@@ -189,7 +209,7 @@ pub fn get_suggestions_at(
 
     let parent = ancestors.pop();
 
-    eprintln!("{:?}", node);
+    eprintln!(">>> {:?}", node);
 
     match node {
         AstNode::Missing(..) | AstNode::Literal(..) => {
@@ -208,6 +228,8 @@ pub fn get_suggestions_at(
                     line: range.0 .0 as u64,
                     character: range.0 .1 as u64,
                 };
+
+                eprintln!("Searching for references at {:?}", range.0);
 
                 for reference in references {
                     if in_range(&pos, &get_range(reference.range)) {
@@ -244,7 +266,7 @@ pub fn get_suggestions_at(
 
                         suggestions.extend(
                             members_of(reference.node, &arena, &global_symbols)
-                                .drain(0..)
+                                .drain(..)
                                 .filter(|n| {
                                     let s = arena[*n].get();
 
@@ -290,13 +312,22 @@ pub fn get_suggestions_at(
 mod tests {
     use std::collections::HashMap;
 
-    use super::{super::parser::token::*, Suggestion};
-    use crate::environment::{
-        import::SymbolImport,
-        scope::Reference,
-        symbol::{PhpSymbolKind, Symbol, Visibility},
+    use super::super::parser::token::*;
+    use crate::{
+        backend::Backend,
+        environment::{
+            get_range,
+            import::SymbolImport,
+            scope::Reference,
+            symbol::{PhpSymbolKind, Symbol, Visibility},
+        },
+        parser,
     };
     use indextree::Arena;
+    use parser::{scanner::Scanner, Parser};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use tower_lsp::lsp_types::Position;
 
     macro_rules! variable {
         ($arena:expr, $name:expr, $node: expr) => {{
@@ -433,5 +464,81 @@ mod tests {
         assert_eq!(am2_node, actual[1]);
         assert_eq!(cm1_node, actual[2]);
         assert_eq!(cm2_node, actual[3]);
+    }
+
+    #[tokio::test]
+    async fn test_suggests_accessible_members_of_class_and_its_parents() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            (
+                "living.php",
+                "<?php namespace App; class Living { public function getPulse() { } }",
+            ),
+            (
+                "animal.php",
+                "<?php namespace App; class Animal extends Living { protected function getType() { } }",
+            ),
+            (
+                "cat.php",
+                "<?php namespace App; class Cat extends Animal { public function getName() { } }",
+            ),
+            ("index.php", "<?php use App\\Cat; $cat = new Cat(); $cat->"),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        let files = files.lock().await;
+        let arena = arena.lock().await;
+        let global_symbols = global_symbols.lock().await;
+        let symbol_references = symbol_references.lock().await;
+        let mut scanner = Scanner::new(&sources[3].1);
+        scanner.scan().unwrap();
+        let pr = Parser::ast(scanner.tokens).unwrap();
+        let pos = Position {
+            line: 0,
+            character: 43,
+        };
+        let references = symbol_references.get("index.php").unwrap();
+        let suc = files.get("index.php").unwrap();
+        let actual = super::get_suggestions_at(
+            Some('>'),
+            pos,
+            *suc,
+            &pr.0,
+            &arena,
+            &global_symbols,
+            references,
+        );
+
+        assert_eq!("getPulse", arena[actual[0]].get().name);
+        assert_eq!("getName", arena[actual[1]].get().name);
     }
 }
