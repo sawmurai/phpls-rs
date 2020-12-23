@@ -12,11 +12,13 @@ use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
 use crate::suggester;
+use environment::symbol::Visibility;
 use indextree::{Arena, NodeId};
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{collections::HashMap, thread::current};
+use suggester::Suggestion;
 use tokio::io::{self};
 use tokio::sync::Mutex;
 use tokio::task;
@@ -888,6 +890,7 @@ impl LanguageServer for Backend {
         let global_symbols = self.global_symbols.lock().await;
         let opened_files = self.opened_files.lock().await;
         let arena = self.arena.lock().await;
+        let pos = params.text_document_position.position;
 
         let opened_file = normalize_path(
             &params
@@ -912,11 +915,21 @@ impl LanguageServer for Backend {
         if let Some((file_ast, _range)) = file_ast {
             let ast = file_ast;
 
+            let files = self.files.lock().await;
+            let symbol_under_cursor = if let Some(current_file_symbol) = files.get(&opened_file) {
+                arena[*current_file_symbol]
+                    .get()
+                    .symbol_at(&pos, *current_file_symbol, &arena)
+            } else {
+                return Ok(None);
+            };
+
             let local_references = self.symbol_references.lock().await;
             if let Some(references) = local_references.get(&opened_file) {
                 let mut suggestions = suggester::get_suggestions_at(
                     trigger,
-                    params.text_document_position.position,
+                    pos,
+                    symbol_under_cursor,
                     ast,
                     &arena,
                     &global_symbols,
@@ -926,7 +939,12 @@ impl LanguageServer for Backend {
                 return Ok(Some(CompletionResponse::Array(
                     suggestions
                         .drain(0..)
-                        .map(|s| CompletionItem::new_simple(s.label, s.description))
+                        .map(|s| {
+                            let s = arena[s].get();
+                            let s = Suggestion::from(s);
+
+                            CompletionItem::new_simple(s.label, s.description)
+                        })
                         .collect::<Vec<CompletionItem>>(),
                 )));
             }
