@@ -396,7 +396,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
     /// Decides if a symbol is worth collecting
     fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) -> NextAction {
         match node {
-            AstNode::UseStatement { .. } => NextAction::ProcessChildren,
+            AstNode::UseStatement { .. } => NextAction::ProcessChildren(parent),
             AstNode::UseDeclaration { declaration, .. } => {
                 if let AstNode::TypeRef(type_ref) = declaration.as_ref() {
                     let name = type_ref
@@ -428,7 +428,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     self.resolver.enter_class(current_class);
                 }
 
-                NextAction::ProcessChildren
+                NextAction::ProcessChildren(parent)
             }
             AstNode::MethodDefinitionStatement {
                 name, doc_comment, ..
@@ -459,7 +459,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 // Push scope for method arguments and body
                 self.resolver.push_scope();
 
-                NextAction::ProcessChildren
+                NextAction::ProcessChildren(parent)
             }
             AstNode::Variable(token) => {
                 if let Some(node) = self.resolver.get_local(token) {
@@ -513,7 +513,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 self.resolver.scope_container.append(child, arena);
                 self.resolver.declare_local(var, child);
 
-                NextAction::ProcessChildren
+                NextAction::ProcessChildren(parent)
             }
             AstNode::FunctionArgument {
                 name,
@@ -552,7 +552,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 self.resolver.scope_container.append(child, arena);
                 self.resolver.declare_local(name, child);
 
-                NextAction::ProcessChildren
+                NextAction::ProcessChildren(parent)
             }
             AstNode::ReturnType { .. } => {
                 get_type_refs(node).iter().for_each(|tr| {
@@ -583,7 +583,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     }
                 }
 
-                NextAction::ProcessChildren
+                NextAction::ProcessChildren(parent)
             }
             AstNode::StaticMember { .. } | AstNode::Member { .. } => {
                 self.resolve_member_type(node, arena);
@@ -591,7 +591,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 NextAction::Abort
             }
             AstNode::NamespaceStatement { .. } => NextAction::Abort,
-            _ => NextAction::ProcessChildren,
+            _ => NextAction::ProcessChildren(parent),
         }
     }
 

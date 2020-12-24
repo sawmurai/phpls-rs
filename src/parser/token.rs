@@ -332,10 +332,7 @@ impl Token {
             return (label.len() + 1) as u32;
         }
 
-        match self.t {
-            TokenType::Class => 5,
-            _ => 1,
-        }
+        self.to_string().len() as u32
     }
 
     pub fn is_on(&self, line: u32, col: u32) -> bool {

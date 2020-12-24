@@ -33,6 +33,7 @@ pub enum PhpSymbolKind {
 
     // Custom types
     BuiltInType = 100,
+    MagicConst = 101,
 
     // Capturing all unknown enums by this lib.
     Unknown = 255,

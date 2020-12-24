@@ -16,9 +16,9 @@ impl Visitor for WorkspaceSymbolVisitor {
     /// Decides if a symbol is worth collecting
     fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) -> NextAction {
         match node {
-            AstNode::UseFunctionStatement { .. } => NextAction::ProcessChildren,
-            AstNode::UseStatement { .. } => NextAction::ProcessChildren,
-            AstNode::UseTraitStatement { .. } => NextAction::ProcessChildren,
+            AstNode::UseFunctionStatement { .. } => NextAction::ProcessChildren(parent),
+            AstNode::UseStatement { .. } => NextAction::ProcessChildren(parent),
+            AstNode::UseTraitStatement { .. } => NextAction::ProcessChildren(parent),
             AstNode::GroupedUse { .. }
             | AstNode::UseDeclaration { .. }
             | AstNode::UseFunction { .. }
@@ -52,7 +52,7 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 NextAction::Abort
             }
-            AstNode::Block { .. } => NextAction::ProcessChildren,
+            AstNode::Block { .. } => NextAction::ProcessChildren(parent),
             AstNode::NamespaceStatement { type_ref, .. } => {
                 let (name, selection_range) = match &**type_ref {
                     AstNode::TypeRef(tokens) => (
@@ -81,7 +81,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let new_node = arena.new_node(symbol);
                 parent.append(new_node, arena);
 
-                NextAction::ProcessChildren
+                NextAction::ProcessChildren(new_node)
             }
             AstNode::Const { name, .. } => {
                 let child = arena.new_node(Symbol {
@@ -121,7 +121,7 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 parent.append(child, arena);
 
-                NextAction::ProcessChildren
+                NextAction::ProcessChildren(child)
             }
             AstNode::TraitStatement { name, .. } => {
                 let selection_range = get_range(name.range());
@@ -137,7 +137,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 });
                 parent.append(child, arena);
 
-                NextAction::ProcessChildren
+                NextAction::ProcessChildren(child)
             }
             AstNode::Interface { name, extends, .. } => {
                 let selection_range = get_range(name.range());
@@ -163,9 +163,9 @@ impl Visitor for WorkspaceSymbolVisitor {
                 });
                 parent.append(child, arena);
 
-                NextAction::ProcessChildren
+                NextAction::ProcessChildren(child)
             }
-            AstNode::ClassConstantDefinitionStatement { .. } => NextAction::ProcessChildren,
+            AstNode::ClassConstantDefinitionStatement { .. } => NextAction::ProcessChildren(parent),
             AstNode::ClassConstant {
                 name, visibility, ..
             } => {
@@ -282,7 +282,7 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 parent.append(child, arena);
 
-                NextAction::ProcessChildren
+                NextAction::ProcessChildren(child)
             }
 
             AstNode::NamedFunctionDefinitionStatement { name, function, .. } => {

@@ -305,6 +305,8 @@ pub fn get_suggestions_at(
         },
     }
 
+    suggestions.dedup_by(|a, b| arena[*a].get().name == arena[*b].get().name);
+
     suggestions
 }
 

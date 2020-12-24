@@ -7,7 +7,7 @@ pub mod workspace_symbol;
 
 pub enum NextAction {
     Abort,
-    ProcessChildren,
+    ProcessChildren(NodeId),
 }
 
 pub trait Visitor {
