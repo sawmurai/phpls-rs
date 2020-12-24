@@ -65,7 +65,7 @@ impl<'a> NameResolver<'a> {
         self.diagnostics.clone()
     }
 
-    /// Push a diagnotic message to the queue
+    /// Push a diagnostic message to the queue
     pub fn diagnostic(&mut self, file: String, range: NodeRange, message: String) {
         self.diagnostics.push((file, range, message));
     }
@@ -178,7 +178,7 @@ impl<'a> NameResolver<'a> {
         }
     }
 
-    /// Resolve a TypeRef `Some\Name\Space` to the node if the definition of that symbol
+    /// Resolve a TypeRef `Some\Name\Space` to the node of the definition of that symbol
     pub fn resolve_type_ref(
         &mut self,
         tokens: &[Token],
@@ -353,10 +353,11 @@ impl<'a> NameResolver<'a> {
         arena: &Arena<Symbol>,
         context_anchor: &NodeId,
     ) -> Option<NodeId> {
-        let inherits_from = current_class.inherits_from.first().unwrap();
-        if let Some(type_ref) = inherits_from.type_ref.as_ref() {
-            if let Some(parent_class) = self.resolve_type_ref(type_ref, arena, context_anchor) {
-                return Some(parent_class);
+        if let Some(inherits_from) = current_class.inherits_from.as_ref() {
+            if let Some(type_ref) = inherits_from.type_ref.as_ref() {
+                if let Some(parent_class) = self.resolve_type_ref(type_ref, arena, context_anchor) {
+                    return Some(parent_class);
+                }
             }
         }
 
@@ -733,9 +734,18 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
             }
         };
 
-        if let Some(mut root_node) = root_node {
-            let orig_root = root_node;
+        // Store the name of the currently viewed file to be able to display diagnostics
+        let file_name = arena[self
+            .resolver
+            .scope_container
+            .ancestors(arena)
+            .last()
+            .unwrap()]
+        .get()
+        .name
+        .clone();
 
+        if let Some(mut root_node) = root_node {
             // $this (root_node) will have resolved to the definition of the class
             // of the object
             'link_loop: for link in reversed_chain.iter().rev() {
@@ -752,11 +762,6 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         if child_symbol.name == link.name() {
                             // Name must be unique, so we can bail out if we find a name that has a bad visibility
                             if child_symbol.visibility < minimal_visibility {
-                                let file_name = arena[orig_root.ancestors(arena).last().unwrap()]
-                                    .get()
-                                    .name
-                                    .clone();
-
                                 self.resolver.diagnostic(
                                     file_name,
                                     link.range(),
@@ -877,8 +882,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     let current_class = arena[root_node].get();
 
                     // No parents, so no luck
-                    if current_class.inherits_from.is_empty() {
-                        eprintln!("Failed, no parents");
+                    if current_class.inherits_from.is_none() {
                         break;
                     }
 
@@ -893,12 +897,18 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         continue;
                     }
 
-                    eprintln!("Failed, no resolvable parents");
+                    //Failed, no resolvable parents
+                    self.resolver.diagnostic(
+                        file_name,
+                        link.range(),
+                        "Unresolvable symbol".to_owned(),
+                    );
+
                     return None;
                 }
 
-                // Nothing found :(
-                eprintln!("Failed, link {} unresolvable", link.name());
+                self.resolver
+                    .diagnostic(file_name, link.range(), "Unresolvable symbol".to_owned());
                 return None;
             }
 

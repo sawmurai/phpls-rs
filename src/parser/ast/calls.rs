@@ -36,12 +36,20 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                     member: Box::new(variables::variable(parser)?),
                     cc: None,
                 };
-            } else {
+            } else if parser.next_token_one_of(&[TokenType::Identifier]) {
                 expr = Node::Member {
                     object: Box::new(expr),
                     arrow: os,
                     oc: None,
                     member: Box::new(Node::Literal(parser.consume_identifier()?)),
+                    cc: None,
+                };
+            } else {
+                expr = Node::Member {
+                    object: Box::new(expr),
+                    arrow: os.clone(),
+                    oc: None,
+                    member: Box::new(Node::Missing(os)),
                     cc: None,
                 };
             }
@@ -435,6 +443,29 @@ $object::{$dyn}();
 
         let expected = "\
 $object->$dyn = 10;
+"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_incomplete_object_property_access() {
+        let mut scanner = Scanner::new("<?php $object->");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+$object-><Missing>;
 "
         .to_owned();
 

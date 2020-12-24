@@ -403,11 +403,11 @@ impl Parser {
             if token.t == TokenType::ScriptEnd {
                 return Ok(());
             }
-
+            /*
             return Err(Error::WrongTokenError {
                 expected: vec![TokenType::Semicolon, TokenType::ScriptEnd],
                 token: token.clone(),
-            });
+            });*/
         }
 
         Ok(())

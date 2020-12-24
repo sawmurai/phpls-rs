@@ -34,6 +34,21 @@ macro_rules! optional_ident_list {
     };
 }
 
+macro_rules! optional_ident {
+    ($prefix:expr, $postfix:expr, $ident:ident, $line:expr, $col:expr, $options:expr) => {
+        if let Some(ident) = $ident {
+            format!(
+                "{}{}{}",
+                $prefix,
+                format_node(ident, $line, $col, $options),
+                $postfix
+            )
+        } else {
+            String::from("")
+        };
+    };
+}
+
 pub struct FormatterOptions {
     pub max_line_length: usize,
     pub indent: usize,
@@ -64,7 +79,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                     "{} {}{} {}",
                     token,
                     name,
-                    optional_ident_list!(" extends ", "", extends, line, col, options),
+                    optional_ident!(" extends ", "", extends, line, col, options),
                     format_node(body, line, col, options)
                 ))
             }
@@ -86,7 +101,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                     "{} {}{}{} {}",
                     token,
                     name,
-                    optional_ident_list!(" extends ", "", extends, line, col, options),
+                    optional_ident!(" extends ", "", extends, line, col, options),
                     optional_ident_list!(" implements ", "", implements, line, col, options),
                     format_node(body, line, col, options)
                 ))
@@ -296,7 +311,7 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
                 "{}{}{}{} {}",
                 token,
                 optional_ident_list!("(", ")", arguments, line, col, options),
-                optional_ident_list!(" extends ", "", extends, line, col, options),
+                optional_ident!(" extends ", "", extends, line, col, options),
                 optional_ident_list!(" implements ", "", implements, line, col, options),
                 format_node(body, line, col, options)
             )
@@ -392,6 +407,7 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
             .iter()
             .map(|n| n.clone().to_string())
             .collect::<String>(),
+        Node::Missing(..) => "<Missing>".to_string(),
         _ => unimplemented!("{:?}", node),
     }
 }

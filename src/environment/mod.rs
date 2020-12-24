@@ -86,19 +86,24 @@ pub fn in_range(position: &Position, range: &Range) -> bool {
     true
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::get_range;
-    use tower_lsp::lsp_types::{DocumentHighlight, Location, Position, Range, Url};
-     
+    use tower_lsp::lsp_types::{Position, Range};
+
     #[test]
     fn test_converts_ranges() {
-        let expected = Range {start: Position {line: 1, character: 100}, end: Position{line: 1, character: 100}};
+        let expected = Range {
+            start: Position {
+                line: 1,
+                character: 100,
+            },
+            end: Position {
+                line: 2,
+                character: 200,
+            },
+        };
         let range = get_range(((1, 100), (2, 200)));
-        assert_eq!(
-            expected, 
-            range
-        );
+        assert_eq!(expected, range);
     }
 }

@@ -28,7 +28,7 @@ pub(crate) fn class_statement(
     let name = parser.consume_identifier()?;
 
     let extends = match parser.consume_or_ignore(TokenType::Extends) {
-        Some(_) => Some(identifier_list(parser)?),
+        Some(_) => Some(Box::new(types::non_empty_type_ref(parser)?)),
         None => None,
     };
 
@@ -63,7 +63,7 @@ pub(crate) fn anonymous_class(parser: &mut Parser) -> ExpressionResult {
     };
 
     let extends = match parser.consume_or_ignore(TokenType::Extends) {
-        Some(_) => Some(identifier_list(parser)?),
+        Some(_) => Some(Box::new(types::non_empty_type_ref(parser)?)),
         None => None,
     };
 
@@ -217,7 +217,7 @@ pub(crate) fn interface(parser: &mut Parser) -> ExpressionResult {
     let name = parser.consume(TokenType::Identifier)?;
 
     let extends = match parser.consume_or_ignore(TokenType::Extends) {
-        Some(_) => Some(identifier_list(parser)?),
+        Some(_) => Some(Box::new(types::non_empty_type_ref(parser)?)),
         None => None,
     };
 
@@ -291,7 +291,7 @@ fn trait_usages(parser: &mut Parser) -> ExpressionListResult {
         }
     }
 
-    for type_ref in type_refs.drain(0..) {
+    for type_ref in type_refs.drain(..) {
         usages.push(Node::UseTrait {
             type_ref: Box::new(type_ref),
         });
@@ -714,7 +714,7 @@ interface Treatable {
     #[test]
     fn test_parses_interface_that_extends() {
         let mut scanner = Scanner::new(
-            "<?php interface Treatable extends OtherInterface, BestInterface { public function callMe(); }",
+            "<?php interface Treatable extends OtherInterface { public function callMe(); }",
         );
         scanner.scan().unwrap();
 
@@ -729,7 +729,7 @@ interface Treatable {
         let formatted = format(&ast, 0, 0, &options);
 
         let expected = "\
-interface Treatable extends OtherInterface, BestInterface {
+interface Treatable extends OtherInterface {
     public function callMe();
 }"
         .to_owned();

@@ -60,6 +60,8 @@ pub enum Node {
         colon: Token,
         false_arm: Box<Node>,
     },
+    /// Used as a placeholder for missing nodes. The token acts as an anchor
+    Missing(Token),
     Literal(Token),
     Variable(Token),
     LexicalVariable {
@@ -225,7 +227,7 @@ pub enum Node {
     Class {
         token: Token,
         arguments: Option<Vec<Node>>,
-        extends: Option<Vec<Node>>,
+        extends: Option<Box<Node>>,
         implements: Option<Vec<Node>>,
         body: Box<Node>,
     },
@@ -369,7 +371,7 @@ pub enum Node {
         is_abstract: Option<Token>,
         is_final: Option<Token>,
         implements: Option<Vec<Node>>,
-        extends: Option<Vec<Node>>,
+        extends: Option<Box<Node>>,
         body: Box<Node>,
         doc_comment: Option<Box<Node>>,
     },
@@ -382,7 +384,7 @@ pub enum Node {
     Interface {
         token: Token,
         name: Token,
-        extends: Option<Vec<Node>>,
+        extends: Option<Box<Node>>,
         body: Box<Node>,
         doc_comment: Option<Box<Node>>,
     },
@@ -714,7 +716,7 @@ impl Node {
                 }
 
                 if let Some(extends) = extends {
-                    children.extend((*extends).iter().collect::<Vec<&Node>>());
+                    children.push(&**extends);
                 }
 
                 if let Some(implements) = implements {
@@ -747,7 +749,7 @@ impl Node {
                 let mut children: Vec<&Node> = Vec::new();
 
                 if let Some(extends) = extends {
-                    children.extend((*extends).iter().collect::<Vec<&Node>>());
+                    children.push(&**extends);
                 }
 
                 if let Some(implements) = implements {
@@ -805,7 +807,7 @@ impl Node {
                 let mut children: Vec<&Node> = Vec::new();
 
                 if let Some(extends) = extends {
-                    children.extend((*extends).iter().collect::<Vec<&Node>>());
+                    children.push(&**extends);
                 }
 
                 children.push(body);
@@ -908,6 +910,7 @@ impl Node {
                 (*traits_usages).iter().collect::<Vec<&Node>>()
             }
             Node::DocComment { var_docs, .. } => (*var_docs).iter().collect::<Vec<&Node>>(),
+            Node::Grouping(node) => vec![node],
             _ => Vec::new(),
         }
     }
@@ -1352,16 +1355,46 @@ impl Node {
                 tokens.first().unwrap().range().0,
                 tokens.last().unwrap().range().1,
             ),
-            Node::Literal(token) => token.range(),
-            _ => ((1, 1), (1, 1)),
+            Node::Literal(token) | Node::Variable(token) => token.range(),
+            Node::Missing(token) => token.range(),
+            _ => {
+                eprintln!("Implement range for {:?}!", self);
+                ((1, 1), (1, 1))
+            }
         }
     }
 
     pub fn name(&self) -> String {
         match self {
             Node::Variable(token) | Node::Literal(token) => format!("{}", token),
+            Node::TypeRef(type_ref) => type_ref
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<String>>()
+                .join(""),
             _ => String::new(),
         }
+    }
+
+    // TODO: Add other boundaries
+    pub fn scope_boundary(&self) -> bool {
+        match self {
+            Node::Function { .. } => true,
+
+            _ => false,
+        }
+    }
+
+    /// Returns all descendants of this node in a DFS manner
+    pub fn descendants<'a>(&'a self) -> Vec<&'a Node> {
+        let mut descendants = Vec::new();
+
+        for c in self.children() {
+            descendants.push(c);
+            descendants.extend(c.descendants());
+        }
+
+        descendants
     }
 }
 

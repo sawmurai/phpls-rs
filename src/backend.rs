@@ -11,16 +11,16 @@ use crate::parser::scanner::Scanner;
 use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
-use crate::suggester::suggest;
+use crate::suggester;
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use suggester::Suggestion;
 use tokio::io::{self};
 use tokio::sync::Mutex;
 use tokio::task;
-use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -32,14 +32,15 @@ use tower_lsp::lsp_types::{
     WorkspaceCapability, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
     WorkspaceSymbolParams,
 };
+use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
 
-type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
-type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
+pub(crate) type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
+pub(crate) type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
 pub(crate) type NodeMapMutex = Arc<Mutex<HashMap<String, NodeId>>>;
-type DiagnosticsMutex = Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>;
-type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
-type InFlightFileMutex = Arc<Mutex<HashMap<Url, String>>>;
+pub(crate) type DiagnosticsMutex = Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>;
+pub(crate) type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
+pub(crate) type InFlightFileMutex = Arc<Mutex<HashMap<String, String>>>;
 
 /// Represents the backend of the language server.
 pub struct Backend {
@@ -162,7 +163,7 @@ impl Backend {
             files.extend(self.reindex_folder(&root_path)?);
 
             for path in files {
-                let content = match fs::read_to_string(&path) {
+                let content = match tokio::fs::read_to_string(&path).await {
                     Ok(content) => content,
                     Err(error) => {
                         eprintln!("{}", error);
@@ -303,7 +304,7 @@ impl Backend {
         }
     }
 
-    async fn reindex(
+    pub(crate) async fn reindex(
         path: &str,
         ast: &[AstNode],
         range: &Range,
@@ -404,6 +405,77 @@ impl Backend {
 
         Ok(())
     }
+
+    async fn refresh_file(&self, uri: Url, src: &str) {
+        let file_path = uri.to_file_path().unwrap();
+        let path = normalize_path(&file_path);
+
+        let arena = self.arena.clone();
+        let global_symbols = self.global_symbols.clone();
+        let files = self.files.clone();
+        let references = self.symbol_references.clone();
+        let diagnostics = self.diagnostics.clone();
+
+        if let Ok((ast, range, errors)) = Backend::source_to_ast(&src) {
+            let reindex_result = Backend::reindex(
+                &path,
+                &ast,
+                &range,
+                false,
+                true,
+                arena.clone(),
+                global_symbols.clone(),
+                references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await;
+
+            let mut diagnostics = diagnostics.lock().await;
+
+            let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
+            diagnostics.clear();
+            diagnostics.extend(errors.iter().map(Diagnostic::from));
+
+            self.opened_files
+                .lock()
+                .await
+                .insert(path.to_string(), (ast.to_owned(), range));
+
+            if let Err(e) = reindex_result {
+                self.client.log_message(MessageType::Error, e).await;
+
+                return;
+            }
+        }
+
+        // Now reindex all the other currently opened files to update references
+        for (path, (ast, range)) in self.opened_files.lock().await.iter() {
+            match Backend::reindex(
+                path,
+                &ast,
+                &range,
+                true,
+                false,
+                arena.clone(),
+                global_symbols.clone(),
+                references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            {
+                Err(err) => eprintln!("Error updating opened file after save of another: {}", err),
+                _ => (),
+            }
+        }
+
+        if let Some(diagnostics) = self.diagnostics.lock().await.get(&path) {
+            self.client
+                .publish_diagnostics(uri, diagnostics.clone(), None)
+                .await;
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -420,6 +492,16 @@ impl LanguageServer for Backend {
             };
         }
 
+        let mut trigger_characters = ('a'..'z')
+            .into_iter()
+            .map(|c| String::from(c))
+            .collect::<Vec<String>>();
+        trigger_characters.push(String::from("$"));
+        trigger_characters.push(String::from("_"));
+        trigger_characters.push(String::from("\\"));
+        trigger_characters.push(String::from(":"));
+        trigger_characters.push(String::from(">"));
+
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
@@ -428,8 +510,8 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(false),
-                    trigger_characters: Some(vec![".".to_string()]),
+                    resolve_provider: Some(true),
+                    trigger_characters: Some(trigger_characters),
                     work_done_progress_options: Default::default(),
                 }),
                 /*signature_help_provider: Some(SignatureHelpOptions {
@@ -617,12 +699,17 @@ impl LanguageServer for Backend {
             let file_path = change.uri.to_file_path().unwrap();
             let path = normalize_path(&file_path);
 
+            // If the file is currently opened we don't have to refresh
+            if self.opened_files.lock().await.contains_key(&path) {
+                return;
+            }
+
             let arena = self.arena.clone();
             let global_symbols = self.global_symbols.clone();
             let files = self.files.clone();
             let references = self.symbol_references.clone();
             let diagnostics = self.diagnostics.clone();
-            let content = fs::read_to_string(file_path).unwrap();
+            let content = tokio::fs::read_to_string(file_path).await.unwrap();
 
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
                 let reindex_result = Backend::reindex(
@@ -654,82 +741,34 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        let file_path = params.text_document.uri.to_file_path().unwrap();
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let uri = params.text_document.uri;
+        let file_path = uri.to_file_path().unwrap();
         let path = normalize_path(&file_path);
 
-        let arena = self.arena.clone();
-        let global_symbols = self.global_symbols.clone();
-        let files = self.files.clone();
-        let references = self.symbol_references.clone();
-        let diagnostics = self.diagnostics.clone();
-        let content = fs::read_to_string(file_path).unwrap();
-
-        if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-            let reindex_result = Backend::reindex(
-                &path,
-                &ast,
-                &range,
-                false,
-                true,
-                arena.clone(),
-                global_symbols.clone(),
-                references.clone(),
-                files.clone(),
-                diagnostics.clone(),
-            )
-            .await;
-
-            let mut diagnostics = diagnostics.lock().await;
-
-            let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
-            diagnostics.clear();
-            diagnostics.extend(errors.iter().map(Diagnostic::from));
-
-            self.opened_files
+        if let Some(changes) = params.content_changes.first() {
+            self.latest_version_of_file
                 .lock()
                 .await
-                .insert(path.to_string(), (ast.to_owned(), range));
+                .insert(path, changes.text.clone());
 
-            if let Err(e) = reindex_result {
-                self.client.log_message(MessageType::Error, e).await;
-
-                return;
-            }
+            self.refresh_file(uri, &changes.text).await;
         }
+    }
 
-        // Now reindex all the other current files to update references
-        for (path, (ast, range)) in self.opened_files.lock().await.iter() {
-            match Backend::reindex(
-                path,
-                &ast,
-                &range,
-                true,
-                false,
-                arena.clone(),
-                global_symbols.clone(),
-                references.clone(),
-                files.clone(),
-                diagnostics.clone(),
-            )
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let uri = params.text_document.uri;
+        let content = tokio::fs::read_to_string(uri.to_file_path().unwrap())
             .await
-            {
-                Err(err) => eprintln!("Error updating opened file after save of another: {}", err),
-                _ => (),
-            }
-        }
-
-        if let Some(diagnostics) = self.diagnostics.lock().await.get(&path) {
-            self.client
-                .publish_diagnostics(params.text_document.uri, diagnostics.clone(), None)
-                .await;
-        }
+            .unwrap();
+        //self.refresh_file(uri, &content).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let p = normalize_path(&params.text_document.uri.to_file_path().unwrap());
         self.opened_files.lock().await.remove(&p);
         self.symbol_references.lock().await.remove(&p);
+        self.latest_version_of_file.lock().await.remove(&p);
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -747,7 +786,12 @@ impl LanguageServer for Backend {
                 .log_message(MessageType::Info, "Need to freshly index")
                 .await;
 
-            let source = fs::read_to_string(file_path).unwrap();
+            let source = tokio::fs::read_to_string(file_path).await.unwrap();
+            self.latest_version_of_file
+                .lock()
+                .await
+                .insert(path.clone(), source.clone());
+
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
                 let diags = errors.iter().map(Diagnostic::from).collect();
                 diagnostics.lock().await.insert(path.to_owned(), diags);
@@ -844,26 +888,74 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let global_symbols = self.global_symbols.clone();
-        global_symbols.lock().await;
+        let global_symbols = self.global_symbols.lock().await;
+        let opened_files = self.opened_files.lock().await;
+        let arena = self.arena.lock().await;
+        let pos = params.text_document_position.position;
 
-        let opened_file = params.text_document_position.text_document.uri;
-        let mut suggestions = suggest(
-            self.latest_version_of_file
-                .lock()
-                .await
-                .get(&opened_file)
-                .unwrap_or(&String::new()),
-            params.text_document_position.position.line,
-            params.text_document_position.position.character,
-            global_symbols,
+        let opened_file = normalize_path(
+            &params
+                .text_document_position
+                .text_document
+                .uri
+                .to_file_path()
+                .unwrap(),
         );
-        Ok(Some(CompletionResponse::Array(
-            suggestions
-                .drain(1..)
-                .map(|s| CompletionItem::new_simple(s, "Some detail".to_string()))
-                .collect(),
-        )))
+        let file_ast = opened_files.get(&opened_file);
+
+        let trigger = if let Some(context) = params.context {
+            if let Some(tc) = context.trigger_character {
+                tc.chars().nth(0)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some((file_ast, _range)) = file_ast {
+            let ast = file_ast;
+
+            let files = self.files.lock().await;
+            let symbol_under_cursor = if let Some(current_file_symbol) = files.get(&opened_file) {
+                arena[*current_file_symbol]
+                    .get()
+                    .symbol_at(&pos, *current_file_symbol, &arena)
+            } else {
+                return Ok(None);
+            };
+
+            let local_references = self.symbol_references.lock().await;
+            if let Some(references) = local_references.get(&opened_file) {
+                let mut suggestions = suggester::get_suggestions_at(
+                    trigger,
+                    pos,
+                    symbol_under_cursor,
+                    ast,
+                    &arena,
+                    &global_symbols,
+                    references,
+                );
+
+                return Ok(Some(CompletionResponse::Array(
+                    suggestions
+                        .drain(..)
+                        .map(|s| {
+                            let s = arena[s].get();
+                            let s = Suggestion::from(s);
+
+                            CompletionItem::new_simple(s.label, s.description)
+                        })
+                        .collect::<Vec<CompletionItem>>(),
+                )));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn completion_resolve(&self, params: CompletionItem) -> Result<CompletionItem> {
+        Ok(params)
     }
 }
 

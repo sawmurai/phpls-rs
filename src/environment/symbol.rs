@@ -1,10 +1,10 @@
-use super::get_range;
-use crate::environment::import::SymbolImport;
+use super::{get_range, in_range, visitor::name_resolver::NameResolver};
 use crate::environment::scope::Reference;
 use crate::parser::token::{Token, TokenType};
+use crate::{environment::import::SymbolImport, parser::ast::types};
 use indextree::{Arena, NodeId};
-use std::cmp::PartialOrd;
-use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Range, SymbolKind};
+use std::{cmp::PartialOrd, fmt::Display};
+use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Position, Range, SymbolKind};
 
 /// An extension if the LSP-type "SymbolKind"
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -43,6 +43,21 @@ pub enum Visibility {
     Public,
     Protected,
     Private,
+}
+
+impl Display for Visibility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Visibility::None => "",
+                Visibility::Public => "public",
+                Visibility::Protected => "protected",
+                Visibility::Private => "private",
+            },
+        )
+    }
 }
 
 impl PartialOrd for Visibility {
@@ -99,10 +114,7 @@ pub struct Symbol {
     /// Parent symbol(s) (used for inheritance)
     /// While multi inheritance is not supported in PHP, we still collect all parents
     /// to display meaningful error messages
-    pub inherits_from: Vec<Reference>,
-
-    /// Id of the node this node references (if it is not a definition)
-    pub references: Option<Reference>,
+    pub inherits_from: Option<Reference>,
 
     /// Ids of the symbols defining the possible types this symbol can have
     pub data_types: Vec<Reference>,
@@ -122,8 +134,7 @@ impl Default for Symbol {
             range: get_range(((0, 0), (0, 0))),
             selection_range: get_range(((0, 0), (0, 0))),
             deprecated: None,
-            inherits_from: Vec::new(),
-            references: None,
+            inherits_from: None,
             data_types: Vec::new(),
             is_static: false,
             imports: None,
@@ -178,15 +189,81 @@ impl PhpSymbolKind {
 
 /// Basically a 1:1 mapping that omits the data type
 impl Symbol {
+    pub fn symbol_at(
+        &self,
+        position: &Position,
+        my_node_id: NodeId,
+        arena: &Arena<Self>,
+    ) -> NodeId {
+        for c in my_node_id.children(arena) {
+            let s = arena[c].get();
+
+            // Ignore namespaces as they span the entire document but do not contain symbols
+            if s.kind == PhpSymbolKind::Namespace {
+                continue;
+            }
+
+            if in_range(position, &s.range) {
+                return s.symbol_at(position, c, arena);
+            }
+        }
+
+        return my_node_id;
+    }
+
+    pub fn get_parent_node(
+        &self,
+        my_node_id: &NodeId,
+        resolver: &mut NameResolver,
+        arena: &Arena<Self>,
+    ) -> Option<NodeId> {
+        if let Some(parent) = self.inherits_from.as_ref() {
+            eprintln!("Has a parent");
+            if let Some(type_ref) = parent.type_ref.as_ref() {
+                eprintln!("With a type ref");
+
+                return resolver.resolve_type_ref(type_ref, &arena, &my_node_id);
+            }
+        }
+
+        None
+    }
+
+    pub fn get_parent_symbol<'a>(
+        &'a self,
+        my_node_id: &NodeId,
+        resolver: &mut NameResolver,
+        arena: &'a Arena<Self>,
+    ) -> Option<&'a Self> {
+        if let Some(parent) = self.inherits_from.as_ref() {
+            eprintln!("Has a parent");
+            if let Some(type_ref) = parent.type_ref.as_ref() {
+                eprintln!("With a type ref");
+
+                if let Some(node) = resolver.resolve_type_ref(type_ref, &arena, &my_node_id) {
+                    return Some(arena[node].get());
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn detail(&self) -> Option<String> {
         match self.kind {
-            PhpSymbolKind::Method => Some(
-                self.data_types
+            PhpSymbolKind::Method => {
+                let types = self
+                    .data_types
                     .iter()
                     .map(std::string::ToString::to_string)
                     .collect::<Vec<String>>()
-                    .join(" | "),
-            ),
+                    .join(" | ");
+
+                Some(format!(
+                    "{} function {}(): {}",
+                    self.visibility, self.name, types
+                ))
+            }
             _ => None,
         }
     }
