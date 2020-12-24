@@ -74,14 +74,14 @@ pub(crate) fn argument_list(
 /// ```
 pub(crate) fn argument_type(parser: &mut Parser) -> Result<Option<Box<Node>>> {
     if let Some(qm) = parser.consume_or_ignore(TokenType::QuestionMark) {
-        Ok(Some(Box::new(Node::ArgumentType {
+        Ok(Some(Box::new(Node::DataType {
             nullable: Some(qm),
-            type_ref: Box::new(types::non_empty_type_ref(parser)?),
+            type_refs: types::non_empty_type_ref_union(parser)?,
         })))
-    } else if let Some(type_ref) = types::type_ref(parser)? {
-        Ok(Some(Box::new(Node::ArgumentType {
+    } else if let Some(type_refs) = types::type_ref_union(parser)? {
+        Ok(Some(Box::new(Node::DataType {
             nullable: None,
-            type_ref,
+            type_refs,
         })))
     } else {
         Ok(None)

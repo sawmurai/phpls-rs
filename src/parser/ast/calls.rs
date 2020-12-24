@@ -1,7 +1,3 @@
-use parser::Error;
-
-use crate::parser;
-
 use super::super::node::Node;
 use super::super::token::TokenType;
 use super::super::{ExpressionResult, Parser};

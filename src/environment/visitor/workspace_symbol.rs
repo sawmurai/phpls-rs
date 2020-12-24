@@ -192,11 +192,10 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let range = get_range(node.range());
 
                 let mut data_types = if let Some(data_type) = data_type {
-                    if let Some(type_ref) = get_type_ref(data_type) {
-                        vec![Reference::type_ref(type_ref)]
-                    } else {
-                        Vec::new()
-                    }
+                    get_type_refs(data_type)
+                        .iter()
+                        .map(|tr| Reference::type_ref(tr.clone()))
+                        .collect()
                 } else {
                     Vec::new()
                 };
@@ -205,11 +204,12 @@ impl Visitor for WorkspaceSymbolVisitor {
                 if let Some(doc_comment) = doc_comment {
                     if let AstNode::DocComment { var_docs, .. } = doc_comment.as_ref() {
                         for rt in var_docs {
-                            if let Some(type_ref) = get_type_ref(rt) {
-                                if !type_ref.is_empty() {
-                                    data_types.push(Reference::type_ref(type_ref));
-                                }
-                            }
+                            data_types.extend(
+                                get_type_refs(rt)
+                                    .iter()
+                                    .map(|tr| Reference::type_ref(tr.clone()))
+                                    .collect::<Vec<Reference>>(),
+                            );
                         }
                     }
                 }
@@ -247,11 +247,10 @@ impl Visitor for WorkspaceSymbolVisitor {
                     };
 
                 let mut data_types = if let Some(data_type) = return_type {
-                    if let Some(type_ref) = get_type_ref(&*data_type) {
-                        vec![Reference::type_ref(type_ref)]
-                    } else {
-                        Vec::new()
-                    }
+                    get_type_refs(&*data_type)
+                        .iter()
+                        .map(|tr| Reference::type_ref(tr.clone()))
+                        .collect()
                 } else {
                     Vec::new()
                 };
@@ -260,9 +259,12 @@ impl Visitor for WorkspaceSymbolVisitor {
                 if let Some(doc_comment) = doc_comment {
                     if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
                         for rt in return_type {
-                            if let Some(type_ref) = get_type_ref(rt) {
-                                data_types.push(Reference::type_ref(type_ref));
-                            }
+                            data_types.extend(
+                                get_type_refs(rt)
+                                    .iter()
+                                    .map(|tr| Reference::type_ref(tr.clone()))
+                                    .collect::<Vec<Reference>>(),
+                            );
                         }
                     }
                 }
@@ -296,11 +298,10 @@ impl Visitor for WorkspaceSymbolVisitor {
                     };
 
                 let data_types = if let Some(data_type) = return_type {
-                    if let Some(type_ref) = get_type_ref(&*data_type) {
-                        vec![Reference::type_ref(type_ref)]
-                    } else {
-                        Vec::new()
-                    }
+                    get_type_refs(data_type)
+                        .iter()
+                        .map(|tr| Reference::type_ref(tr.clone()))
+                        .collect()
                 } else {
                     Vec::new()
                 };
@@ -329,29 +330,27 @@ impl Visitor for WorkspaceSymbolVisitor {
 }
 
 // TODO: Think about supporting multiple types
-fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
+pub(crate) fn get_type_refs(node: &AstNode) -> Vec<Vec<Token>> {
     match node {
-        AstNode::ReturnType { data_type, .. } => get_type_ref(data_type),
-        AstNode::ArgumentType { type_ref, .. } | AstNode::DataType { type_ref, .. } => {
-            match &**type_ref {
-                AstNode::TypeRef(items) => Some(items.clone()),
-                _ => None,
-            }
-        }
-        AstNode::TypeRef(items) => Some(items.clone()),
+        AstNode::ReturnType { data_type, .. } => get_type_refs(data_type),
+        AstNode::DataType { type_refs, .. } => type_refs.iter().filter_map(get_type_ref).collect(),
         AstNode::DocCommentVar { types, .. }
         | AstNode::DocCommentReturn { types, .. }
         | AstNode::DocCommentParam { types, .. } => {
             if let Some(types) = types {
-                for t in types {
-                    if let AstNode::TypeRef(items) = t {
-                        return Some(items.clone());
-                    };
-                }
+                types.iter().filter_map(get_type_ref).collect()
+            } else {
+                Vec::new()
             }
-
-            None
         }
-        _ => None,
+        _ => Vec::new(),
     }
+}
+
+pub(crate) fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
+    if let AstNode::TypeRef(tokens) = node {
+        return Some(tokens.clone());
+    }
+
+    None
 }

@@ -67,6 +67,20 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
 
     for node in ast {
         match node {
+            Node::NamedFunctionDefinitionStatement {
+                name,
+                by_ref,
+                function,
+                token,
+            } => {
+                parts.push(format!(
+                    "{}{} {}{}",
+                    " ".repeat(col),
+                    token,
+                    name,
+                    format_node(function, line, col, options)
+                ));
+            }
             Node::Interface {
                 name,
                 token,
@@ -263,6 +277,15 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 parts.push(start.to_string());
                 push_unpadded_if_some!(end, parts);
             }
+            Node::ReturnStatement { token, expression } => {
+                parts.push(" ".repeat(col));
+                parts.push(token.to_string());
+                if let Some(expression) = expression {
+                    parts.push(" ".to_string());
+                    parts.push(format_node(expression, line, col, options));
+                }
+                parts.push(";".to_string());
+            }
             _ => unimplemented!("{:?}", node),
         }
     }
@@ -297,13 +320,46 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
                 cc
             )
         }
-        Node::FunctionDefinitionStatement { cp, op, body, .. } => {
+        Node::FunctionDefinitionStatement {
+            cp,
+            op,
+            body,
+            arguments,
+            return_type,
+            ..
+        } => {
+            let arguments = if let Some(arguments) = arguments {
+                arguments
+                    .iter()
+                    .map(|a| format_node(a, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            } else {
+                String::new()
+            };
+
+            let return_type = if let Some(rt) = return_type {
+                format_node(rt, line, col, options)
+            } else {
+                String::new()
+            };
+
             // Interfaces and abstract methods do not have a body
             if let Some(body) = body {
-                format!("{}{} {}", op, cp, format_node(body, line, col, options))
+                format!(
+                    "{}{}{}{} {}",
+                    op,
+                    arguments,
+                    cp,
+                    return_type,
+                    format_node(body, line, col, options)
+                )
             } else {
-                format!("{}{};", op, cp)
+                format!("{}{}{}{};", op, arguments, cp, return_type)
             }
+        }
+        Node::ReturnType { token, data_type } => {
+            format!("{} {}", token, format_node(data_type, line, col, options))
         }
         Node::Binary { left, right, token } => {
             format!(
@@ -418,6 +474,47 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
                     .join(", "),
                 cp,
             )
+        }
+        Node::DataType {
+            nullable,
+            type_refs,
+        } => {
+            let trs = type_refs
+                .iter()
+                .map(|tr| format_node(tr, line, col, options))
+                .collect::<Vec<String>>()
+                .join(" | ");
+
+            if let Some(nullable) = nullable {
+                format!("{}{}", nullable, trs)
+            } else {
+                format!("{}", trs)
+            }
+        }
+        Node::FunctionArgument {
+            argument_type,
+            default_value,
+            has_default,
+            name,
+            spread,
+            reference,
+            doc_comment,
+        } => {
+            let mut parts = Vec::new();
+            parts.push(optional_ident!("", " ", argument_type, line, col, options));
+            push_unpadded_if_some!(spread, parts);
+            push_unpadded_if_some!(reference, parts);
+            parts.push(name.to_string());
+            parts.push(optional_ident!(
+                " = ",
+                " ",
+                default_value,
+                line,
+                col,
+                options
+            ));
+
+            parts.join("")
         }
         Node::Identifier(token) | Node::Literal(token) | Node::Variable(token) => token.to_string(),
         Node::TypeRef(tokens) => tokens

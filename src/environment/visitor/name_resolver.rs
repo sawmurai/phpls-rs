@@ -1,6 +1,6 @@
-use super::NextAction;
-use super::Visitor;
 use super::{super::PhpSymbolKind, Symbol};
+use super::{workspace_symbol::get_type_ref, Visitor};
+use super::{workspace_symbol::get_type_refs, NextAction};
 use crate::environment::scope::Reference as SymbolReference;
 use crate::environment::symbol::Visibility;
 use crate::parser::node::{Node as AstNode, NodeRange};
@@ -554,10 +554,10 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 NextAction::ProcessChildren
             }
-            AstNode::ReturnType { data_type, .. } => {
-                if let Some(type_ref) = get_type_ref(data_type) {
-                    self.resolver.resolve_type_ref(&type_ref, arena, &parent);
-                }
+            AstNode::ReturnType { .. } => {
+                get_type_refs(node).iter().for_each(|tr| {
+                    self.resolver.resolve_type_ref(&tr, arena, &parent);
+                });
 
                 NextAction::Abort
             }
@@ -919,32 +919,5 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         eprintln!(">> Root node unresolvable");
 
         None
-    }
-}
-
-fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
-    match node {
-        AstNode::ReturnType { data_type, .. } => get_type_ref(data_type),
-        AstNode::ArgumentType { type_ref, .. } | AstNode::DataType { type_ref, .. } => {
-            match &**type_ref {
-                AstNode::TypeRef(items) => Some(items.clone()),
-                _ => None,
-            }
-        }
-        AstNode::TypeRef(items) => Some(items.clone()),
-        AstNode::DocCommentVar { types, .. }
-        | AstNode::DocCommentReturn { types, .. }
-        | AstNode::DocCommentParam { types, .. } => {
-            if let Some(types) = types {
-                for t in types {
-                    if let AstNode::TypeRef(items) = t {
-                        return Some(items.clone());
-                    };
-                }
-            }
-
-            None
-        }
-        _ => None,
     }
 }

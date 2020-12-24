@@ -96,7 +96,7 @@ pub(crate) fn non_empty_namespace_ref(parser: &mut Parser) -> Result<Vec<Token>>
 /// }
 ///
 /// ```
-pub(crate) fn type_ref_union(parser: &mut Parser) -> Result<Vec<Node>> {
+pub(crate) fn non_empty_type_ref_union(parser: &mut Parser) -> Result<Vec<Node>> {
     let mut paths = Vec::new();
 
     paths.push(non_empty_type_ref(parser)?);
@@ -108,6 +108,31 @@ pub(crate) fn type_ref_union(parser: &mut Parser) -> Result<Vec<Node>> {
     Ok(paths)
 }
 
+/// Parses an optional path list, pipe separated
+///
+/// # Details
+/// ```php
+/// catch (/** from here **/Exception1 | Exception2/** to here **/ $e) {}
+///     echo "stuff";
+/// }
+///
+/// ```
+pub(crate) fn type_ref_union(parser: &mut Parser) -> Result<Option<Vec<Node>>> {
+    let mut paths = Vec::new();
+
+    if let Some(tr) = type_ref(parser)? {
+        paths.push(*tr);
+    } else {
+        return Ok(None);
+    }
+
+    while parser.consume_or_ignore(TokenType::BinaryOr).is_some() {
+        paths.push(non_empty_type_ref(parser)?);
+    }
+
+    Ok(Some(paths))
+}
+
 /// Parse a variable type
 ///
 /// # Details
@@ -117,6 +142,40 @@ pub(crate) fn type_ref_union(parser: &mut Parser) -> Result<Vec<Node>> {
 pub(crate) fn data_type(parser: &mut Parser) -> Result<Node> {
     Ok(Node::DataType {
         nullable: parser.consume_or_ignore(TokenType::QuestionMark),
-        type_ref: Box::new(non_empty_type_ref(parser)?),
+        type_refs: non_empty_type_ref_union(parser)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        formatter::{format, FormatterOptions},
+        parser::{scanner::Scanner, Parser},
+    };
+
+    #[test]
+    fn test_parses_union_type() {
+        let mut scanner = Scanner::new(
+            "<?php function func(string | int $param): string | int { return $param; }",
+        );
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+function func(string | int $param): string | int {
+    return $param;
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
 }

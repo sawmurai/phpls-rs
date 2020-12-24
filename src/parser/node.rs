@@ -211,16 +211,13 @@ pub enum Node {
         reference: Option<Token>,
         doc_comment: Option<Box<Node>>,
     },
-    ArgumentType {
-        nullable: Option<Token>,
-        type_ref: Box<Node>,
-    },
     DataType {
         nullable: Option<Token>,
-        type_ref: Box<Node>,
+        type_refs: Vec<Node>,
     },
     ReturnType {
         token: Token,
+        /// Node::DataType
         data_type: Box<Node>,
     },
     TypeRef(Vec<Token>),
@@ -706,7 +703,6 @@ impl Node {
 
                 children
             }
-            Node::ArgumentType { type_ref, .. } => vec![type_ref],
             Node::Class {
                 arguments,
                 extends,
@@ -1074,21 +1070,20 @@ impl Node {
                     (start, name.end())
                 }
             }
-            Node::ArgumentType { nullable, type_ref } => {
+            Node::DataType {
+                nullable,
+                type_refs,
+            } => {
                 if let Some(nullable) = nullable {
-                    (nullable.start(), type_ref.range().1)
+                    (nullable.start(), type_refs.last().unwrap().range().1)
                 } else {
-                    type_ref.range()
+                    (
+                        type_refs.first().unwrap().range().0,
+                        type_refs.last().unwrap().range().1,
+                    )
                 }
             }
-            Node::DataType { nullable, type_ref } => {
-                if let Some(nullable) = nullable {
-                    (nullable.start(), type_ref.range().1)
-                } else {
-                    type_ref.range()
-                }
-            }
-            Node::ReturnType { token, data_type } => (token.start(), data_type.range().1),
+            Node::ReturnType { data_type, .. } => data_type.range(),
             Node::Class { token, body, .. } => (token.start(), body.range().1),
             Node::Yield { token, expr } => {
                 if let Some(expr) = expr {
