@@ -461,8 +461,10 @@ impl Parser {
 
     /// Consume an identifier or return an error
     fn consume_identifier(&mut self) -> Result<Token> {
-        if let Some(mut token) = self.next() {
+        if let Some(token) = self.peek() {
             if token.is_identifier() {
+                let mut token = self.next().unwrap();
+
                 if token.label.is_none() {
                     // Make sure to put the correct label into the ... label
                     token.label = Some(format!("{}", token));
@@ -472,7 +474,7 @@ impl Parser {
 
             return Err(Error::WrongTokenError {
                 expected: vec![TokenType::Identifier],
-                token,
+                token: token.clone(),
             });
         }
 

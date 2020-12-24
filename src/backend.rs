@@ -248,7 +248,6 @@ impl Backend {
         Ok(())
     }
 
-    // TODO: Filter out vendor tests
     fn reindex_folder(&self, dir: &PathBuf) -> io::Result<Vec<PathBuf>> {
         let mut files = Vec::new();
 

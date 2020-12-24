@@ -109,19 +109,28 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
             Node::ClassConstantDefinitionStatement {
                 token,
                 doc_comment,
-                name,
-                value,
+                consts,
                 visibility,
             } => {
                 parts.push(" ".repeat(col));
                 push_if_some!(visibility, parts);
 
-                parts.push(format!(
-                    "{} {} = {};",
-                    token,
-                    name,
-                    format_node(value, line, col, options)
-                ))
+                let mut printed_consts = Vec::new();
+                let mut iter = consts.iter();
+                printed_consts.push(format_node(iter.next().unwrap(), line, 0, options));
+
+                let mut offset = token.to_string().len() + 1;
+                if let Some(visibility) = visibility {
+                    offset += visibility.to_string().len();
+                }
+
+                for c in iter {
+                    printed_consts.push(format_node(c, line, col + offset, options));
+                }
+
+                parts.push(format!("{} ", token));
+                parts.push(printed_consts.join(",\n "));
+                parts.push(";".to_string());
             }
             Node::PropertyDefinitionStatement {
                 name,
@@ -271,6 +280,14 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
 /// * options - The formatter options
 fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions) -> String {
     match node {
+        Node::ClassConstant { name, value, .. } => {
+            format!(
+                "{}{} = {}",
+                " ".repeat(col),
+                name,
+                format_node(value, line, col, options)
+            )
+        }
         Node::Block { oc, cc, statements } => {
             format!(
                 "{}\n{}\n{}{}",

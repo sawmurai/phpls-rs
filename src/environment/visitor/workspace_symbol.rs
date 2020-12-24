@@ -165,7 +165,8 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 NextAction::ProcessChildren
             }
-            AstNode::ClassConstantDefinitionStatement {
+            AstNode::ClassConstantDefinitionStatement { .. } => NextAction::ProcessChildren,
+            AstNode::ClassConstant {
                 name, visibility, ..
             } => {
                 let range = get_range(node.range());

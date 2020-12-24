@@ -130,14 +130,30 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
         }
 
         if let Some(token) = parser.consume_or_ignore(TokenType::Const) {
-            let name = parser.consume_identifier()?;
+            let mut consts = Vec::new();
+            loop {
+                let name = parser.consume_identifier()?;
 
-            parser.consume_or_err(TokenType::Assignment)?;
+                parser.consume_or_err(TokenType::Assignment)?;
+
+                let value = Box::new(expressions::expression(parser)?);
+                consts.push(Node::ClassConstant {
+                    name,
+                    value,
+                    visibility: visibility.clone(),
+                });
+
+                if parser.consume_or_ignore(TokenType::Comma).is_some() {
+                    continue;
+                }
+
+                break;
+            }
+
             statements.push(Node::ClassConstantDefinitionStatement {
-                token,
-                name,
                 visibility,
-                value: Box::new(expressions::expression(parser)?),
+                token,
+                consts,
                 doc_comment: doc_comment.clone(),
             });
 
@@ -456,6 +472,32 @@ class Test {
         let expected = "\
 class Test {
     public const ROFL = 'test';
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_class_statement_with_multi_const() {
+        let mut scanner =
+            Scanner::new("<?php class Test { public const ROFL = 'test', COPTER = 2; }");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+class Test {
+    public const ROFL = 'test',
+                 COPTER = 2;
 }"
         .to_owned();
 

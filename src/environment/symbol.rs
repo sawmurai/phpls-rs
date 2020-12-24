@@ -1,7 +1,7 @@
 use super::{get_range, in_range, visitor::name_resolver::NameResolver};
+use crate::environment::import::SymbolImport;
 use crate::environment::scope::Reference;
 use crate::parser::token::{Token, TokenType};
-use crate::{environment::import::SymbolImport, parser::ast::types};
 use indextree::{Arena, NodeId};
 use std::{cmp::PartialOrd, fmt::Display};
 use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Position, Range, SymbolKind};

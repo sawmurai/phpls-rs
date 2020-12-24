@@ -390,10 +390,15 @@ pub enum Node {
     },
     ClassConstantDefinitionStatement {
         token: Token,
-        name: Token,
-        visibility: Option<Token>,
-        value: Box<Node>,
+        consts: Vec<Node>,
         doc_comment: Option<Box<Node>>,
+        // The same token as below in the ClassConstant, replicated for the formatter
+        visibility: Option<Token>,
+    },
+    ClassConstant {
+        visibility: Option<Token>,
+        name: Token,
+        value: Box<Node>,
     },
     PropertyDefinitionStatement {
         name: Token,
@@ -761,7 +766,8 @@ impl Node {
                 children
             }
             Node::TraitStatement { body, .. } => vec![body],
-            Node::ClassConstantDefinitionStatement { value, .. } | Node::Const { value, .. } => {
+            Node::ClassConstantDefinitionStatement { consts, .. } => consts.iter().collect(),
+            Node::Const { value, .. } | Node::ClassConstant { value, .. } => {
                 vec![value]
             }
             Node::PropertyDefinitionStatement {
@@ -1241,9 +1247,11 @@ impl Node {
             }
             Node::TraitStatement { token, body, .. } => (token.start(), body.range().1),
             Node::Interface { token, body, .. } => (token.start(), body.range().1),
-            Node::ClassConstantDefinitionStatement { name, value, .. } => {
-                (name.start(), value.range().1)
-            }
+            Node::ClassConstant { name, value, .. } => (name.start(), value.range().1),
+            Node::ClassConstantDefinitionStatement { consts, .. } => (
+                consts.first().unwrap().range().0,
+                consts.last().unwrap().range().1,
+            ),
             Node::PropertyDefinitionStatement { name, .. } => name.range(),
             Node::MethodDefinitionStatement {
                 is_abstract,

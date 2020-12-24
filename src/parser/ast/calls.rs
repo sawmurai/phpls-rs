@@ -1,3 +1,7 @@
+use parser::Error;
+
+use crate::parser;
+
 use super::super::node::Node;
 use super::super::token::TokenType;
 use super::super::{ExpressionResult, Parser};
@@ -36,12 +40,12 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                     member: Box::new(variables::variable(parser)?),
                     cc: None,
                 };
-            } else if parser.next_token_one_of(&[TokenType::Identifier]) {
+            } else if let Ok(identifier) = parser.consume_identifier() {
                 expr = Node::Member {
                     object: Box::new(expr),
                     arrow: os,
                     oc: None,
-                    member: Box::new(Node::Literal(parser.consume_identifier()?)),
+                    member: Box::new(Node::Literal(identifier)),
                     cc: None,
                 };
             } else {
