@@ -537,11 +537,10 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 }
 
                 if let Some(argument_type) = argument_type {
-                    if let Some(type_ref) = get_type_ref(argument_type) {
-                        let type_ref_ref = SymbolReference::type_ref(type_ref);
-
-                        data_types.push(type_ref_ref);
-                    }
+                    get_type_refs(argument_type).iter().for_each(|tr| {
+                        self.resolver.resolve_type_ref(&tr, arena, &parent);
+                        data_types.push(SymbolReference::type_ref(tr.clone()));
+                    });
                 }
 
                 let child = arena.new_node(Symbol {
@@ -751,6 +750,12 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
             'link_loop: for link in reversed_chain.iter().rev() {
                 // Get the definition of the current parent and try to find "link" in it
                 // Loop backwards through the inheritance chain, from the object towards its ancestors
+
+                if let AstNode::Literal(token) = link.as_ref() {
+                    if token.to_string() == "class" {
+                        return None;
+                    }
+                }
 
                 loop {
                     // Get the children of the current root_node, that is its properties and methods
