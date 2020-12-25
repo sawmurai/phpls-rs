@@ -623,6 +623,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                 }
                 AstNode::StaticMember { object, member, .. }
                 | AstNode::Member { object, member, .. } => {
+                    // TODO: Add info if called statically or dynamically to raise error later on
                     reversed_chain.push(member);
                     current_object = object;
                 }
@@ -753,6 +754,8 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                 };
 
                 loop {
+                    let mut found_child = false;
+
                     // Get the children of the current root_node, that is its properties and methods
                     for child in root_node.children(arena) {
                         // Check all children of the current class
@@ -760,17 +763,11 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                         // This is the correct child
                         if child_symbol.name == link_name {
+                            found_child = true;
+
                             // Name must be unique, so we can bail out if we find a name that has a bad visibility
                             if child_symbol.visibility < minimal_visibility {
-                                self.resolver.diagnostic(
-                                    file_name,
-                                    link.range(),
-                                    String::from(
-                                        "Method was found but is not accessible from this scope.",
-                                    ),
-                                );
-
-                                return None;
+                                continue;
                             }
 
                             match link.as_ref() {
@@ -785,6 +782,13 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                 PhpSymbolKind::Property | PhpSymbolKind::Method => {
                                     for data_type in &child_symbol.data_types {
                                         if let Some(type_ref) = data_type.type_ref.as_ref() {
+                                            let first_type = type_ref.first().unwrap().t.clone();
+                                            if TokenType::TypeSelf == first_type
+                                                || TokenType::Static == first_type
+                                            {
+                                                continue 'link_loop;
+                                            }
+
                                             if let Some(resolved_type) = self
                                                 .resolver
                                                 .resolve_type_ref(&type_ref, arena, &root_node)
@@ -798,8 +802,6 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                     }
 
                                     // No data type resolveable ... no way to proceed
-                                    eprintln!("Failed, no resolvable data type");
-
                                     return None;
                                 }
                                 _ => {
@@ -812,6 +814,17 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             // as
                             continue 'link_loop;
                         }
+                    }
+
+                    // Well, we found a child but it did not match the visibility
+                    if found_child {
+                        self.resolver.diagnostic(
+                            file_name,
+                            link.range(),
+                            String::from("Method was found but is not accessible from this scope."),
+                        );
+
+                        return None;
                     }
 
                     let root_symbol = arena[root_node].get();
@@ -855,8 +868,6 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                                 }
 
                                                 // No data type resolveable ... no way to proceed
-                                                eprintln!("Failed, no resolvable data type");
-
                                                 return None;
                                             }
                                             _ => {
@@ -870,10 +881,6 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                         continue 'link_loop;
                                     }
                                 }
-                            }
-
-                            if import.name() == link_name {
-                                eprintln!("Found the link in the imports!");
                             }
                         }
                     }
@@ -915,8 +922,6 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
             // At this point we arrived at the last link and successfully resolved everything
             return Some(root_node);
         }
-
-        eprintln!(">> Root node unresolvable");
 
         None
     }

@@ -225,30 +225,29 @@ impl Backend {
         }
 
         // This is in a block to release the locks asap
+        {
+            let arena = self.arena.lock().await;
+            let files = self.files.lock().await;
 
-        let arena = self.arena.lock().await;
-        let files = self.files.lock().await;
+            let mut global_table: HashMap<String, NodeId> = HashMap::new();
+            for (_file, node_id) in files.iter() {
+                let mut current_namespace = String::new();
 
-        let mut global_table: HashMap<String, NodeId> = HashMap::new();
-        for (_file, node_id) in files.iter() {
-            let mut current_namespace = String::new();
+                for symbol_id in node_id.children(&arena) {
+                    let symbol = arena[symbol_id].get();
 
-            for symbol_id in node_id.children(&arena) {
-                let symbol = arena[symbol_id].get();
-
-                if symbol.kind == PhpSymbolKind::Namespace {
-                    current_namespace = symbol.name.clone();
-                } else if symbol.kind.register_global() {
-                    global_table
-                        .insert(format!("{}\\{}", current_namespace, symbol.name), symbol_id);
+                    if symbol.kind == PhpSymbolKind::Namespace {
+                        current_namespace = symbol.name.clone();
+                    } else if symbol.kind.register_global() {
+                        global_table
+                            .insert(format!("{}\\{}", current_namespace, symbol.name), symbol_id);
+                    }
                 }
             }
+
+            *self.global_symbols.lock().await = global_table;
         }
-
-        *self.global_symbols.lock().await = global_table;
-        /*}
-
-
+        /*
                 let mut joins = Vec::new();
                 for path in file_paths {
                     let content = match tokio::fs::read_to_string(&path).await {
