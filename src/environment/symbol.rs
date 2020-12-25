@@ -212,7 +212,7 @@ impl Symbol {
         return my_node_id;
     }
 
-    /// Collect all inherited symbols of all parents (interfaces have more than once parent)
+    /// Collect all inherited symbols of all parents (interfaces have more than one parent)
     pub fn get_inherited_symbols(
         &self,
         my_node_id: &NodeId,

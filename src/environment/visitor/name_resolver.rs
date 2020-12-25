@@ -546,9 +546,6 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 NextAction::Abort
             }
             AstNode::Binary { left, right, token } => {
-                //let right = document_symbol(arena, enclosing, right, parent)?;
-                //let left = document_symbol(arena, enclosing, left, parent)?;
-
                 let data_type = self.resolve_member_type(&right, arena);
 
                 if token.t == TokenType::Assignment {
@@ -572,7 +569,10 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             AstNode::StaticMember { .. } | AstNode::Member { .. } => {
                 self.resolve_member_type(node, arena);
 
-                NextAction::Abort
+                // This might result in children which are Members / StaticMembers being processed
+                // more than once. But without processing the children there is (currently) no way to get
+                // to the parameters of calls etc.
+                NextAction::ProcessChildren(parent)
             }
             AstNode::NamespaceStatement { .. } => NextAction::Abort,
             _ => NextAction::ProcessChildren(parent),
