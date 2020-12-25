@@ -99,7 +99,7 @@ impl Visitor for WorkspaceSymbolVisitor {
             AstNode::ClassStatement { name, extends, .. } => {
                 let inherits_from = if let Some(extends) = extends {
                     if let Some(extends) = get_type_ref(extends) {
-                        Some(Reference::type_ref(extends))
+                        Some(vec![Reference::type_ref(extends)])
                     } else {
                         None
                     }
@@ -144,11 +144,13 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let name = name.clone().label.unwrap();
                 let range = get_range(node.range());
                 let inherits_from = if let Some(extends) = extends {
-                    if let Some(extends) = get_type_ref(extends) {
-                        Some(Reference::type_ref(extends))
-                    } else {
-                        None
-                    }
+                    Some(
+                        extends
+                            .iter()
+                            .filter_map(get_type_ref)
+                            .map(Reference::type_ref)
+                            .collect(),
+                    )
                 } else {
                     None
                 };

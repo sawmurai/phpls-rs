@@ -137,6 +137,7 @@ fn members_of(
             eprintln!("Reference has a type ref");
 
             let mut resolver = NameResolver::new(&global_symbols, referenced_node);
+
             if let Some(node) = resolver.resolve_type_ref(&type_ref, &arena, &referenced_node) {
                 suggestions.extend(members_of_parents_of(node, &arena, &global_symbols).drain(..));
             }
@@ -155,21 +156,11 @@ fn members_of_parents_of(
     arena: &Arena<Symbol>,
     global_symbols: &HashMap<String, NodeId>,
 ) -> Vec<NodeId> {
-    let mut suggestions = Vec::new();
-
-    let dt_class = arena[reference_node].get();
-
     let mut resolver = NameResolver::new(&global_symbols, reference_node);
-    if let Some(parent) = dt_class.get_parent_node(&reference_node, &mut resolver, arena) {
-        eprintln!("which could be resolved");
-        parent.children(&arena).for_each(|child| {
-            suggestions.push(child);
-        });
 
-        suggestions.extend(members_of_parents_of(parent, arena, global_symbols).drain(..));
-    }
-
-    suggestions
+    arena[reference_node]
+        .get()
+        .get_inherited_symbols(&reference_node, &mut resolver, arena)
 }
 
 /// Get suggestions for a given position in the code
@@ -244,24 +235,17 @@ pub fn get_suggestions_at(
                         if let Some(current_class) = current_class {
                             accessible_members.extend(current_class.children(&arena));
 
-                            let mut current_parent = current_class;
-                            loop {
-                                let mut resolver =
-                                    NameResolver::new(&global_symbols, current_parent);
-                                if let Some(parent) = arena[current_parent].get().get_parent_node(
-                                    &current_parent,
-                                    &mut resolver,
-                                    &arena,
-                                ) {
-                                    accessible_members.extend(parent.children(&arena).filter(
-                                        |n| arena[*n].get().visibility >= Visibility::Protected,
-                                    ));
+                            let mut resolver = NameResolver::new(&global_symbols, current_class);
 
-                                    current_parent = parent;
-                                } else {
-                                    break;
-                                }
-                            }
+                            accessible_members.extend(
+                                arena[current_class]
+                                    .get()
+                                    .get_inherited_symbols(&current_class, &mut resolver, &arena)
+                                    .iter()
+                                    .filter(|n| {
+                                        arena[**n].get().visibility >= Visibility::Protected
+                                    }),
+                            );
                         }
 
                         suggestions.extend(
@@ -375,12 +359,12 @@ mod tests {
                 let s = Symbol {
                     kind: PhpSymbolKind::Class,
                     name: $name.to_string(),
-                    inherits_from: Some(Reference::type_ref(vec![Token::named(
+                    inherits_from: Some(vec![Reference::type_ref(vec![Token::named(
                         TokenType::Identifier,
                         0,
                         0,
                         $parent,
-                    )])),
+                    )])]),
                     ..Symbol::default()
                 };
 

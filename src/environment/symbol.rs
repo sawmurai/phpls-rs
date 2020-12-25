@@ -113,9 +113,9 @@ pub struct Symbol {
     pub imports: Option<Vec<SymbolImport>>,
 
     /// Parent symbol(s) (used for inheritance)
-    /// While multi inheritance is not supported in PHP, we still collect all parents
-    /// to display meaningful error messages
-    pub inherits_from: Option<Reference>,
+    /// While multi inheritance is not supported in PHP class, we still collect all parents
+    /// as its supported in interfaces
+    pub inherits_from: Option<Vec<Reference>>,
 
     /// Ids of the symbols defining the possible types this symbol can have
     pub data_types: Vec<Reference>,
@@ -212,42 +212,75 @@ impl Symbol {
         return my_node_id;
     }
 
-    pub fn get_parent_node(
+    /// Collect all inherited symbols of all parents (interfaces have more than once parent)
+    pub fn get_inherited_symbols(
+        &self,
+        my_node_id: &NodeId,
+        resolver: &mut NameResolver,
+        arena: &Arena<Self>,
+    ) -> Vec<NodeId> {
+        self.get_parent_nodes(my_node_id, resolver, arena)
+            .iter()
+            .map(|parent| {
+                let mut children = parent.children(arena).collect::<Vec<NodeId>>();
+
+                children.extend(
+                    arena[*parent]
+                        .get()
+                        .get_inherited_symbols(parent, resolver, arena),
+                );
+
+                children
+            })
+            .fold(Vec::new(), |cur, mut tot| {
+                tot.extend(cur);
+                tot
+            })
+    }
+
+    pub fn get_unique_parent(
         &self,
         my_node_id: &NodeId,
         resolver: &mut NameResolver,
         arena: &Arena<Self>,
     ) -> Option<NodeId> {
-        if let Some(parent) = self.inherits_from.as_ref() {
-            eprintln!("Has a parent");
-            if let Some(type_ref) = parent.type_ref.as_ref() {
-                eprintln!("With a type ref");
+        let parents = self.get_parent_nodes(my_node_id, resolver, arena);
 
-                return resolver.resolve_type_ref(type_ref, &arena, &my_node_id);
-            }
+        if parents.len() != 1 {
+            None
+        } else {
+            Some(parents.first().unwrap().clone())
         }
-
-        None
     }
 
-    pub fn get_parent_symbol<'a>(
+    pub fn get_parent_nodes(
+        &self,
+        my_node_id: &NodeId,
+        resolver: &mut NameResolver,
+        arena: &Arena<Self>,
+    ) -> Vec<NodeId> {
+        if let Some(inherits_from) = self.inherits_from.as_ref() {
+            inherits_from
+                .iter()
+                .filter_map(|r| {
+                    resolver.resolve_type_ref(&r.type_ref.as_ref().unwrap(), &arena, &my_node_id)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn get_parent_symbols<'a>(
         &'a self,
         my_node_id: &NodeId,
         resolver: &mut NameResolver,
         arena: &'a Arena<Self>,
-    ) -> Option<&'a Self> {
-        if let Some(parent) = self.inherits_from.as_ref() {
-            eprintln!("Has a parent");
-            if let Some(type_ref) = parent.type_ref.as_ref() {
-                eprintln!("With a type ref");
-
-                if let Some(node) = resolver.resolve_type_ref(type_ref, &arena, &my_node_id) {
-                    return Some(arena[node].get());
-                }
-            }
-        }
-
-        None
+    ) -> Vec<&'a Self> {
+        self.get_parent_nodes(my_node_id, resolver, &arena)
+            .iter()
+            .map(|parent| arena[*parent].get())
+            .collect()
     }
 
     pub fn detail(&self) -> Option<String> {

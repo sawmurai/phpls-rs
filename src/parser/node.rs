@@ -381,7 +381,7 @@ pub enum Node {
     Interface {
         token: Token,
         name: Token,
-        extends: Option<Box<Node>>,
+        extends: Option<Vec<Node>>,
         body: Box<Node>,
         doc_comment: Option<Box<Node>>,
     },
@@ -809,7 +809,7 @@ impl Node {
                 let mut children: Vec<&Node> = Vec::new();
 
                 if let Some(extends) = extends {
-                    children.push(&**extends);
+                    children.extend((*extends).iter().collect::<Vec<&Node>>());
                 }
 
                 children.push(body);

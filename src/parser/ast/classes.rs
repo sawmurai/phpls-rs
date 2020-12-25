@@ -233,7 +233,7 @@ pub(crate) fn interface(parser: &mut Parser) -> ExpressionResult {
     let name = parser.consume(TokenType::Identifier)?;
 
     let extends = match parser.consume_or_ignore(TokenType::Extends) {
-        Some(_) => Some(Box::new(types::non_empty_type_ref(parser)?)),
+        Some(_) => Some(identifier_list(parser)?),
         None => None,
     };
 
@@ -248,7 +248,6 @@ pub(crate) fn interface(parser: &mut Parser) -> ExpressionResult {
     })
 }
 
-// (("extends" identifier) (, "extends" identifier)*)?
 // (("implements" identifier) (, "implements" identifier)*)?
 fn identifier_list(parser: &mut Parser) -> ExpressionListResult {
     let mut extends = Vec::new();

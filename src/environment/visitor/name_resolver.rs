@@ -248,7 +248,9 @@ impl<'a> NameResolver<'a> {
 
         if name == "parent" {
             if let Some(current_class) = self.current_class {
-                return self.parent_class(arena[current_class].get(), arena, context_anchor);
+                return arena[current_class]
+                    .get()
+                    .get_unique_parent(&current_class, self, arena);
             }
 
             self.diagnostics.push((
@@ -343,23 +345,6 @@ impl<'a> NameResolver<'a> {
             ),
             format!("Unresolvable type ({}) '{}'", fully_qualified, joined_name),
         ));
-
-        None
-    }
-
-    pub fn parent_class(
-        &mut self,
-        current_class: &Symbol,
-        arena: &Arena<Symbol>,
-        context_anchor: &NodeId,
-    ) -> Option<NodeId> {
-        if let Some(inherits_from) = current_class.inherits_from.as_ref() {
-            if let Some(type_ref) = inherits_from.type_ref.as_ref() {
-                if let Some(parent_class) = self.resolve_type_ref(type_ref, arena, context_anchor) {
-                    return Some(parent_class);
-                }
-            }
-        }
 
         None
     }
@@ -693,10 +678,10 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     TokenType::Parent => {
                         if let Some(current_class) = self.resolver.current_class {
                             break (
-                                self.resolver.parent_class(
-                                    arena[current_class].get(),
-                                    arena,
+                                arena[current_class].get().get_unique_parent(
                                     &current_class,
+                                    self.resolver,
+                                    arena,
                                 ),
                                 Visibility::Protected,
                             );
@@ -894,7 +879,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     // Change the iterator to an iterator over the children of this parent. Maybe one of them has the name.
                     // But this time we need to be careful because we must take visibility into account
                     if let Some(parent_class) =
-                        self.resolver.parent_class(current_class, arena, &root_node)
+                        current_class.get_unique_parent(&root_node, self.resolver, arena)
                     {
                         minimal_visibility = Visibility::Protected;
                         root_node = parent_class;

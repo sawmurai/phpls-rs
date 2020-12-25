@@ -93,7 +93,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                     "{} {}{} {}",
                     token,
                     name,
-                    optional_ident!(" extends ", "", extends, line, col, options),
+                    optional_ident_list!(" extends ", "", extends, line, col, options),
                     format_node(body, line, col, options)
                 ))
             }
