@@ -156,13 +156,13 @@ impl Backend {
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-        let mut files = self.reindex_folder(&PathBuf::from(&self.stdlib))?;
+        let mut file_paths = self.reindex_folder(&PathBuf::from(&self.stdlib))?;
 
         let mut joins = Vec::new();
         if let Ok(root_path) = url.to_file_path() {
-            files.extend(self.reindex_folder(&root_path)?);
+            file_paths.extend(self.reindex_folder(&root_path)?);
 
-            for path in files {
+            for path in file_paths.clone() {
                 let content = match tokio::fs::read_to_string(&path).await {
                     Ok(content) => content,
                     Err(error) => {
@@ -224,6 +224,8 @@ impl Backend {
             }
         }
 
+        // This is in a block to release the locks asap
+
         let arena = self.arena.lock().await;
         let files = self.files.lock().await;
 
@@ -244,6 +246,72 @@ impl Backend {
         }
 
         *self.global_symbols.lock().await = global_table;
+        /*}
+
+
+                let mut joins = Vec::new();
+                for path in file_paths {
+                    let content = match tokio::fs::read_to_string(&path).await {
+                        Ok(content) => content,
+                        Err(error) => {
+                            eprintln!("{}", error);
+
+                            continue;
+                        }
+                    };
+
+                    let arena = self.arena.clone();
+                    let global_symbols = self.global_symbols.clone();
+                    let files = self.files.clone();
+                    let references = self.symbol_references.clone();
+                    let diagnostics = self.diagnostics.clone();
+
+                    joins.push(task::spawn(async move {
+                        let p = normalize_path(&path);
+
+                        //eprintln!("Resolving refs in {}", p);
+
+                        if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
+                            let reindex_result = Backend::reindex(
+                                &p,
+                                &ast,
+                                &range,
+                                true,
+                                false,
+                                arena,
+                                global_symbols,
+                                references,
+                                files,
+                                diagnostics.clone(),
+                            )
+                            .await;
+
+                            match reindex_result {
+                                Ok(()) => (),
+                                Err(err) => {
+                                    eprintln!("{}", err);
+                                }
+                            }
+
+                            let diags = errors.iter().map(Diagnostic::from).collect();
+                            diagnostics.lock().await.insert(p, diags);
+                        } else {
+                            // TODO: Publish errors as diagnostics
+                            eprintln!("Could not index {} due to syntax errors", p);
+                        }
+                    }));
+                }
+
+                for j in joins {
+                    match j.await {
+                        Ok(()) => (),
+                        Err(err) => {
+                            eprintln!("{}", err);
+                        }
+                    }
+                }
+        */
+        eprintln!("Done doing the stuff");
 
         Ok(())
     }
@@ -315,9 +383,8 @@ impl Backend {
         files: NodeMapMutex,
         diagnostics: DiagnosticsMutex,
     ) -> io::Result<()> {
-        let mut arena = arena.lock().await;
-
-        let enclosing_file = if collect {
+        if collect {
+            let mut arena = arena.lock().await;
             let enclosing_file = arena.new_node(Symbol {
                 kind: PhpSymbolKind::File,
                 name: path.to_owned(),
@@ -335,9 +402,9 @@ impl Backend {
             let mut global_symbols = global_symbols.lock().await;
             let mut current_namespace = String::new();
 
+            let mut files = files.lock().await;
             // Deregister old children
-            if let Some(old_enclosing) = files.lock().await.insert(path.to_owned(), enclosing_file)
-            {
+            if let Some(old_enclosing) = files.insert(path.to_owned(), enclosing_file) {
                 for symbol_id in old_enclosing.children(&arena) {
                     let symbol = arena[symbol_id].get();
 
@@ -364,16 +431,19 @@ impl Backend {
                         .insert(format!("{}\\{}", current_namespace, symbol.name), symbol_id);
                 }
             }
-
-            enclosing_file
-        } else if let Some(enclosing_file) = files.lock().await.get(path) {
-            *enclosing_file
-        } else {
-            // TODO: refactor to return an actual error
-            return Ok(());
-        };
+        }
 
         if resolve {
+            let files = files.lock().await;
+            let enclosing_file = if let Some(file) = files.get(path) {
+                file.clone()
+            } else {
+                eprintln!("Dafuq! {}", path);
+
+                return Ok(());
+            };
+
+            let mut arena = arena.lock().await;
             let global_symbols = global_symbols.lock().await;
             let mut resolver = NameResolver::new(&global_symbols, enclosing_file);
 
@@ -650,6 +720,7 @@ impl LanguageServer for Backend {
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let position = &params.text_document_position.position;
         let file = normalize_path(
             &params
                 .text_document_position
@@ -659,9 +730,38 @@ impl LanguageServer for Backend {
                 .unwrap(),
         );
 
-        if let Some(_arena) = self.files.lock().await.get(&file) {
+        let arena = self.arena.lock().await;
+        if let Some(file) = self.files.lock().await.get(&file) {
+            let symbol_under_cursor = arena[*file].get().symbol_at(&position, *file, &arena);
+
+            let symbol_references = self.symbol_references.lock().await;
+
+            let locations = symbol_references
+                .iter()
+                .map(|(file, refs)| {
+                    // Find all refs that point to our symbol, across all files
+                    refs.iter()
+                        .filter_map(|one_ref| {
+                            if one_ref.node == symbol_under_cursor {
+                                return Some(Location {
+                                    uri: Url::from_file_path(file).unwrap(),
+                                    range: get_range(one_ref.range),
+                                });
+                            }
+
+                            return None;
+                        })
+                        .collect()
+                })
+                .fold(Vec::new(), |cur, mut tot: Vec<Location>| {
+                    tot.extend(cur);
+
+                    tot
+                });
+
+            return Ok(Some(locations));
         } else {
-            eprintln!("File not found");
+            eprintln!("File '{}' not found", file);
         }
 
         Ok(None)

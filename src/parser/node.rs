@@ -1368,6 +1368,7 @@ impl Node {
             ),
             Node::Literal(token) | Node::Variable(token) => token.range(),
             Node::Missing(token) => token.range(),
+            Node::DefineStatement { token, cp, .. } => (token.range().0, cp.range().1),
             _ => {
                 eprintln!("Implement range for {:?}!", self);
                 ((1, 1), (1, 1))
