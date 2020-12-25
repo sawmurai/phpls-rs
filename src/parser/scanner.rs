@@ -375,11 +375,13 @@ impl Scanner {
                         self.push_token(TokenType::Multiplication);
                     }
                 },
-                '#' => {
-                    self.advance_until_after_line_comment();
-
-                    //self.push_token(TokenType::LineComment);
-                }
+                '#' => match self.peek() {
+                    Some('[') => {
+                        self.advance();
+                        self.push_token(TokenType::AttributeStart);
+                    }
+                    _ => self.advance_until_after_line_comment(),
+                },
                 '/' => match self.peek() {
                     Some('/') => {
                         self.advance_until_after_line_comment();
@@ -923,6 +925,7 @@ impl Scanner {
             "foreach" => TokenType::Foreach,
             "endforeach" => TokenType::EndForeach,
             "declare" => TokenType::Declare,
+            "define" => TokenType::Define,
             "enddeclare" => TokenType::EndDeclare,
             "as" => TokenType::As,
             "switch" => TokenType::Switch,
@@ -1578,6 +1581,23 @@ for ($i = 0; $i < 100; $i++) {}",
         scanner.scan().unwrap();
 
         assert_eq!(token_list!(scanner.tokens), "<?php $object :: property ; ");
+    }
+
+    #[test]
+    fn test_scans_attribute_start() {
+        let mut scanner = Scanner::new(
+            "<?php
+            #[Sample([], [])]
+            function test() {}
+        ",
+        );
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php #[ Sample ( [ ] , [ ] ) ] function test ( ) { } "
+        );
     }
 
     #[test]

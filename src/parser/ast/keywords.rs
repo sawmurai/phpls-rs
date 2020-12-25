@@ -48,6 +48,32 @@ pub(crate) fn unset_statement(parser: &mut Parser) -> ExpressionResult {
     })
 }
 
+/// Parses define statements
+pub(crate) fn define_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Define)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
+    let name = Box::new(expressions::expression(parser)?);
+    parser.consume(TokenType::Comma)?;
+    let value = Box::new(expressions::expression(parser)?);
+
+    let is_caseinsensitive = if parser.consume_or_ignore(TokenType::Comma).is_some() {
+        Some(parser.consume_one_of(&[TokenType::True, TokenType::False])?)
+    } else {
+        None
+    };
+
+    let cp = parser.consume(TokenType::CloseParenthesis)?;
+
+    Ok(Node::DefineStatement {
+        token,
+        op,
+        name,
+        value,
+        cp,
+        is_caseinsensitive,
+    })
+}
+
 pub(crate) fn echo_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Echo)?;
     let mut expressions = Vec::new();

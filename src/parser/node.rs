@@ -302,6 +302,14 @@ pub enum Node {
         cp: Token,
         token: Token,
     },
+    DefineStatement {
+        name: Box<Node>,
+        value: Box<Node>,
+        op: Token,
+        cp: Token,
+        token: Token,
+        is_caseinsensitive: Option<Token>,
+    },
     UnsetStatement {
         token: Token,
         op: Token,

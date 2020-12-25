@@ -36,6 +36,7 @@ impl DocBlockScanner {
             "object" => TokenType::TypeObject,
             "float" | "double" => TokenType::TypeFloat,
             "void" => TokenType::Void,
+            "callable" => TokenType::Callable,
             _ => TokenType::Identifier,
         }
     }

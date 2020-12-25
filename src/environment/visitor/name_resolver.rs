@@ -606,6 +606,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         let mut current_object = node;
         let (root_node, mut minimal_visibility) = 'root_node: loop {
             match current_object {
+                AstNode::Unary { expr, .. } => {
+                    current_object = expr;
+                }
                 AstNode::Clone { object, .. } => {
                     current_object = object;
                 }
@@ -736,11 +739,18 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                 // Get the definition of the current parent and try to find "link" in it
                 // Loop backwards through the inheritance chain, from the object towards its ancestors
 
-                if let AstNode::Literal(token) = link.as_ref() {
+                let link_name = if let AstNode::Literal(token) = link.as_ref() {
                     if token.to_string() == "class" {
                         return None;
                     }
-                }
+
+                    link.name()
+                } else if let AstNode::Variable(token) = link.as_ref() {
+                    // TODO: Make sure the variable is called statically like Test::$myVar
+                    token.label.as_ref().unwrap().clone()
+                } else {
+                    link.name()
+                };
 
                 loop {
                     // Get the children of the current root_node, that is its properties and methods
@@ -749,7 +759,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         let child_symbol = arena[child].get();
 
                         // This is the correct child
-                        if child_symbol.name == link.name() {
+                        if child_symbol.name == link_name {
                             // Name must be unique, so we can bail out if we find a name that has a bad visibility
                             if child_symbol.visibility < minimal_visibility {
                                 self.resolver.diagnostic(
@@ -862,7 +872,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                 }
                             }
 
-                            if import.name() == link.name() {
+                            if import.name() == link_name {
                                 eprintln!("Found the link in the imports!");
                             }
                         }

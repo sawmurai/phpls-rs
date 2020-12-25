@@ -329,6 +329,7 @@ impl Parser {
                 TokenType::Try => return exception_handling::try_catch_statement(self),
                 TokenType::Declare => return keywords::declare_statement(self),
                 TokenType::Unset => return keywords::unset_statement(self),
+                TokenType::Define => return keywords::define_statement(self),
                 _ => {
                     if let Some(static_token) = self.consume_or_ignore(TokenType::Static) {
                         if self.next_token_one_of(&[TokenType::Variable]) {

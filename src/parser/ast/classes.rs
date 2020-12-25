@@ -777,4 +777,32 @@ interface Treatable extends OtherInterface {
 
         assert_eq!(expected, formatted);
     }
+
+    #[test]
+    fn test_parses_class_with_attribute() {
+        let mut scanner = Scanner::new(
+            "<?php \
+            #[Sample([1, 2, 3])]
+            class Test {}",
+        );
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+#[Sample([1, 2, 3])]
+class Test {
+}"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
 }

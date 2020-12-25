@@ -154,6 +154,7 @@ pub enum TokenType {
     Var,
     Unset,
     Isset,
+    Define,
     Empty,
     HaltCompiler,
     Class,
@@ -190,6 +191,8 @@ pub enum TokenType {
     TypeFloat,
     TypeSelf,
     Mixed,
+
+    AttributeStart,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -270,6 +273,7 @@ impl Token {
             | TokenType::Var
             | TokenType::Unset
             | TokenType::Isset
+            | TokenType::Define
             | TokenType::Empty
             | TokenType::HaltCompiler
             | TokenType::Class
@@ -365,6 +369,7 @@ impl Token {
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let dis = match self.t {
+            TokenType::AttributeStart => "#[".to_owned(),
             TokenType::Class => "class".to_owned(),
             TokenType::Eof => "".to_owned(),
             TokenType::Plus => "+".to_owned(),
@@ -508,6 +513,7 @@ impl Display for Token {
             TokenType::Var => "var".to_owned(),
             TokenType::Unset => "unset".to_owned(),
             TokenType::Isset => "isset".to_owned(),
+            TokenType::Define => "define".to_owned(),
             TokenType::Empty => "empty".to_owned(),
             TokenType::HaltCompiler => "__halt_compiler".to_owned(),
             TokenType::Trait => "trait".to_owned(),

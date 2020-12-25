@@ -321,6 +321,23 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 NextAction::Abort
             }
+            AstNode::DefineStatement { name, .. } => {
+                if let AstNode::Literal(token) = &**name {
+                    let simple_name = token.label.clone().unwrap();
+
+                    let child = arena.new_node(Symbol {
+                        name: simple_name,
+                        kind: PhpSymbolKind::Constant,
+                        range: get_range(node.range()),
+                        selection_range: get_range(name.range()),
+                        ..Symbol::default()
+                    });
+
+                    parent.append(child, arena);
+                }
+
+                NextAction::Abort
+            }
 
             _ => NextAction::Abort,
         }
