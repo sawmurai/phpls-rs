@@ -263,7 +263,12 @@ impl Symbol {
             inherits_from
                 .iter()
                 .filter_map(|r| {
-                    resolver.resolve_type_ref(&r.type_ref.as_ref().unwrap(), &arena, &my_node_id)
+                    resolver.resolve_type_ref(
+                        &r.type_ref.as_ref().unwrap(),
+                        &arena,
+                        &my_node_id,
+                        false,
+                    )
                 })
                 .collect()
         } else {

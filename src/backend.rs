@@ -446,16 +446,19 @@ impl Backend {
             let global_symbols = global_symbols.lock().await;
             let mut resolver = NameResolver::new(&global_symbols, enclosing_file);
 
-            let mut visitor = NameResolveVisitor::new(&mut resolver);
+            let mut visitor = NameResolveVisitor::new(&mut resolver, enclosing_file);
             let iter = ast.iter();
             for node in iter {
                 traverse(node, &mut visitor, &mut arena, enclosing_file);
             }
 
-            symbol_references
-                .lock()
-                .await
-                .insert(path.to_owned(), visitor.references());
+            let mut symbol_references = symbol_references.lock().await;
+            visitor.references().drain().for_each(|(file, refs)| {
+                symbol_references
+                    .entry(arena[file].get().name.clone())
+                    .or_insert_with(Vec::new)
+                    .extend(refs);
+            });
 
             let mut diagnostics = diagnostics.lock().await;
 

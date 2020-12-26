@@ -38,7 +38,8 @@ pub struct NameResolver<'a> {
     /// Usually a method / function body or a file
     scope_container: NodeId,
 
-    pub document_references: Vec<Reference>,
+    /// Collect document references for multiple files identified by their node id
+    pub document_references: HashMap<NodeId, Vec<Reference>>,
 
     diagnostics: Vec<Notification>,
 }
@@ -49,14 +50,14 @@ impl<'a> NameResolver<'a> {
             global_scope,
             local_scopes: vec![HashMap::new()],
             current_class: None,
-            document_references: Vec::new(),
+            document_references: HashMap::new(),
             scope_container,
             diagnostics: Vec::new(),
         }
     }
 
     /// Return the collected references
-    pub fn references(&self) -> Vec<Reference> {
+    pub fn references(&self) -> HashMap<NodeId, Vec<Reference>> {
         self.document_references.clone()
     }
 
@@ -150,19 +151,28 @@ impl<'a> NameResolver<'a> {
     }
 
     /// Register a new reference to a local symbol
-    pub fn reference_local(&mut self, token: &Token, node: &NodeId) {
+    pub fn reference_local(&mut self, file: NodeId, token: &Token, node: &NodeId) {
+        self.reference(file, Reference::new(token.range(), *node))
+    }
+
+    /// Register a new reference to a symbol
+    pub fn reference(&mut self, file: NodeId, reference: Reference) {
         self.document_references
-            .push(Reference::new(token.range(), *node))
+            .entry(file)
+            .or_insert_with(Vec::new)
+            .push(reference)
     }
 
     /// Declare a local symbol, usually a variable or a function
-    pub fn declare_local(&mut self, token: &Token, t: NodeId) {
+    pub fn declare_local(&mut self, file: NodeId, token: &Token, t: NodeId) {
         if let Some(top_scope) = self.local_scopes.last_mut() {
             let name = token.clone().label.unwrap();
 
             if let Some(node) = top_scope.get(&name) {
                 self.document_references
-                    .push(Reference::new(token.range(), *node));
+                    .entry(file)
+                    .or_insert_with(Vec::new)
+                    .push(Reference::new(token.range(), *node))
             } else {
                 top_scope.insert(name, t);
             }
@@ -184,6 +194,7 @@ impl<'a> NameResolver<'a> {
         tokens: &[Token],
         arena: &Arena<Symbol>,
         context_anchor: &NodeId,
+        register_ref: bool,
     ) -> Option<NodeId> {
         if self.is_builtin(tokens) {
             return None;
@@ -311,30 +322,34 @@ impl<'a> NameResolver<'a> {
         };
 
         if let Some(node) = self.global_scope.get(&joined_name) {
-            let range = (
-                tokens.first().unwrap().start(),
-                tokens.last().unwrap().end(),
-            );
-            self.document_references.push(Reference::new(range, *node));
+            if register_ref {
+                let range = (
+                    tokens.first().unwrap().start(),
+                    tokens.last().unwrap().end(),
+                );
+                self.reference(file, Reference::new(range, *node));
+            }
 
             return Some(*node);
         } else if let Some(node) = self.global_scope.get(&format!("\\{}", joined_name)) {
-            let range = (
-                tokens.first().unwrap().start(),
-                tokens.last().unwrap().end(),
-            );
-            self.document_references.push(Reference::new(range, *node));
+            if register_ref {
+                let range = (
+                    tokens.first().unwrap().start(),
+                    tokens.last().unwrap().end(),
+                );
+                self.reference(file, Reference::new(range, *node));
+            }
 
             return Some(*node);
-        } else if let Some(global_symbol) = self.global_scope.get(&format!("\\{}", name)) {
-            let range = (
-                tokens.first().unwrap().start(),
-                tokens.last().unwrap().end(),
-            );
-
-            self.document_references
-                .push(Reference::new(range, *global_symbol));
-            return Some(*global_symbol);
+        } else if let Some(node) = self.global_scope.get(&format!("\\{}", name)) {
+            if register_ref {
+                let range = (
+                    tokens.first().unwrap().start(),
+                    tokens.last().unwrap().end(),
+                );
+                self.reference(file, Reference::new(range, *node));
+            }
+            return Some(*node);
         }
 
         self.diagnostics.push((
@@ -352,14 +367,15 @@ impl<'a> NameResolver<'a> {
 
 pub struct NameResolveVisitor<'a, 'b: 'a> {
     resolver: &'b mut NameResolver<'a>,
+    file: NodeId,
 }
 
 impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
-    pub fn new(resolver: &'b mut NameResolver<'a>) -> Self {
-        NameResolveVisitor { resolver }
+    pub fn new(resolver: &'b mut NameResolver<'a>, file: NodeId) -> Self {
+        NameResolveVisitor { resolver, file }
     }
 
-    pub fn references(&self) -> Vec<Reference> {
+    pub fn references(&self) -> HashMap<NodeId, Vec<Reference>> {
         self.resolver.references()
     }
 
@@ -392,15 +408,15 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     let range = node.range();
                     if let Some(resolved) = self.resolver.resolve_fully_qualified(&name) {
                         self.resolver
-                            .document_references
-                            .push(Reference::new(range, resolved));
+                            .reference(self.file, Reference::new(range, resolved));
                     }
                 }
 
                 NextAction::Abort
             }
             AstNode::TypeRef(type_ref) => {
-                self.resolver.resolve_type_ref(type_ref, arena, &parent);
+                self.resolver
+                    .resolve_type_ref(type_ref, arena, &parent, true);
 
                 NextAction::Abort
             }
@@ -408,7 +424,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 // Register $this in the current scope
                 if let Some(current_class) =
                     self.resolver
-                        .resolve_type_ref(&vec![name.clone()], arena, &parent)
+                        .resolve_type_ref(&vec![name.clone()], arena, &parent, false)
                 {
                     self.resolver.enter_class(current_class);
                 }
@@ -423,7 +439,8 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
                         for rt in return_type {
                             if let Some(type_ref) = get_type_ref(rt) {
-                                self.resolver.resolve_type_ref(&type_ref, arena, &parent);
+                                self.resolver
+                                    .resolve_type_ref(&type_ref, arena, &parent, true);
                             }
                         }
                     }
@@ -448,12 +465,12 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             }
             AstNode::Variable(token) => {
                 if let Some(node) = self.resolver.get_local(token) {
-                    self.resolver.reference_local(token, &node);
+                    self.resolver.reference_local(self.file, token, &node);
                 } else {
                     let child = arena.new_node(Symbol::from(token));
 
                     self.resolver.scope_container.append(child, arena);
-                    self.resolver.declare_local(token, child);
+                    self.resolver.declare_local(self.file, token, child);
                 }
 
                 NextAction::Abort
@@ -475,7 +492,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     ..Symbol::from(name)
                 });
                 self.resolver.scope_container.append(child, arena);
-                self.resolver.declare_local(name, child);
+                self.resolver.declare_local(self.file, name, child);
 
                 NextAction::Abort
             }
@@ -496,7 +513,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 });
 
                 self.resolver.scope_container.append(child, arena);
-                self.resolver.declare_local(var, child);
+                self.resolver.declare_local(self.file, var, child);
 
                 NextAction::ProcessChildren(parent)
             }
@@ -514,7 +531,8 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                             for t in types {
                                 if let Some(type_ref) = get_type_ref(t) {
                                     data_types.push(SymbolReference::type_ref(type_ref.clone()));
-                                    self.resolver.resolve_type_ref(&type_ref, arena, &parent);
+                                    self.resolver
+                                        .resolve_type_ref(&type_ref, arena, &parent, true);
                                 }
                             }
                         }
@@ -523,7 +541,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 if let Some(argument_type) = argument_type {
                     get_type_refs(argument_type).iter().for_each(|tr| {
-                        self.resolver.resolve_type_ref(&tr, arena, &parent);
+                        self.resolver.resolve_type_ref(&tr, arena, &parent, true);
                         data_types.push(SymbolReference::type_ref(tr.clone()));
                     });
                 }
@@ -534,13 +552,13 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 });
 
                 self.resolver.scope_container.append(child, arena);
-                self.resolver.declare_local(name, child);
+                self.resolver.declare_local(self.file, name, child);
 
                 NextAction::ProcessChildren(parent)
             }
             AstNode::ReturnType { .. } => {
                 get_type_refs(node).iter().for_each(|tr| {
-                    self.resolver.resolve_type_ref(&tr, arena, &parent);
+                    self.resolver.resolve_type_ref(&tr, arena, &parent, true);
                 });
 
                 NextAction::Abort
@@ -560,11 +578,12 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         };
 
                         self.resolver.scope_container.append(child, arena);
-                        self.resolver.declare_local(token, child);
+                        self.resolver.declare_local(self.file, token, child);
                     }
                 }
 
-                NextAction::ProcessChildren(parent)
+                NextAction::Abort
+                //NextAction::ProcessChildren(parent)
             }
             AstNode::StaticMember { .. } | AstNode::Member { .. } => {
                 self.resolve_member_type(node, arena);
@@ -572,7 +591,9 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 // This might result in children which are Members / StaticMembers being processed
                 // more than once. But without processing the children there is (currently) no way to get
                 // to the parameters of calls etc.
-                NextAction::ProcessChildren(parent)
+                NextAction::Abort
+
+                //NextAction::ProcessChildren(parent)
             }
             AstNode::NamespaceStatement { .. } => NextAction::Abort,
             _ => NextAction::ProcessChildren(parent),
@@ -606,6 +627,27 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         let mut current_object = node;
         let (root_node, mut minimal_visibility) = 'root_node: loop {
             match current_object {
+                AstNode::Binary { left, right, token } => {
+                    if token.t == TokenType::Assignment {
+                        let data_type = self.resolve_member_type(&right, arena);
+
+                        if let AstNode::Variable(token) = left.as_ref() {
+                            let child = if let Some(data_type) = data_type {
+                                arena.new_node(Symbol {
+                                    data_types: vec![SymbolReference::node(&token, data_type)],
+                                    ..Symbol::from(token)
+                                })
+                            } else {
+                                arena.new_node(Symbol::from(token))
+                            };
+
+                            self.resolver.scope_container.append(child, arena);
+                            self.resolver.declare_local(self.file, token, child);
+
+                            current_object = left;
+                        }
+                    }
+                }
                 AstNode::Unary { expr, .. } => {
                     current_object = expr;
                 }
@@ -629,9 +671,10 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                 }
                 AstNode::Variable(token) => {
                     if let Some(node) = self.resolver.get_local(token) {
-                        self.resolver.reference_local(&token, &node);
+                        self.resolver.reference_local(self.file, &token, &node);
 
                         if let Some(name) = token.label.as_ref() {
+                            // TODO: Once tested, reduce this if as the test is already done in resolver::get_local
                             if name == "this" {
                                 // In this case this was automatically resolved to the current class
                                 break (Some(node), Visibility::Private);
@@ -655,8 +698,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                             },
                                         );
                                     } else if let Some(type_ref) = reference.type_ref.as_ref() {
-                                        if let Some(resolved_data_type) =
-                                            self.resolver.resolve_type_ref(type_ref, arena, &node)
+                                        if let Some(resolved_data_type) = self
+                                            .resolver
+                                            .resolve_type_ref(type_ref, arena, &node, true)
                                         {
                                             break 'root_node (
                                                 Some(resolved_data_type),
@@ -701,7 +745,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                         break (
                             self.resolver
-                                .resolve_type_ref(&vec![token.clone()], arena, &sc),
+                                .resolve_type_ref(&vec![token.clone()], arena, &sc, true),
                             Visibility::Public,
                         );
                     }
@@ -711,7 +755,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                     if let Some(node) =
                         self.resolver
-                            .resolve_type_ref(tokens, arena, &scope_container)
+                            .resolve_type_ref(tokens, arena, &scope_container, true)
                     {
                         break (Some(node), Visibility::Public);
                     } else {
@@ -773,7 +817,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             match link.as_ref() {
                                 AstNode::Variable(token) | AstNode::Literal(token) => {
                                     // Register reference here
-                                    self.resolver.reference_local(&token, &child);
+                                    self.resolver.reference_local(self.file, &token, &child);
                                 }
                                 _ => (),
                             }
@@ -789,9 +833,10 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                                 continue 'link_loop;
                                             }
 
-                                            if let Some(resolved_type) = self
-                                                .resolver
-                                                .resolve_type_ref(&type_ref, arena, &root_node)
+                                            if let Some(resolved_type) =
+                                                self.resolver.resolve_type_ref(
+                                                    &type_ref, arena, &root_node, true,
+                                                )
                                             {
                                                 root_node = resolved_type;
 
@@ -832,10 +877,12 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     // Go through all used traits
                     if let Some(imports) = root_symbol.imports.as_ref() {
                         for import in imports.iter() {
-                            if let Some(used_trait) =
-                                self.resolver
-                                    .resolve_type_ref(&import.path, arena, &root_node)
-                            {
+                            if let Some(used_trait) = self.resolver.resolve_type_ref(
+                                &import.path,
+                                arena,
+                                &root_node,
+                                true,
+                            ) {
                                 for trait_child in used_trait.children(arena) {
                                     let trait_child_symbol = arena[trait_child].get();
 
@@ -843,7 +890,11 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                         match link.as_ref() {
                                             AstNode::Literal(token) => {
                                                 // Register reference here
-                                                self.resolver.reference_local(&token, &trait_child);
+                                                self.resolver.reference_local(
+                                                    self.file,
+                                                    &token,
+                                                    &trait_child,
+                                                );
                                             }
                                             _ => (),
                                         }
@@ -856,7 +907,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                                     {
                                                         if let Some(resolved_type) =
                                                             self.resolver.resolve_type_ref(
-                                                                &type_ref, arena, &root_node,
+                                                                &type_ref, arena, &root_node, true,
                                                             )
                                                         {
                                                             root_node = resolved_type;
@@ -924,5 +975,135 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        backend::Backend,
+        environment::{get_range, symbol::PhpSymbolKind},
+        parser,
+    };
+    use indextree::Arena;
+    use parser::{scanner::Scanner, Parser};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    #[tokio::test]
+    async fn test_references_direct_and_inherited_symbols() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            (
+                "living.php",
+                "<?php namespace App; class Living { public function getPulse() { } }",
+            ),
+            (
+                "animal.php",
+                "<?php namespace App; class Animal extends Living { protected function getType() { } }",
+            ),
+            (
+                "cat.php",
+                "<?php namespace App; class Cat extends Animal { public function getName() { } public function getThis(): self {} public function setName($name) { } } ",
+            ),
+            ("index.php", "<?php use App\\Cat; $kaetzchen = new Cat(); $kaetzchen->getName(); $kaetzchen->getPulse(); echo Cat::class;"),
+            ("index2.php", "<?php use App\\Cat; $kaetzchen = ($test = new Cat()); $kaetzchen->getThis()->getThis()->getThis()->getPulse(); $test->getName();"),
+            ("index3.php", "<?php use App\\Cat; $kaetzchen = new Cat(); $kaetzchen->setName(($marci = new Cat())->getName()); $marci->getName();"),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        eprintln!("{:?}", diagnostics.lock().await);
+        assert!(diagnostics.lock().await.is_empty());
+        let symbol_references = symbol_references.lock().await;
+        let arena = arena.lock().await;
+
+        assert_eq!(
+            vec![
+                "Cat",
+                "Cat",
+                "kaetzchen",
+                "getName",
+                "kaetzchen",
+                "getPulse",
+                "Cat",
+            ],
+            symbol_references
+                .get("index.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+
+        assert_eq!(
+            vec![
+                "Cat",
+                "Cat",
+                "test",
+                "kaetzchen",
+                "getThis",
+                "getThis",
+                "getThis",
+                "getPulse",
+                "test",
+                "getName",
+            ],
+            symbol_references
+                .get("index2.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+
+        assert_eq!(
+            vec![
+                "Cat",
+                "Cat",
+                "Cat",
+                "marci",
+                "getName",
+                "kaetzchen",
+                "setName",
+                "marci",
+                "getName",
+            ],
+            symbol_references
+                .get("index3.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
     }
 }

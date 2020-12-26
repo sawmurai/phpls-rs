@@ -138,7 +138,9 @@ fn members_of(
 
             let mut resolver = NameResolver::new(&global_symbols, referenced_node);
 
-            if let Some(node) = resolver.resolve_type_ref(&type_ref, &arena, &referenced_node) {
+            if let Some(node) =
+                resolver.resolve_type_ref(&type_ref, &arena, &referenced_node, false)
+            {
                 suggestions.extend(members_of_parents_of(node, &arena, &global_symbols).drain(..));
             }
         });
@@ -199,8 +201,6 @@ pub fn get_suggestions_at(
     let mut suggestions = Vec::new();
 
     let parent = ancestors.pop();
-
-    eprintln!(">>> {:?}", node);
 
     match node {
         AstNode::Missing(..) | AstNode::Literal(..) => {

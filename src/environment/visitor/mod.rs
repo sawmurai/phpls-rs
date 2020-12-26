@@ -6,7 +6,10 @@ pub mod name_resolver;
 pub mod workspace_symbol;
 
 pub enum NextAction {
+    /// Do not continue processing the children
     Abort,
+
+    /// Do process the children and consider NodeId the next parent
     ProcessChildren(NodeId),
 }
 
