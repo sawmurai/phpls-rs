@@ -321,7 +321,7 @@ mod tests {
                 kind: PhpSymbolKind::Variable,
                 name: $name.to_string(),
                 data_types: vec![Reference::node(
-                    &Token::named(TokenType::Variable, 0, 0, $name),
+                    &[Token::named(TokenType::Variable, 0, 0, $name)],
                     $node,
                 )],
                 ..Symbol::default()

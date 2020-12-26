@@ -39,11 +39,16 @@ impl std::fmt::Display for Reference {
 
 impl Reference {
     /// Reference to an identifier, for example a function or a member
-    pub fn node(token: &Token, node: NodeId) -> Self {
+    pub fn node(token: &[Token], node: NodeId) -> Self {
+        let range = get_range((
+            token.first().unwrap().range().0,
+            token.last().unwrap().range().1,
+        ));
+
         Self {
-            token: Some(token.clone()),
+            token: None,
             type_ref: None,
-            range: get_range(token.range()),
+            range: range,
             node: Some(node),
         }
     }

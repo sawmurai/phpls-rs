@@ -530,9 +530,12 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         if let Some(types) = types {
                             for t in types {
                                 if let Some(type_ref) = get_type_ref(t) {
-                                    data_types.push(SymbolReference::type_ref(type_ref.clone()));
-                                    self.resolver
-                                        .resolve_type_ref(&type_ref, arena, &parent, true);
+                                    if let Some(node) = self
+                                        .resolver
+                                        .resolve_type_ref(&type_ref, arena, &parent, true)
+                                    {
+                                        data_types.push(SymbolReference::node(&type_ref, node));
+                                    }
                                 }
                             }
                         }
@@ -541,8 +544,10 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 if let Some(argument_type) = argument_type {
                     get_type_refs(argument_type).iter().for_each(|tr| {
-                        self.resolver.resolve_type_ref(&tr, arena, &parent, true);
-                        data_types.push(SymbolReference::type_ref(tr.clone()));
+                        if let Some(node) = self.resolver.resolve_type_ref(tr, arena, &parent, true)
+                        {
+                            data_types.push(SymbolReference::node(tr, node));
+                        }
                     });
                 }
 
@@ -554,7 +559,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 self.resolver.scope_container.append(child, arena);
                 self.resolver.declare_local(self.file, name, child);
 
-                NextAction::ProcessChildren(parent)
+                NextAction::Abort
             }
             AstNode::ReturnType { .. } => {
                 get_type_refs(node).iter().for_each(|tr| {
@@ -570,7 +575,10 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     if let AstNode::Variable(token) = left.as_ref() {
                         let child = if let Some(data_type) = data_type {
                             arena.new_node(Symbol {
-                                data_types: vec![SymbolReference::node(&token, data_type)],
+                                data_types: vec![SymbolReference::node(
+                                    &[token.clone()],
+                                    data_type,
+                                )],
                                 ..Symbol::from(token)
                             })
                         } else {
@@ -634,7 +642,10 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         if let AstNode::Variable(token) = left.as_ref() {
                             let child = if let Some(data_type) = data_type {
                                 arena.new_node(Symbol {
-                                    data_types: vec![SymbolReference::node(&token, data_type)],
+                                    data_types: vec![SymbolReference::node(
+                                        &[token.clone()],
+                                        data_type,
+                                    )],
                                     ..Symbol::from(token)
                                 })
                             } else {
@@ -980,11 +991,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        backend::Backend,
-        environment::{get_range, symbol::PhpSymbolKind},
-        parser,
-    };
+    use crate::{backend::Backend, environment::get_range, parser};
     use indextree::Arena;
     use parser::{scanner::Scanner, Parser};
     use std::collections::HashMap;
@@ -1100,6 +1107,127 @@ mod tests {
             ],
             symbol_references
                 .get("index3.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_references_function_parameters() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            (
+                "living.php",
+                "<?php namespace App; interface Living { public function getPulse(); }",
+            ),
+            (
+                "index.php",
+                "<?php use App\\Living; function animal_caller(Living $cat) { $cat->getPulse(); }",
+            ),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        eprintln!("{:?}", diagnostics.lock().await);
+        assert!(diagnostics.lock().await.is_empty());
+        let symbol_references = symbol_references.lock().await;
+        let arena = arena.lock().await;
+
+        assert_eq!(
+            vec!["Living", "Living", "cat", "getPulse",],
+            symbol_references
+                .get("index.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_references_trait_members() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            (
+                "living.php",
+                "<?php namespace App; trait Living { private $name; public function getName() {} }",
+            ),
+            ("cat.php", "<?php namespace App; class Cat { use Living; }"),
+            (
+                "index.php",
+                "<?php use App\\Cat; $marci = new Cat(); echo $marci->getName();",
+            ),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        eprintln!("{:?}", diagnostics.lock().await);
+        assert!(diagnostics.lock().await.is_empty());
+        let symbol_references = symbol_references.lock().await;
+        let arena = arena.lock().await;
+
+        assert_eq!(
+            vec!["Cat", "Cat", "marci", "getName",],
+            symbol_references
+                .get("index.php")
                 .unwrap()
                 .iter()
                 .map(|r| &arena[r.node].get().name)
