@@ -11,7 +11,7 @@ where
     visitor.before(node);
 
     match visitor.visit(node, arena, parent) {
-        NextAction::Abort => return,
+        NextAction::Abort => (),
         NextAction::ProcessChildren(next_parent) => {
             // If node is a namespace somehow the classes and interface etc. are not added to it but still to the file
             // Probably because they are not children in the ast node of namespace

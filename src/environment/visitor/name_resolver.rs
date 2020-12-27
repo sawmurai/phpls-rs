@@ -83,11 +83,13 @@ impl<'a> NameResolver<'a> {
 
     /// Enter a new class
     pub fn enter_class(&mut self, node: NodeId) {
+        eprintln!("entering");
         self.current_class = Some(node);
     }
 
     /// Enter a new class
     pub fn leave_class(&mut self) {
+        eprintln!("leaving");
         self.current_class = None;
     }
 
@@ -732,7 +734,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                 }
                 AstNode::Literal(token) => match token.t {
                     TokenType::TypeSelf | TokenType::Static => {
-                        break (self.resolver.current_class, Visibility::Private)
+                        break (self.resolver.current_class, Visibility::Private);
                     }
                     TokenType::Parent => {
                         if let Some(current_class) = self.resolver.current_class {
@@ -842,6 +844,30 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                                 || TokenType::Static == first_type
                                             {
                                                 continue 'link_loop;
+                                            }
+
+                                            if TokenType::Parent == first_type {
+                                                if let Some(root_parent) =
+                                                    arena[root_node].get().get_unique_parent(
+                                                        &root_node,
+                                                        self.resolver,
+                                                        arena,
+                                                    )
+                                                {
+                                                    root_node = root_parent;
+
+                                                    continue 'link_loop;
+                                                } else {
+                                                    self.resolver.diagnostic(
+                                                        file_name,
+                                                        link.range(),
+                                                        String::from(
+                                                            "Method returns an instance of its parent, but its class has no parent or the parent could not be resolved."
+                                                        ),
+                                                    );
+
+                                                    return None;
+                                                }
                                             }
 
                                             if let Some(resolved_type) =
@@ -1226,6 +1252,299 @@ mod tests {
 
         assert_eq!(
             vec!["Cat", "Cat", "marci", "getName",],
+            symbol_references
+                .get("index.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_members_of_references_to_own_class_correctly() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            (
+                "living.php",
+                "<?php namespace App; class Living { private $name; public function getName() { } 
+                protected function getOther() {} 
+                public function test() { 
+                    $instance = new Living(); 
+                    $instance->getOther(); 
+                    $instance->name; 
+
+                    $instance2 = new self();
+                    $instance2->getOther();
+                    $instance3 = new static();
+                    $instance3->getOther();
+                } }",
+            ),
+            ("cat.php", "<?php namespace App; class Cat extends Living { public function test() { $this->getName(); $this->getOther(); } }"),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        eprintln!("{:?}", diagnostics.lock().await);
+        assert!(diagnostics.lock().await.is_empty());
+        let symbol_references = symbol_references.lock().await;
+        let arena = arena.lock().await;
+
+        assert_eq!(
+            vec![
+                "Living",
+                "instance",
+                "getOther",
+                "instance",
+                "name",
+                "instance2",
+                "getOther",
+                "instance3",
+                "getOther",
+            ],
+            symbol_references
+                .get("living.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+        assert_eq!(
+            vec!["Living", "Cat", "getName", "Cat", "getOther",],
+            symbol_references
+                .get("cat.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_across_namespaces() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            ("living.php", "<?php namespace App1; class Living { }"),
+            (
+                "cat.php",
+                "<?php namespace App2; class Cat extends \\App1\\Living { }",
+            ),
+            (
+                "tiger.php",
+                "<?php namespace App2; use App1\\Living as L; class Tiger extends L { }",
+            ),
+            (
+                "anothercat.php",
+                "<?php namespace App2; use App1\\Living; class Cat extends Living { }",
+            ),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        eprintln!("{:?}", diagnostics.lock().await);
+        assert!(diagnostics.lock().await.is_empty());
+        let symbol_references = symbol_references.lock().await;
+        let arena = arena.lock().await;
+
+        assert_eq!(
+            vec!["Living"],
+            symbol_references
+                .get("cat.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+        assert_eq!(
+            vec!["Living"],
+            symbol_references
+                .get("cat.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+        assert_eq!(
+            vec!["Living", "Living"],
+            symbol_references
+                .get("anothercat.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_parent_method() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            ("living.php", "<?php namespace App1; class Living { public function __construct() {} }"), 
+            (
+                "cat.php",
+                "<?php namespace App2; use App1\\Living; 
+                class Cat extends Living { public function __construct() { parent::__construct(); } }",
+            ),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        eprintln!("{:?}", diagnostics.lock().await);
+        assert!(diagnostics.lock().await.is_empty());
+        let symbol_references = symbol_references.lock().await;
+        let arena = arena.lock().await;
+
+        assert_eq!(
+            vec!["Living", "Living", "__construct"],
+            symbol_references
+                .get("cat.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_chained_method_calls() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            ("lp.php", "<?php namespace App1; class P {}"),
+            (
+                "living.php",
+                "<?php namespace App1; class Living extends P { public function me(): Living {} 
+            public function myself(): self {} 
+            public function i(): self {} 
+            public function my_parent(): parent {return new parent(); }}",
+            ),
+            (
+                "index.php",
+                "<?php namespace App2; use App1\\Living; 
+                $inst = new Living(); $inst->me()->myself()->i()->my_parent();",
+            ),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        eprintln!("{:?}", diagnostics.lock().await);
+        assert!(diagnostics.lock().await.is_empty());
+        let symbol_references = symbol_references.lock().await;
+        let arena = arena.lock().await;
+
+        assert_eq!(
+            vec!["Living", "Living", "inst", "me", "myself", "i", "my_parent"],
             symbol_references
                 .get("index.php")
                 .unwrap()
