@@ -51,43 +51,6 @@ fn find<'a>(
     None
 }
 
-/// Find variables to suggest by going up the ast from the current node to
-/// the next function boundary and then collecting all child-variables, as
-/// these should be within the scope
-fn suggest_variables(ancestors: Vec<&AstNode>) -> Vec<Suggestion> {
-    let mut suggestions = Vec::new();
-
-    let in_class = ancestors
-        .iter()
-        .find(|n| match n {
-            AstNode::ClassStatement { .. } => true,
-            _ => false,
-        })
-        .is_some();
-    if in_class {
-        suggestions.push(Suggestion::new("$this", ""));
-    }
-
-    let mut root = ancestors.first().unwrap();
-
-    for ancestor in ancestors.iter().rev() {
-        if ancestor.scope_boundary() {
-            root = ancestor;
-
-            break;
-        }
-    }
-
-    for descedant in root.descendants() {
-        match descedant {
-            AstNode::Variable(name) => suggestions.push(Suggestion::new(&name.to_string(), "")),
-            _ => (),
-        }
-    }
-
-    suggestions
-}
-
 /// Collect the members of a class
 ///
 /// * referenced_node: The node representing the class whose members to collect
@@ -193,9 +156,17 @@ pub fn get_suggestions_at(
         // Pop off the last item which is the node itself
         ancestors.pop();
         (node, ancestors)
+    } else if let Some('$') = trigger {
+        // Maybe the $ is the last char of the entire source
+        return symbol_under_cursor.children(arena)
+            .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
+            .collect::<Vec<NodeId>>();
     } else {
-        eprintln!("Did not find the node");
-        return Vec::new();
+        return
+            global_symbols
+                .iter()
+                .map(|(_key, value)| value.to_owned())
+                .collect::<Vec<NodeId>>();
     };
 
     let mut suggestions = Vec::new();
@@ -203,6 +174,11 @@ pub fn get_suggestions_at(
     let parent = ancestors.pop();
 
     match node {
+        AstNode::Variable(..) => {
+            return symbol_under_cursor.children(arena)
+                .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
+                .collect::<Vec<NodeId>>(); 
+        }
         AstNode::Missing(..) | AstNode::Literal(..) => {
             if let Some(parent) = parent {
                 let mut range = parent.range();
@@ -219,8 +195,6 @@ pub fn get_suggestions_at(
                     line: range.0 .0 as u64,
                     character: range.0 .1 as u64,
                 };
-
-                eprintln!("Searching for references at {:?}", range.0);
 
                 for reference in references {
                     if in_range(&pos, &get_range(reference.range)) {
@@ -266,27 +240,25 @@ pub fn get_suggestions_at(
                         break;
                     }
                 }
+            } else {
+                eprintln!("got no parent!");
             }
-        }
-        _ => match trigger {
-            //Some('$') => suggestions.extend(suggest_variables(ancestors)),
-            Some('>') => (),
-            None => {
-                // suggestions.extend(suggest_variables(ancestors));
-                suggestions.extend(
-                    global_symbols
-                        .iter()
-                        .map(|(key, value)| value.to_owned())
-                        .collect::<Vec<NodeId>>(),
-                )
-            }
-            _ => suggestions.extend(
+        },
+        _ => {
+            eprint!("{:?}", node);
+            suggestions.extend(
                 global_symbols
                     .iter()
-                    .map(|(key, value)| value.to_owned())
-                    .collect::<Vec<NodeId>>(),
-            ),
-        },
+                    .filter_map(|(_key, value)| {
+                        if arena[*value].get().name.starts_with(&node.name()) {
+                            Some(value.to_owned())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<NodeId>>()
+            );
+        }
     }
 
     suggestions.dedup_by(|a, b| arena[*a].get().name == arena[*b].get().name);
@@ -526,5 +498,135 @@ mod tests {
 
         assert_eq!("getPulse", arena[actual[0]].get().name);
         assert_eq!("getName", arena[actual[1]].get().name);
+    }
+
+    #[tokio::test]
+    async fn test_suggests_variables() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![ 
+            ("index.php", "<?php $cat = 'Marci'; $"),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        let files = files.lock().await;
+        let arena = arena.lock().await;
+        let global_symbols = global_symbols.lock().await; 
+        let mut scanner = Scanner::new(&sources[0].1);
+        scanner.scan().unwrap();
+        let pr = Parser::ast(scanner.tokens).unwrap();
+        let pos = Position {
+            line: 0,
+            character: 22,
+        };
+        let references = Vec::new();
+        let suc = files.get("index.php").unwrap();
+        let actual = super::get_suggestions_at(
+            Some('$'),
+            pos,
+            *suc,
+            &pr.0,
+            &arena,
+            &global_symbols,
+            &references,
+        );
+
+        assert_eq!("cat", arena[actual[0]].get().name);
+    }
+
+    #[tokio::test]
+    async fn test_suggests_global_symbols() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![ 
+            ("stdlib.php", "<?php function array_a() {} function array_b() {} function strpos() {}"),
+            ("index.php", "<?php array_"),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        let files = files.lock().await;
+        let arena = arena.lock().await;
+        let global_symbols = global_symbols.lock().await; 
+        let mut scanner = Scanner::new(&sources[1].1);
+        scanner.scan().unwrap();
+        let pr = Parser::ast(scanner.tokens).unwrap();
+        let pos = Position {
+            line: 0,
+            character: 12,
+        };
+        let references = Vec::new();
+        let suc = files.get("index.php").unwrap();
+        let actual = super::get_suggestions_at(
+            None,
+            pos,
+            *suc,
+            &pr.0,
+            &arena,
+            &global_symbols,
+            &references,
+        );
+
+        assert_eq!(2, actual.len());
+
+        let actual = actual.iter().map(|n| { &arena[*n].get().name }).collect::<Vec<&String>>();
+
+        assert!(actual.contains(&&"array_a".to_string()));
+        assert!(actual.contains(&&"array_b".to_string()));
     }
 }
