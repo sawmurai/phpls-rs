@@ -809,202 +809,98 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                 } else {
                     link.name()
                 };
+ 
+                let child = arena[root_node].get().get_all_symbols(&root_node, self.resolver, arena).iter().find_map(|node| {
+                    let s = arena[*node].get();
 
-                loop {
-                    let mut found_child = false;
+                    if s.name == link_name {
+                        if s.visibility < minimal_visibility {
+                            self.resolver.diagnostic(
+                                file_name.clone(),
+                                link.range(),
+                                String::from("Method was found but is not accessible from this scope."),
+                            );
+                        } else {
+                            return Some(*node);
+                        }
+                    } 
 
-                    // Get the children of the current root_node, that is its properties and methods
-                    for child in root_node.children(arena) {
-                        // Check all children of the current class
-                        let child_symbol = arena[child].get();
+                    return None;
+                });
+ 
+                if let Some(child) = child {
+                    // Check all children of the current class
+                    let child_symbol = arena[child].get();
 
-                        // This is the correct child
-                        if child_symbol.name == link_name {
-                            found_child = true;
+                    match link.as_ref() {
+                        AstNode::Variable(token) | AstNode::Literal(token) => {
+                            // Register reference here
+                            self.resolver.reference_local(self.file, &token, &child);
+                        }
+                        _ => (),
+                    }
 
-                            // Name must be unique, so we can bail out if we find a name that has a bad visibility
-                            if child_symbol.visibility < minimal_visibility {
-                                continue;
-                            }
+                    match child_symbol.kind {
+                        PhpSymbolKind::Property | PhpSymbolKind::Method => {
+                            for data_type in &child_symbol.data_types {
+                                if let Some(type_ref) = data_type.type_ref.as_ref() {
+                                    let first_type = type_ref.first().unwrap().t.clone();
+                                    if TokenType::TypeSelf == first_type
+                                        || TokenType::Static == first_type
+                                    {
+                                        continue 'link_loop;
+                                    }
 
-                            match link.as_ref() {
-                                AstNode::Variable(token) | AstNode::Literal(token) => {
-                                    // Register reference here
-                                    self.resolver.reference_local(self.file, &token, &child);
-                                }
-                                _ => (),
-                            }
+                                    if TokenType::Parent == first_type {
+                                        if let Some(root_parent) =
+                                            arena[root_node].get().get_unique_parent(
+                                                &root_node,
+                                                self.resolver,
+                                                arena,
+                                            )
+                                        {
+                                            root_node = root_parent;
 
-                            match child_symbol.kind {
-                                PhpSymbolKind::Property | PhpSymbolKind::Method => {
-                                    for data_type in &child_symbol.data_types {
-                                        if let Some(type_ref) = data_type.type_ref.as_ref() {
-                                            let first_type = type_ref.first().unwrap().t.clone();
-                                            if TokenType::TypeSelf == first_type
-                                                || TokenType::Static == first_type
-                                            {
-                                                continue 'link_loop;
-                                            }
+                                            continue 'link_loop;
+                                        } else {
+                                            self.resolver.diagnostic(
+                                                file_name,
+                                                link.range(),
+                                                String::from(
+                                                    "Method returns an instance of its parent, but its class has no parent or the parent could not be resolved."
+                                                ),
+                                            );
 
-                                            if TokenType::Parent == first_type {
-                                                if let Some(root_parent) =
-                                                    arena[root_node].get().get_unique_parent(
-                                                        &root_node,
-                                                        self.resolver,
-                                                        arena,
-                                                    )
-                                                {
-                                                    root_node = root_parent;
-
-                                                    continue 'link_loop;
-                                                } else {
-                                                    self.resolver.diagnostic(
-                                                        file_name,
-                                                        link.range(),
-                                                        String::from(
-                                                            "Method returns an instance of its parent, but its class has no parent or the parent could not be resolved."
-                                                        ),
-                                                    );
-
-                                                    return None;
-                                                }
-                                            }
-
-                                            if let Some(resolved_type) =
-                                                self.resolver.resolve_type_ref(
-                                                    &type_ref, arena, &root_node, true,
-                                                )
-                                            {
-                                                root_node = resolved_type;
-
-                                                // Got a match, stop and proceeed with the next link
-                                                continue 'link_loop;
-                                            }
+                                            return None;
                                         }
                                     }
 
-                                    // No data type resolveable ... no way to proceed
-                                    return None;
-                                }
-                                _ => {
-                                    root_node = child;
-                                }
-                            }
+                                    if let Some(resolved_type) =
+                                        self.resolver.resolve_type_ref(
+                                            &type_ref, arena, &root_node, true,
+                                        )
+                                    {
+                                        root_node = resolved_type;
 
-                            // Done. Get the next link. Remain in the context of where this link was resolved
-                            // This might actually be a parent of the object that the current root_node started
-                            // as
-                            continue 'link_loop;
-                        }
-                    }
-
-                    // Well, we found a child but it did not match the visibility
-                    if found_child {
-                        self.resolver.diagnostic(
-                            file_name,
-                            link.range(),
-                            String::from("Method was found but is not accessible from this scope."),
-                        );
-
-                        return None;
-                    }
-
-                    let root_symbol = arena[root_node].get();
-
-                    // Go through all used traits
-                    if let Some(imports) = root_symbol.imports.as_ref() {
-                        for import in imports.iter() {
-                            if let Some(used_trait) = self.resolver.resolve_type_ref(
-                                &import.path,
-                                arena,
-                                &root_node,
-                                true,
-                            ) {
-                                for trait_child in used_trait.children(arena) {
-                                    let trait_child_symbol = arena[trait_child].get();
-
-                                    if trait_child_symbol.name == link.name() {
-                                        match link.as_ref() {
-                                            AstNode::Literal(token) => {
-                                                // Register reference here
-                                                self.resolver.reference_local(
-                                                    self.file,
-                                                    &token,
-                                                    &trait_child,
-                                                );
-                                            }
-                                            _ => (),
-                                        }
-
-                                        match trait_child_symbol.kind {
-                                            PhpSymbolKind::Property | PhpSymbolKind::Method => {
-                                                for data_type in &trait_child_symbol.data_types {
-                                                    if let Some(type_ref) =
-                                                        data_type.type_ref.as_ref()
-                                                    {
-                                                        if let Some(resolved_type) =
-                                                            self.resolver.resolve_type_ref(
-                                                                &type_ref, arena, &root_node, true,
-                                                            )
-                                                        {
-                                                            root_node = resolved_type;
-
-                                                            // Got a match, stop and proceeed with the next link
-                                                            continue 'link_loop;
-                                                        }
-                                                    }
-                                                }
-
-                                                // No data type resolveable ... no way to proceed
-                                                return None;
-                                            }
-                                            _ => {
-                                                root_node = trait_child;
-                                            }
-                                        }
-
-                                        // Done. Get the next link. Remain in the context of where this link was resolved
-                                        // This might actually be a trait use by the object that the current root_node started
-                                        // as
+                                        // Got a match, stop and proceeed with the next link
                                         continue 'link_loop;
                                     }
                                 }
                             }
+
+                            // No data type resolveable ... no way to proceed
+                            return None;
+                        }
+                        _ => {
+                            root_node = child;
                         }
                     }
-                    // End of trait usage
-
-                    let current_class = arena[root_node].get();
-
-                    // No parents, so no luck
-                    if current_class.inherits_from.is_none() {
-                        break;
-                    }
-
-                    // Change the iterator to an iterator over the children of this parent. Maybe one of them has the name.
-                    // But this time we need to be careful because we must take visibility into account
-                    if let Some(parent_class) =
-                        current_class.get_unique_parent(&root_node, self.resolver, arena)
-                    {
-                        minimal_visibility = Visibility::Protected;
-                        root_node = parent_class;
-
-                        continue;
-                    }
-
-                    //Failed, no resolvable parents
-                    self.resolver.diagnostic(
-                        file_name,
-                        link.range(),
-                        "Unresolvable symbol".to_owned(),
-                    );
-
+                } else {
+                    self.resolver
+                        .diagnostic(file_name, link.range(), 
+                        format!("Unresolvable symbol {}", link.name()),);
                     return None;
                 }
-
-                self.resolver
-                    .diagnostic(file_name, link.range(), "Unresolvable symbol".to_owned());
-                return None;
             }
 
             // At this point we arrived at the last link and successfully resolved everything
@@ -1043,11 +939,11 @@ mod tests {
             ),
             (
                 "cat.php",
-                "<?php namespace App; class Cat extends Animal { public function getName() { } public function getThis(): self {} public function setName($name) { } } ",
+                "<?php namespace App; class Cat extends Animal { public const ROFL = 'copter'; public function getName() { } public function getThis(): self {} public function setName($name) { } } ",
             ),
             ("index.php", "<?php use App\\Cat; $kaetzchen = new Cat(); $kaetzchen->getName(); $kaetzchen->getPulse(); echo Cat::class;"),
             ("index2.php", "<?php use App\\Cat; $kaetzchen = ($test = new Cat()); $kaetzchen->getThis()->getThis()->getThis()->getPulse(); $test->getName();"),
-            ("index3.php", "<?php use App\\Cat; $kaetzchen = new Cat(); $kaetzchen->setName(($marci = new Cat())->getName()); $marci->getName();"),
+            ("index3.php", "<?php use App\\Cat; $kaetzchen = new Cat(); $kaetzchen->setName(($marci = new Cat())->getName()); $marci->getName(); echo Cat::ROFL;"),
         ];
 
         for (resolve, collect) in [(false, true), (true, false)].iter() {
@@ -1130,6 +1026,8 @@ mod tests {
                 "setName",
                 "marci",
                 "getName",
+                "Cat",
+                "ROFL"
             ],
             symbol_references
                 .get("index3.php")
@@ -1482,6 +1380,123 @@ mod tests {
             vec!["Living", "Living", "__construct"],
             symbol_references
                 .get("cat.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_members_of_interfaces_with_multiple_parents() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            ("if1.php", "<?php namespace App1; interface If1 { public function m1(); }"),
+            ("if2.php", "<?php namespace App1; interface If2 { public function m2(); }"),
+            ("if3.php", "<?php namespace App1; interface If3 extends If1, If2 { }"),
+            (
+                "index.php",
+                "<?php namespace App1; function x(If3 $object) { $object->m1(); $object->m2(); }",
+            ),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        eprintln!("{:?}", diagnostics.lock().await);
+        assert!(diagnostics.lock().await.is_empty());
+        let symbol_references = symbol_references.lock().await;
+        let arena = arena.lock().await;
+
+        assert_eq!(
+            vec!["If3", "object", "m1", "object", "m2",],
+            symbol_references
+                .get("index.php")
+                .unwrap()
+                .iter()
+                .map(|r| &arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_type_from_doc_comment_of_property() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            ("c1.php", "<?php namespace App1; class Test { /** @var OtherTest */ public string $inst; }"),
+            ("c2.php", "<?php namespace App1; class OtherTest { public function test() {} }"), 
+            (
+                "index.php",
+                "<?php namespace App1; $o = new Test(); $o->inst->test();",
+            ),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        eprintln!("{:?}", diagnostics.lock().await);
+        assert!(diagnostics.lock().await.is_empty());
+        let symbol_references = symbol_references.lock().await;
+        let arena = arena.lock().await;
+
+        assert_eq!(
+            vec!["Test", "o", "inst", "test"],
+            symbol_references
+                .get("index.php")
                 .unwrap()
                 .iter()
                 .map(|r| &arena[r.node].get().name)
