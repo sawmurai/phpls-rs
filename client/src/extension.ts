@@ -13,47 +13,48 @@ import {
 	Executable,
 	NotificationType
 } from 'vscode-languageclient';
+import { debug } from 'console';
 
 let client: LanguageClient;
-  
+
 /**
  * Downloads file from remote HTTP[S] host and puts its contents to the
  * specified location.
  */
 async function download(url, filePath) {
-  const proto = !url.charAt(4).localeCompare('s') ? https : http;
+	const proto = !url.charAt(4).localeCompare('s') ? https : http;
 
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(filePath);
-    let fileInfo = null;
+	return new Promise((resolve, reject) => {
+		const file = fs.createWriteStream(filePath);
+		let fileInfo = null;
 
-    const request = proto.get(url, response => {
-      if (response.statusCode !== 200) {
-        reject(new Error(`Failed to get '${url}' (${response.statusCode})`));
-        return;
-      }
+		const request = proto.get(url, response => {
+			if (response.statusCode !== 200) {
+				reject(new Error(`Failed to get '${url}' (${response.statusCode})`));
+				return;
+			}
 
-      fileInfo = {
-        mime: response.headers['content-type'],
-        size: parseInt(response.headers['content-length'], 10),
-      };
+			fileInfo = {
+				mime: response.headers['content-type'],
+				size: parseInt(response.headers['content-length'], 10),
+			};
 
-      response.pipe(file);
-    });
+			response.pipe(file);
+		});
 
-    // The destination stream is ended by the time it's called
-    file.on('finish', () => resolve(fileInfo));
+		// The destination stream is ended by the time it's called
+		file.on('finish', () => resolve(fileInfo));
 
-    request.on('error', err => {
-      fs.unlink(filePath, () => reject(err));
-    });
+		request.on('error', err => {
+			fs.unlink(filePath, () => reject(err));
+		});
 
-    file.on('error', err => {
-      fs.unlink(filePath, () => reject(err));
-    });
+		file.on('error', err => {
+			fs.unlink(filePath, () => reject(err));
+		});
 
-    request.end();
-  });
+		request.end();
+	});
 }
 
 export async function activate(context: ExtensionContext) {
@@ -91,26 +92,30 @@ export async function activate(context: ExtensionContext) {
 		]
 	});
 
-	let downloadPath = 'https://';
+	let downloadPath = 'https://github.com/sawmurai/phpls-rs/blob/master/sc.sh';
 	let storagePath = context.globalStoragePath;
-	let binary = storagePath + '/phplsrs-0.1.1';
-	if (!fs.existsSync(storagePath)) {
-		fs.mkdirSync(storagePath);
-	}
+	let serverModule = storagePath + '/phplsrs-0.1.0';
 
-	if (!fs.existsSync(binary)) {
-		
-		window.setStatusBarMessage("Downloading client ...");
-		await download(downloadPath, binary);
-		
-		window.setStatusBarMessage("Downloaded client");
-	} else {	
-		window.setStatusBarMessage("Client already installed.");
-	}
-
-	let serverModule = context.asAbsolutePath(
+	let debugServerModule = context.asAbsolutePath(
 		path.join('target', 'debug', 'phpls-rs')
 	);
+
+	if (fs.existsSync(debugServerModule)) {
+		serverModule = debugServerModule;
+		window.setStatusBarMessage("Using local development server.");
+	} else {
+		if (!fs.existsSync(storagePath)) {
+			fs.mkdirSync(storagePath);
+		}
+
+		if (!fs.existsSync(serverModule)) {
+			window.setStatusBarMessage("Downloading server ...");
+			await download(downloadPath, serverModule);
+			window.setStatusBarMessage("Downloaded server.");
+		} else {
+			window.setStatusBarMessage("Server already installed.");
+		}
+	}
 
 	const run: Executable = {
 		command: serverModule,
