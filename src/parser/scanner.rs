@@ -622,6 +622,14 @@ impl Scanner {
         let mut potential_end = false;
 
         while let Some(&c) = self.peek() {
+            if c == '\r' {
+                // Advance past \r and push the next real char back on the stack
+                let n = self.advance().unwrap();
+                self.chars.push(n);
+
+                continue;
+            }
+
             line.push(c);
 
             // New line, new luck. This could be the end! But first, push the previous line onto the result

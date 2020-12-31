@@ -16,29 +16,29 @@ use super::{expressions, types};
 /// ```
 pub(crate) fn try_catch_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Try)?;
-    let try_block = Box::new(parser.block()?);
+    let try_block = parser.block()?;
 
     let mut catch_blocks = Vec::new();
 
     while parser.next_token_one_of(&[TokenType::Catch]) {
-        catch_blocks.push(catch_block(parser)?);
+        catch_blocks.push(*catch_block(parser)?);
     }
 
     let finally_block = if let Some(finally_token) = parser.consume_or_ignore(TokenType::Finally) {
         Some(Box::new(Node::FinallyBlock {
             token: finally_token,
-            body: Box::new(parser.block()?),
+            body: parser.block()?,
         }))
     } else {
         None
     };
 
-    Ok(Node::TryCatch {
+    Ok(Box::new(Node::TryCatch {
         token,
         try_block,
         catch_blocks,
         finally_block,
-    })
+    }))
 }
 
 /// Parses a catch block (including the catch-keyword, yes, I need to make my mind up about including / excluding the keyword)
@@ -57,23 +57,23 @@ pub(crate) fn catch_block(parser: &mut Parser) -> ExpressionResult {
     let var = parser.consume(TokenType::Variable)?;
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    let body = Box::new(parser.block()?);
+    let body = parser.block()?;
 
-    Ok(Node::CatchBlock {
+    Ok(Box::new(Node::CatchBlock {
         token,
         op,
         types,
         var,
         cp,
         body,
-    })
+    }))
 }
 
 pub(crate) fn throw_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Throw)?;
-    let expression = Box::new(expressions::expression(parser)?);
+    let expression = expressions::expression(parser)?;
 
     parser.consume_end_of_statement()?;
 
-    Ok(Node::ThrowStatement { token, expression })
+    Ok(Box::new(Node::ThrowStatement { token, expression }))
 }

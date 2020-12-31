@@ -27,7 +27,7 @@ pub enum Error {
 // Overwrite result
 type Result<T, E = Error> = std::result::Result<T, E>;
 type ArgumentListResult = Result<Option<Vec<Node>>>;
-type ExpressionResult = Result<Node>;
+type ExpressionResult = Result<Box<Node>>;
 type ExpressionListResult = Result<Vec<Node>>;
 pub type AstResult = Result<(Vec<Node>, Vec<Error>)>;
 
@@ -106,7 +106,7 @@ impl Parser {
                 }
             }
 
-            statements.push(new_statement);
+            statements.push(*new_statement);
         }
 
         Ok((statements, parser.errors))
@@ -164,12 +164,12 @@ impl Parser {
                 }
             }
 
-            statements.push(new_statement);
+            statements.push(*new_statement);
         }
 
         let cc = self.consume(TokenType::CloseCurly)?;
 
-        Ok(Node::Block { oc, statements, cc })
+        Ok(Box::new(Node::Block { oc, statements, cc }))
     }
 
     /// Parses an alternative code block, which basically is a vector of `Node` / statements.
@@ -213,16 +213,16 @@ impl Parser {
                 }
             }
 
-            statements.push(new_statement);
+            statements.push(*new_statement);
         }
 
         let terminator = self.consume(expected_terminator)?;
 
-        Ok(Node::AlternativeBlock {
+        Ok(Box::new(Node::AlternativeBlock {
             colon,
             statements,
             terminator,
-        })
+        }))
     }
 
     /// Parses sudden appearances of inline HTML.
@@ -234,10 +234,10 @@ impl Parser {
     /// echo "This is PHP ... again!";
     /// ```
     fn inline_html(&mut self) -> ExpressionResult {
-        Ok(Node::InlineHtml {
+        Ok(Box::new(Node::InlineHtml {
             start: self.consume(TokenType::ScriptEnd)?,
             end: self.consume_or_ignore(TokenType::ScriptStart),
-        })
+        }))
     }
 
     /// A helper for wrapping the switch between regular statement or alternative block
@@ -306,10 +306,10 @@ impl Parser {
                 // Exit
                 //}
                 TokenType::Semicolon => {
-                    return Ok(Node::TokenStatement {
+                    return Ok(Box::new(Node::TokenStatement {
                         token: self.consume(TokenType::Semicolon)?,
                         expr: None,
-                    });
+                    }));
                 }
                 TokenType::Break | TokenType::Continue => {
                     let token = self.next().unwrap();
@@ -317,14 +317,14 @@ impl Parser {
                     let expr = if self.next_token_one_of(&[TokenType::Semicolon]) {
                         None
                     } else {
-                        Some(Box::new(expressions::expression(self)?))
+                        Some(expressions::expression(self)?)
                     };
 
                     let statement = Node::TokenStatement { token, expr };
 
                     self.consume_end_of_statement()?;
 
-                    return Ok(statement);
+                    return Ok(Box::new(statement));
                 }
                 TokenType::Try => return exception_handling::try_catch_statement(self),
                 TokenType::Declare => return keywords::declare_statement(self),
@@ -342,7 +342,7 @@ impl Parser {
                     // Labels
                     } else if let Some(label) = self.consume_or_ignore(TokenType::Identifier) {
                         if let Some(colon) = self.consume_or_ignore(TokenType::Colon) {
-                            return Ok(Node::LabelStatement { label, colon });
+                            return Ok(Box::new(Node::LabelStatement { label, colon }));
                         } else {
                             // Back on the stack
                             self.tokens.push(label);

@@ -6,9 +6,7 @@ use super::{arrays, calls, classes, functions, keywords, types, variables};
 pub(crate) fn expression_statement(parser: &mut Parser) -> ExpressionResult {
     let value = expression(parser)?;
 
-    Ok(Node::ExpressionStatement {
-        expression: Box::new(value),
-    })
+    Ok(Box::new(Node::ExpressionStatement { expression: value }))
 }
 
 /// Parses an expression. This can be anything that evaluates to a value. A function call, a comparison or even an assignment
@@ -17,21 +15,21 @@ pub(crate) fn expression(parser: &mut Parser) -> ExpressionResult {
 
     if let Some(qm) = parser.consume_or_ignore(TokenType::QuestionMark) {
         if let Some(colon) = parser.consume_or_ignore(TokenType::Colon) {
-            return Ok(Node::Ternary {
-                check: Box::new(expr?),
+            return Ok(Box::new(Node::Ternary {
+                check: expr?,
                 qm,
                 true_arm: None,
                 colon,
-                false_arm: Box::new(expression(parser)?),
-            });
+                false_arm: expression(parser)?,
+            }));
         } else {
-            return Ok(Node::Ternary {
-                check: Box::new(expr?),
+            return Ok(Box::new(Node::Ternary {
+                check: expr?,
                 qm,
-                true_arm: Some(Box::new(expression(parser)?)),
+                true_arm: Some(expression(parser)?),
                 colon: parser.consume(TokenType::Colon)?,
-                false_arm: Box::new(expression(parser)?),
-            });
+                false_arm: expression(parser)?,
+            }));
         }
     }
 
@@ -48,11 +46,11 @@ pub(crate) fn logic(parser: &mut Parser) -> ExpressionResult {
         let next = parser.next().unwrap();
         let right = equality(parser)?;
 
-        expr = Node::Binary {
-            left: Box::new(expr),
+        expr = Box::new(Node::Binary {
+            left: expr,
             token: next,
-            right: Box::new(right),
-        };
+            right,
+        });
     }
 
     Ok(expr)
@@ -75,11 +73,11 @@ pub(crate) fn equality(parser: &mut Parser) -> ExpressionResult {
         let next = parser.next().unwrap();
         let right = comparison(parser)?;
 
-        expr = Node::Binary {
-            left: Box::new(expr),
+        expr = Box::new(Node::Binary {
+            left: expr,
             token: next,
-            right: Box::new(right),
-        };
+            right,
+        });
     }
 
     Ok(expr)
@@ -100,11 +98,11 @@ pub(crate) fn comparison(parser: &mut Parser) -> ExpressionResult {
         let next = parser.next().unwrap();
         let right = assignment(parser)?;
 
-        expr = Node::Binary {
-            left: Box::new(expr),
+        expr = Box::new(Node::Binary {
+            left: expr,
             token: next,
-            right: Box::new(right),
-        };
+            right,
+        });
     }
 
     Ok(expr)
@@ -143,11 +141,11 @@ pub(crate) fn assignment(parser: &mut Parser) -> ExpressionResult {
         let value = assignment(parser)?;
 
         if expr.is_lvalue() {
-            return Ok(Node::Binary {
-                left: Box::new(expr),
+            return Ok(Box::new(Node::Binary {
+                left: expr,
                 token: operator,
-                right: Box::new(value),
-            });
+                right: value,
+            }));
         } else {
             return Err(Error::RValueInWriteContext { token: operator });
         }
@@ -174,11 +172,11 @@ pub(crate) fn addition(parser: &mut Parser) -> ExpressionResult {
         let next = parser.next().unwrap();
         let right = multiplication(parser)?;
 
-        expr = Node::Binary {
-            left: Box::new(expr),
+        expr = Box::new(Node::Binary {
+            left: expr,
             token: next,
-            right: Box::new(right),
-        };
+            right,
+        });
     }
 
     Ok(expr)
@@ -201,11 +199,11 @@ pub(crate) fn multiplication(parser: &mut Parser) -> ExpressionResult {
         let next = parser.next().unwrap();
         let right = unary(parser)?;
 
-        expr = Node::Binary {
-            left: Box::new(expr),
+        expr = Box::new(Node::Binary {
+            left: expr,
             token: next.clone(),
-            right: Box::new(right),
-        };
+            right,
+        });
     }
 
     Ok(expr)
@@ -234,10 +232,10 @@ pub(crate) fn unary(parser: &mut Parser) -> ExpressionResult {
         let next = parser.next().unwrap();
         let right = unary(parser)?;
 
-        return Ok(Node::Unary {
+        return Ok(Box::new(Node::Unary {
             token: next,
-            expr: Box::new(right),
-        });
+            expr: right,
+        }));
     }
 
     let primary = calls::call(parser)?;
@@ -245,10 +243,10 @@ pub(crate) fn unary(parser: &mut Parser) -> ExpressionResult {
     if parser.next_token_one_of(&[TokenType::Increment, TokenType::Decrement]) {
         let next = parser.next().unwrap();
 
-        return Ok(Node::PostUnary {
+        return Ok(Box::new(Node::PostUnary {
             token: next,
-            expr: Box::new(primary),
-        });
+            expr: primary,
+        }));
     }
     Ok(primary)
 }
@@ -276,7 +274,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         TokenType::ConstNan,
         TokenType::ConstInf,
     ]) {
-        return Ok(Node::Literal(parser.next().unwrap()));
+        return Ok(Box::new(Node::Literal(parser.next().unwrap())));
     }
 
     if parser.next_token_one_of(&[TokenType::Variable]) {
@@ -293,43 +291,43 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         let string = parser.next().unwrap();
         parser.consume_or_err(TokenType::HereDocEnd)?;
 
-        return Ok(Node::Literal(string));
+        return Ok(Box::new(Node::Literal(string)));
     }
 
     if let Some(isset) = parser.consume_or_ignore(TokenType::Isset) {
-        return Ok(Node::Isset {
+        return Ok(Box::new(Node::Isset {
             isset,
             op: parser.consume(TokenType::OpenParenthesis)?,
             parameters: functions::non_empty_parameter_list(parser)?,
             cp: parser.consume(TokenType::CloseParenthesis)?,
-        });
+        }));
     }
 
     if let Some(exit) = parser.consume_or_ignore(TokenType::Exit) {
         if let Some(op) = parser.consume_or_ignore(TokenType::OpenParenthesis) {
-            return Ok(Node::Exit {
+            return Ok(Box::new(Node::Exit {
                 exit,
                 op: Some(op),
                 parameters: Some(functions::parameter_list(parser)?),
                 cp: Some(parser.consume(TokenType::CloseParenthesis)?),
-            });
+            }));
         }
 
-        return Ok(Node::Exit {
+        return Ok(Box::new(Node::Exit {
             exit,
             op: None,
             parameters: None,
             cp: None,
-        });
+        }));
     }
 
     if let Some(empty) = parser.consume_or_ignore(TokenType::Empty) {
-        return Ok(Node::Empty {
+        return Ok(Box::new(Node::Empty {
             empty,
             op: parser.consume(TokenType::OpenParenthesis)?,
             parameters: functions::non_empty_parameter_list(parser)?,
             cp: parser.consume(TokenType::CloseParenthesis)?,
-        });
+        }));
     }
 
     if parser.next_token_one_of(&[TokenType::TypeArray]) {
@@ -346,10 +344,10 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         TokenType::Include,
         TokenType::IncludeOnce,
     ]) {
-        return Ok(Node::FileInclude {
+        return Ok(Box::new(Node::FileInclude {
             token: include,
-            resource: Box::new(expression(parser)?),
-        });
+            resource: expression(parser)?,
+        }));
     }
 
     if parser.next_token_one_of(&[TokenType::OpenBrackets]) {
@@ -363,7 +361,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         let expr = expression(parser)?;
         parser.consume_or_err(TokenType::CloseParenthesis)?;
 
-        return Ok(Node::Grouping(Box::new(expr)));
+        return Ok(Box::new(Node::Grouping(expr)));
     }
 
     if parser.next_token_one_of(&[TokenType::Fn]) {
@@ -378,7 +376,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     if let Some(static_token) = parser.consume_or_ignore(TokenType::Static) {
         // Followed by ::? Probably a member access
         if parser.next_token_one_of(&[TokenType::PaamayimNekudayim]) {
-            return Ok(Node::Literal(static_token));
+            return Ok(Box::new(Node::Literal(static_token)));
         }
 
         // Followed by "function"? Static function expression
@@ -391,7 +389,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         }
 
         // Otherwise probably used in a instantiation context
-        return Ok(Node::Literal(static_token));
+        return Ok(Box::new(Node::Literal(static_token)));
     }
 
     // self is like static but less mighty
@@ -400,11 +398,11 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     {
         // Followed by ::? Probably a member access
         if parser.next_token_one_of(&[TokenType::PaamayimNekudayim]) {
-            return Ok(Node::Literal(parser_token));
+            return Ok(Box::new(Node::Literal(parser_token)));
         }
 
         // Otherwise ... no clue if an error after all. Need to check official grammar
-        return Ok(Node::Literal(parser_token));
+        return Ok(Box::new(Node::Literal(parser_token)));
     }
 
     if parser.next_token_one_of(&[TokenType::Class]) {
@@ -412,38 +410,38 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     }
 
     if let Some(new) = parser.consume_or_ignore(TokenType::New) {
-        return Ok(Node::New {
+        return Ok(Box::new(Node::New {
             token: new,
-            class: Box::new(calls::call(parser)?),
-        });
+            class: calls::call(parser)?,
+        }));
     }
 
     if let Some(token) = parser.consume_or_ignore(TokenType::Yield) {
         if parser.next_token_one_of(&[TokenType::Semicolon]) {
-            return Ok(Node::Yield { token, expr: None });
+            return Ok(Box::new(Node::Yield { token, expr: None }));
         }
 
-        return Ok(Node::Yield {
+        return Ok(Box::new(Node::Yield {
             token,
-            expr: Some(Box::new(arrays::array_pair(parser)?)),
-        });
+            expr: Some(arrays::array_pair(parser)?),
+        }));
     }
 
     if let Some(from) = parser.consume_or_ignore(TokenType::YieldFrom) {
-        return Ok(Node::YieldFrom {
+        return Ok(Box::new(Node::YieldFrom {
             token: from,
-            expr: Box::new(expression(parser)?),
-        });
+            expr: expression(parser)?,
+        }));
     }
 
     if let Some(next) = parser.next() {
         // Maybe some sort of other identifier?
         if next.is_identifier() {
-            return Ok(Node::Literal(next));
+            return Ok(Box::new(Node::Literal(next)));
         } else {
-            return Err(Error::UnexpectedTokenError { token: next })
+            return Err(Error::UnexpectedTokenError { token: next });
         }
     }
 
-    Err(Error::Eof { })
+    Err(Error::Eof {})
 }

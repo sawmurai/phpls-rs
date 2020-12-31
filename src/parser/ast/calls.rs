@@ -10,7 +10,7 @@ pub(crate) fn call(parser: &mut Parser) -> ExpressionResult {
     init_call(parser, expr)
 }
 
-fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
+fn init_call(parser: &mut Parser, mut expr: Box<Node>) -> ExpressionResult {
     loop {
         if parser.next_token_one_of(&[TokenType::OpenParenthesis]) {
             expr = finish_call(parser, expr)?;
@@ -19,101 +19,101 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
         } else if let Some(os) = parser.consume_or_ignore(TokenType::ObjectOperator) {
             // Using the ->{} syntax, so the member is the result of an expression
             if let Some(oc) = parser.consume_or_ignore(TokenType::OpenCurly) {
-                expr = Node::Member {
-                    object: Box::new(expr),
+                expr = Box::new(Node::Member {
+                    object: expr,
                     arrow: os,
                     oc: Some(oc),
-                    member: Box::new(expressions::expression(parser)?),
+                    member: expressions::expression(parser)?,
                     cc: Some(parser.consume(TokenType::CloseCurly)?),
-                };
+                });
 
             // Using the ->member syntax, so the member is either an identifier or a variable
             } else if parser.next_token_one_of(&[TokenType::Variable]) {
-                expr = Node::Member {
-                    object: Box::new(expr),
+                expr = Box::new(Node::Member {
+                    object: expr,
                     arrow: os,
                     oc: None,
-                    member: Box::new(variables::variable(parser)?),
+                    member: variables::variable(parser)?,
                     cc: None,
-                };
+                });
             } else if let Ok(identifier) = parser.consume_identifier() {
-                expr = Node::Member {
-                    object: Box::new(expr),
+                expr = Box::new(Node::Member {
+                    object: expr,
                     arrow: os,
                     oc: None,
                     member: Box::new(Node::Literal(identifier)),
                     cc: None,
-                };
+                });
             } else {
-                expr = Node::Member {
-                    object: Box::new(expr),
+                expr = Box::new(Node::Member {
+                    object: expr,
                     arrow: os.clone(),
                     oc: None,
                     member: Box::new(Node::Missing(os)),
                     cc: None,
-                };
+                });
             }
         // Accessing a static class member
         } else if let Some(pn) = parser.consume_or_ignore(TokenType::PaamayimNekudayim) {
             // Class property
             if parser.next_token_one_of(&[TokenType::Variable]) {
-                expr = Node::StaticMember {
-                    object: Box::new(expr),
+                expr = Box::new(Node::StaticMember {
+                    object: expr,
                     pn,
                     oc: None,
-                    member: Box::new(variables::variable(parser)?),
+                    member: variables::variable(parser)?,
                     cc: None,
-                };
+                });
 
             // Class method
             } else if parser.next_token_one_of(&[TokenType::OpenCurly]) {
-                expr = Node::StaticMember {
-                    object: Box::new(expr),
+                expr = Box::new(Node::StaticMember {
+                    object: expr,
                     pn,
                     oc: Some(parser.consume(TokenType::OpenCurly)?),
-                    member: Box::new(variables::variable(parser)?),
+                    member: variables::variable(parser)?,
                     cc: Some(parser.consume(TokenType::CloseCurly)?),
-                };
+                });
             // Class constant
             } else {
-                expr = Node::StaticMember {
-                    object: Box::new(expr),
+                expr = Box::new(Node::StaticMember {
+                    object: expr,
                     pn,
                     oc: None,
                     member: Box::new(Node::Literal(parser.consume_member()?)),
                     cc: None,
-                };
+                });
             }
         } else if let Some(ob) = parser.consume_or_ignore(TokenType::OpenBrackets) {
             // TODO: Think about a nicer solution for $a[] = ...
             expr = match parser.consume_or_ignore(TokenType::CloseBrackets) {
-                Some(cb) => Node::Field {
-                    array: Box::new(expr),
+                Some(cb) => Box::new(Node::Field {
+                    array: expr,
                     ob,
                     index: None,
                     cb,
-                },
-                None => Node::Field {
-                    array: Box::new(expr),
+                }),
+                None => Box::new(Node::Field {
+                    array: expr,
                     ob,
-                    index: Some(Box::new(expressions::expression(parser)?)),
+                    index: Some(expressions::expression(parser)?),
                     cb: parser.consume(TokenType::CloseBrackets)?,
-                },
+                }),
             };
         } else if let Some(oc) = parser.consume_or_ignore(TokenType::OpenCurly) {
-            expr = Node::Field {
-                array: Box::new(expr),
+            expr = Box::new(Node::Field {
+                array: expr,
                 ob: oc,
-                index: Some(Box::new(expressions::expression(parser)?)),
+                index: Some(expressions::expression(parser)?),
                 cb: parser.consume(TokenType::CloseCurly)?,
-            };
+            });
         } else if let Some(assignment) = parser.consume_or_ignore(TokenType::Assignment) {
             // Something like static::$member = 1;
-            expr = Node::Binary {
-                left: Box::new(expr),
+            expr = Box::new(Node::Binary {
+                left: expr,
                 token: assignment,
-                right: Box::new(expressions::expression(parser)?),
-            };
+                right: expressions::expression(parser)?,
+            });
         } else {
             break;
         }
@@ -123,12 +123,12 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
 }
 
 /// Parses all the parameters of a call
-fn finish_call(parser: &mut Parser, expr: Node) -> ExpressionResult {
+fn finish_call(parser: &mut Parser, expr: Box<Node>) -> ExpressionResult {
     let op = parser.consume(TokenType::OpenParenthesis)?;
 
     let mut parameters = Vec::new();
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
-        parameters.push(expressions::expression(parser)?);
+        parameters.push(*expressions::expression(parser)?);
 
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
             break;
@@ -136,12 +136,12 @@ fn finish_call(parser: &mut Parser, expr: Node) -> ExpressionResult {
             parser.consume_or_err(TokenType::Comma)?;
         }
     }
-    Ok(Node::Call {
-        callee: Box::new(expr),
+    Ok(Box::new(Node::Call {
+        callee: expr,
         op,
         parameters,
         cp: parser.consume(TokenType::CloseParenthesis)?,
-    })
+    }))
 }
 
 #[cfg(test)]
@@ -470,5 +470,16 @@ $object-><Missing>;
         .to_owned();
 
         assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_nested_call() {
+        let mut scanner = Scanner::new(
+            // "<?php\r\n\r\n/** @var LoggerInterface|MockObject $logger */\r\n$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $this->getMockByCalls(LoggerInterface::class, [\r\n    Call::create('error')->with(\r\n        'Exception',\r\n         new ArgumentCallback(function (array $context): void {\r\n            //$this->assertArrayHasKey('exceptions', $context);\r\n            $a = 1;\r\n        }) \r\n    ),\r\n]);",
+            "<?php $logger = true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true;",
+        );
+
+        scanner.scan().unwrap();
+        Parser::ast(scanner.tokens).unwrap();
     }
 }

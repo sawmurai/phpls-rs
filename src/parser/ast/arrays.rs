@@ -17,16 +17,16 @@ pub(crate) fn array(parser: &mut Parser) -> ExpressionResult {
             continue;
         }
 
-        elements.push(array_pair(parser)?);
+        elements.push(*array_pair(parser)?);
 
         parser.consume_or_ignore(TokenType::Comma);
     }
 
-    Ok(Node::Array {
+    Ok(Box::new(Node::Array {
         ob: start,
         elements,
         cb: parser.consume(TokenType::CloseBrackets)?,
-    })
+    }))
 }
 
 pub(crate) fn old_array(parser: &mut Parser) -> ExpressionResult {
@@ -35,17 +35,17 @@ pub(crate) fn old_array(parser: &mut Parser) -> ExpressionResult {
     let mut elements = Vec::new();
 
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
-        elements.push(array_pair(parser)?);
+        elements.push(*array_pair(parser)?);
 
         parser.consume_or_ignore(TokenType::Comma);
     }
 
-    Ok(Node::OldArray {
+    Ok(Box::new(Node::OldArray {
         token: start,
         op,
         elements,
         cp: parser.consume(TokenType::CloseParenthesis)?,
-    })
+    }))
 }
 
 pub(crate) fn array_pair(parser: &mut Parser) -> ExpressionResult {
@@ -57,28 +57,28 @@ pub(crate) fn array_pair(parser: &mut Parser) -> ExpressionResult {
 
         // Todo: Rather check for scalarity
         if !key.is_offset() {
-            return Err(Error::IllegalOffsetType { expr: key });
+            return Err(Error::IllegalOffsetType { expr: *key });
         }
 
         if parser.next_token_one_of(&[TokenType::BinaryAnd]) {
-            Ok(Node::ArrayElement {
-                key: Some(Box::new(key)),
+            Ok(Box::new(Node::ArrayElement {
+                key: Some(key),
                 arrow: Some(arrow),
-                value: Box::new(variables::lexical_variable(parser)?),
-            })
+                value: variables::lexical_variable(parser)?,
+            }))
         } else {
-            Ok(Node::ArrayElement {
-                key: Some(Box::new(key)),
+            Ok(Box::new(Node::ArrayElement {
+                key: Some(key),
                 arrow: Some(arrow),
-                value: Box::new(expressions::expression(parser)?),
-            })
+                value: expressions::expression(parser)?,
+            }))
         }
     } else {
-        Ok(Node::ArrayElement {
+        Ok(Box::new(Node::ArrayElement {
             key: None,
             arrow: None,
-            value: Box::new(key),
-        })
+            value: key,
+        }))
     }
 }
 
@@ -105,7 +105,7 @@ mod tests {
             tokens,
         };
 
-        let expected = Node::Array {
+        let expected = Box::new(Node::Array {
             ob: Token::new(TokenType::OpenBrackets, 1, 1),
             cb: Token::new(TokenType::CloseBrackets, 10, 10),
             elements: vec![
@@ -130,7 +130,7 @@ mod tests {
                     ))),
                 },
             ],
-        };
+        });
 
         assert_eq!(expected, array(&mut parser).unwrap());
     }

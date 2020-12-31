@@ -14,14 +14,14 @@ pub(crate) fn namespace_statement(parser: &mut Parser) -> ExpressionResult {
     let type_ref = types::type_ref(parser)?;
 
     if parser.next_token_one_of(&[TokenType::OpenCurly]) {
-        Ok(Node::NamespaceBlock {
+        Ok(Box::new(Node::NamespaceBlock {
             token,
             type_ref,
-            block: Box::new(parser.block()?),
-        })
+            block: parser.block()?,
+        }))
     } else if let Some(type_ref) = type_ref {
         parser.consume_end_of_statement()?;
-        Ok(Node::NamespaceStatement { token, type_ref })
+        Ok(Box::new(Node::NamespaceStatement { token, type_ref }))
     } else if let Some(token) = parser.next() {
         Err(Error::WrongTokenError {
             expected: vec![TokenType::OpenBrackets, TokenType::Identifier],
@@ -46,19 +46,19 @@ fn symbol_import(parser: &mut Parser) -> ExpressionResult {
         let name = types::non_empty_type_ref(parser)?;
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
-            return Ok(Node::UseFunction {
+            return Ok(Box::new(Node::UseFunction {
                 token: None,
-                function: Box::new(name),
+                function: name,
                 aliased: Some(alias),
                 alias: Some(parser.consume(TokenType::Identifier)?),
-            });
+            }));
         } else {
-            return Ok(Node::UseFunction {
+            return Ok(Box::new(Node::UseFunction {
                 token: None,
-                function: Box::new(name),
+                function: name,
                 aliased: None,
                 alias: None,
-            });
+            }));
         }
     }
 
@@ -66,38 +66,38 @@ fn symbol_import(parser: &mut Parser) -> ExpressionResult {
         let name = types::non_empty_type_ref(parser)?;
 
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
-            return Ok(Node::UseConst {
+            return Ok(Box::new(Node::UseConst {
                 token: None,
-                constant: Box::new(name),
+                constant: name,
                 aliased: Some(alias),
                 alias: Some(parser.consume(TokenType::Identifier)?),
-            });
+            }));
         } else {
-            return Ok(Node::UseConst {
+            return Ok(Box::new(Node::UseConst {
                 token: None,
-                constant: Box::new(name),
+                constant: name,
                 aliased: None,
                 alias: None,
-            });
+            }));
         }
     }
 
     let name = types::non_empty_type_ref(parser)?;
 
     if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
-        Ok(Node::UseDeclaration {
+        Ok(Box::new(Node::UseDeclaration {
             token: None,
-            declaration: Box::new(name),
+            declaration: name,
             aliased: Some(alias),
             alias: Some(parser.consume(TokenType::Identifier)?),
-        })
+        }))
     } else {
-        Ok(Node::UseDeclaration {
+        Ok(Box::new(Node::UseDeclaration {
             token: None,
-            declaration: Box::new(name),
+            declaration: name,
             aliased: None,
             alias: None,
-        })
+        }))
     }
 }
 
@@ -110,7 +110,7 @@ fn symbol_import(parser: &mut Parser) -> ExpressionResult {
 fn symbol_imports(parser: &mut Parser) -> ExpressionListResult {
     let mut imports = Vec::new();
 
-    imports.push(symbol_import(parser)?);
+    imports.push(*symbol_import(parser)?);
 
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
         if !parser.next_token_one_of(&[
@@ -121,7 +121,7 @@ fn symbol_imports(parser: &mut Parser) -> ExpressionListResult {
             break;
         }
 
-        imports.push(symbol_import(parser)?);
+        imports.push(*symbol_import(parser)?);
     }
 
     Ok(imports)
@@ -139,14 +139,14 @@ pub(crate) fn use_function_statement(parser: &mut Parser, token: Token) -> Expre
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
             imports.push(Node::UseFunction {
                 token: Some(token.clone()),
-                function: Box::new(name),
+                function: name,
                 aliased: Some(alias),
                 alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
             imports.push(Node::UseFunction {
                 token: Some(token.clone()),
-                function: Box::new(name),
+                function: name,
                 aliased: None,
                 alias: None,
             });
@@ -161,7 +161,7 @@ pub(crate) fn use_function_statement(parser: &mut Parser, token: Token) -> Expre
 
     parser.consume_end_of_statement()?;
 
-    Ok(Node::UseFunctionStatement { token, imports })
+    Ok(Box::new(Node::UseFunctionStatement { token, imports }))
 }
 
 /// Parses a `use const ...` statement. The `use` is passed as it was already consumed
@@ -176,14 +176,14 @@ pub(crate) fn use_const_statement(parser: &mut Parser, token: Token) -> Expressi
         if let Some(alias) = parser.consume_or_ignore(TokenType::As) {
             imports.push(Node::UseConst {
                 token: Some(token.clone()),
-                constant: Box::new(name),
+                constant: name,
                 aliased: Some(alias),
                 alias: Some(parser.consume(TokenType::Identifier)?),
             });
         } else {
             imports.push(Node::UseConst {
                 token: Some(token.clone()),
-                constant: Box::new(name),
+                constant: name,
                 aliased: None,
                 alias: None,
             });
@@ -198,7 +198,7 @@ pub(crate) fn use_const_statement(parser: &mut Parser, token: Token) -> Expressi
 
     parser.consume_end_of_statement()?;
 
-    Ok(Node::UseConstStatement { token, imports })
+    Ok(Box::new(Node::UseConstStatement { token, imports }))
 }
 
 /// Parses a `use ...` statement. The `use` is passed as it was already consumed
@@ -246,7 +246,7 @@ pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResu
         break;
     }
 
-    Ok(Node::UseStatement { token, imports })
+    Ok(Box::new(Node::UseStatement { token, imports }))
 }
 
 #[cfg(test)]

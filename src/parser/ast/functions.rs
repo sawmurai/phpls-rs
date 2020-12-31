@@ -32,7 +32,7 @@ pub(crate) fn argument_list(
         let has_default = parser.consume_or_ignore(TokenType::Assignment);
 
         let default_value = if has_default.is_some() {
-            Some(Box::new(expressions::expression(parser)?))
+            Some(expressions::expression(parser)?)
         } else {
             None
         };
@@ -100,7 +100,7 @@ pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Box<Node>>> {
     if let Some(colon) = parser.consume_or_ignore(TokenType::Colon) {
         Ok(Some(Box::new(Node::ReturnType {
             token: colon,
-            data_type: Box::new(types::data_type(parser)?),
+            data_type: types::data_type(parser)?,
         })))
     } else {
         Ok(None)
@@ -121,12 +121,12 @@ pub(crate) fn named_function(
     parser: &mut Parser,
     doc_comment: &Option<Box<Node>>,
 ) -> ExpressionResult {
-    Ok(Node::NamedFunctionDefinitionStatement {
+    Ok(Box::new(Node::NamedFunctionDefinitionStatement {
         token: parser.consume(TokenType::Function)?,
         by_ref: parser.consume_or_ignore(TokenType::BinaryAnd),
         name: parser.consume_identifier()?,
-        function: Box::new(anonymous_function_statement(parser, doc_comment)?),
-    })
+        function: anonymous_function_statement(parser, doc_comment)?,
+    }))
 }
 
 /// Parses a function definition by calling methods to parse the argument list, return type and body.
@@ -151,24 +151,24 @@ pub(crate) fn anonymous_function_statement(
     let return_type = return_type(parser)?;
 
     if parser.consume_or_ignore(TokenType::Semicolon).is_some() {
-        return Ok(Node::FunctionDefinitionStatement {
+        return Ok(Box::new(Node::FunctionDefinitionStatement {
             op,
             arguments,
             cp,
             return_type,
             body: None,
-        });
+        }));
     }
 
-    let body = Some(Box::new(parser.block()?));
+    let body = Some(parser.block()?);
 
-    Ok(Node::FunctionDefinitionStatement {
+    Ok(Box::new(Node::FunctionDefinitionStatement {
         op,
         arguments,
         cp,
         return_type,
         body,
-    })
+    }))
 }
 
 pub(crate) fn arrow_function(parser: &mut Parser, is_static: Option<Token>) -> ExpressionResult {
@@ -182,9 +182,9 @@ pub(crate) fn arrow_function(parser: &mut Parser, is_static: Option<Token>) -> E
     let return_type = return_type(parser)?;
 
     let arrow = parser.consume(TokenType::DoubleArrow)?;
-    let body = Box::new(expressions::expression(parser)?);
+    let body = expressions::expression(parser)?;
 
-    Ok(Node::ArrowFunction {
+    Ok(Box::new(Node::ArrowFunction {
         is_static,
         by_ref,
         token,
@@ -194,7 +194,7 @@ pub(crate) fn arrow_function(parser: &mut Parser, is_static: Option<Token>) -> E
         return_type,
         arrow,
         body,
-    })
+    }))
 }
 
 pub(crate) fn anonymous_function(
@@ -217,9 +217,9 @@ pub(crate) fn anonymous_function(
 
     let return_type = return_type(parser)?;
 
-    let body = Box::new(parser.block()?);
+    let body = parser.block()?;
 
-    Ok(Node::Function {
+    Ok(Box::new(Node::Function {
         is_static,
         by_ref,
         token,
@@ -229,18 +229,18 @@ pub(crate) fn anonymous_function(
         return_type,
         uses,
         body,
-    })
+    }))
 }
 
 /// Parses all the parameters of a call
 pub(crate) fn non_empty_parameter_list(parser: &mut Parser) -> ExpressionListResult {
     let mut arguments = Vec::new();
-    arguments.push(expressions::expression(parser)?);
+    arguments.push(*expressions::expression(parser)?);
 
     parser.consume_or_ignore(TokenType::Comma);
 
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
-        arguments.push(expressions::expression(parser)?);
+        arguments.push(*expressions::expression(parser)?);
 
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
             break;
@@ -257,7 +257,7 @@ pub(crate) fn non_empty_parameter_list(parser: &mut Parser) -> ExpressionListRes
 pub(crate) fn parameter_list(parser: &mut Parser) -> ExpressionListResult {
     let mut arguments = Vec::new();
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
-        arguments.push(expressions::expression(parser)?);
+        arguments.push(*expressions::expression(parser)?);
 
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
             break;
@@ -273,18 +273,18 @@ pub(crate) fn return_statement(parser: &mut Parser) -> ExpressionResult {
 
     if parser.next_token_one_of(&[TokenType::Semicolon]) {
         parser.consume_end_of_statement()?;
-        Ok(Node::ReturnStatement {
+        Ok(Box::new(Node::ReturnStatement {
             token,
             expression: None,
-        })
+        }))
     } else {
-        let value = Box::new(expressions::expression(parser)?);
+        let value = expressions::expression(parser)?;
 
         parser.consume_end_of_statement()?;
 
-        Ok(Node::ReturnStatement {
+        Ok(Box::new(Node::ReturnStatement {
             token,
             expression: Some(value),
-        })
+        }))
     }
 }

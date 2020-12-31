@@ -23,14 +23,14 @@ pub(crate) fn declare_statement(parser: &mut Parser) -> ExpressionResult {
     ])?;
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    Ok(Node::DeclareStatement {
+    Ok(Box::new(Node::DeclareStatement {
         token,
         op,
         directive,
         assignment,
         value,
         cp,
-    })
+    }))
 }
 
 /// Parses unset statements
@@ -40,21 +40,21 @@ pub(crate) fn unset_statement(parser: &mut Parser) -> ExpressionResult {
     let vars = functions::non_empty_parameter_list(parser)?;
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    Ok(Node::UnsetStatement {
+    Ok(Box::new(Node::UnsetStatement {
         token,
         cp,
         op,
         vars,
-    })
+    }))
 }
 
 /// Parses define statements
 pub(crate) fn define_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Define)?;
     let op = parser.consume(TokenType::OpenParenthesis)?;
-    let name = Box::new(expressions::expression(parser)?);
+    let name = expressions::expression(parser)?;
     parser.consume(TokenType::Comma)?;
-    let value = Box::new(expressions::expression(parser)?);
+    let value = expressions::expression(parser)?;
 
     let is_caseinsensitive = if parser.consume_or_ignore(TokenType::Comma).is_some() {
         Some(parser.consume_one_of(&[TokenType::True, TokenType::False])?)
@@ -64,40 +64,40 @@ pub(crate) fn define_statement(parser: &mut Parser) -> ExpressionResult {
 
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
-    Ok(Node::DefineStatement {
+    Ok(Box::new(Node::DefineStatement {
         token,
         op,
         name,
         value,
         cp,
         is_caseinsensitive,
-    })
+    }))
 }
 
 pub(crate) fn echo_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Echo)?;
     let mut expressions = Vec::new();
 
-    expressions.push(expressions::expression(parser)?);
+    expressions.push(*expressions::expression(parser)?);
 
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
-        expressions.push(expressions::expression(parser)?);
+        expressions.push(*expressions::expression(parser)?);
     }
 
     parser.consume_end_of_statement()?;
 
-    Ok(Node::EchoStatement { token, expressions })
+    Ok(Box::new(Node::EchoStatement { token, expressions }))
 }
 
 pub(crate) fn print_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Print)?;
     let mut expressions = Vec::new();
 
-    expressions.push(expressions::expression(parser)?);
+    expressions.push(*expressions::expression(parser)?);
 
     parser.consume_end_of_statement()?;
 
-    Ok(Node::PrintStatement { token, expressions })
+    Ok(Box::new(Node::PrintStatement { token, expressions }))
 }
 
 /// Parses the list destructuring operation
@@ -112,16 +112,16 @@ pub(crate) fn list(parser: &mut Parser) -> ExpressionResult {
             continue;
         }
 
-        elements.push(arrays::array_pair(parser)?);
+        elements.push(*arrays::array_pair(parser)?);
 
         parser.consume_or_ignore(TokenType::Comma);
     }
-    Ok(Node::List {
+    Ok(Box::new(Node::List {
         token: start,
         op,
         elements,
         cp: parser.consume(TokenType::CloseParenthesis)?,
-    })
+    }))
 }
 
 pub(crate) fn goto_statement(parser: &mut Parser) -> ExpressionResult {
@@ -131,5 +131,5 @@ pub(crate) fn goto_statement(parser: &mut Parser) -> ExpressionResult {
 
     parser.consume_end_of_statement()?;
 
-    Ok(Node::GotoStatement { token, label })
+    Ok(Box::new(Node::GotoStatement { token, label }))
 }

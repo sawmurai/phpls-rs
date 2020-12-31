@@ -181,33 +181,36 @@ impl Backend {
                 joins.push(task::spawn(async move {
                     let p = normalize_path(&path);
 
-                    if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-                        let reindex_result = Backend::reindex(
-                            &p,
-                            &ast,
-                            &range,
-                            false,
-                            true,
-                            arena,
-                            global_symbols,
-                            references,
-                            files,
-                            diagnostics.clone(),
-                        )
-                        .await;
+                    match Backend::source_to_ast(&content) {
+                        Ok((ast, range, errors)) => {
+                            let reindex_result = Backend::reindex(
+                                &p,
+                                &ast,
+                                &range,
+                                false,
+                                true,
+                                arena,
+                                global_symbols,
+                                references,
+                                files,
+                                diagnostics.clone(),
+                            )
+                            .await;
 
-                        match reindex_result {
-                            Ok(()) => (),
-                            Err(err) => {
-                                eprintln!("{}", err);
+                            match reindex_result {
+                                Ok(()) => (),
+                                Err(err) => {
+                                    eprintln!("{}", err);
+                                }
                             }
-                        }
 
-                        let diags = errors.iter().map(Diagnostic::from).collect();
-                        diagnostics.lock().await.insert(p, diags);
-                    } else {
-                        // TODO: Publish errors as diagnostics
-                        eprintln!("Could not index {} due to syntax errors", p);
+                            let diags = errors.iter().map(Diagnostic::from).collect();
+                            diagnostics.lock().await.insert(p, diags);
+                        }
+                        Err(error) => {
+                            // TODO: Publish errors as diagnostics
+                            eprintln!("Could not index {}: {}", p, error);
+                        }
                     }
                 }));
             }
