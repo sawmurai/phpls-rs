@@ -158,15 +158,15 @@ pub fn get_suggestions_at(
         (node, ancestors)
     } else if let Some('$') = trigger {
         // Maybe the $ is the last char of the entire source
-        return symbol_under_cursor.children(arena)
+        return symbol_under_cursor
+            .children(arena)
             .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
             .collect::<Vec<NodeId>>();
     } else {
-        return
-            global_symbols
-                .iter()
-                .map(|(_key, value)| value.to_owned())
-                .collect::<Vec<NodeId>>();
+        return global_symbols
+            .iter()
+            .map(|(_key, value)| value.to_owned())
+            .collect::<Vec<NodeId>>();
     };
 
     let mut suggestions = Vec::new();
@@ -175,9 +175,10 @@ pub fn get_suggestions_at(
 
     match node {
         AstNode::Variable(..) => {
-            return symbol_under_cursor.children(arena)
+            return symbol_under_cursor
+                .children(arena)
                 .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
-                .collect::<Vec<NodeId>>(); 
+                .collect::<Vec<NodeId>>();
         }
         AstNode::Missing(..) | AstNode::Literal(..) => {
             if let Some(parent) = parent {
@@ -243,9 +244,8 @@ pub fn get_suggestions_at(
             } else {
                 eprintln!("got no parent!");
             }
-        },
+        }
         _ => {
-            eprint!("{:?}", node);
             suggestions.extend(
                 global_symbols
                     .iter()
@@ -256,7 +256,7 @@ pub fn get_suggestions_at(
                             None
                         }
                     })
-                    .collect::<Vec<NodeId>>()
+                    .collect::<Vec<NodeId>>(),
             );
         }
     }
@@ -508,9 +508,7 @@ mod tests {
         let diagnostics = Arc::new(Mutex::new(HashMap::new()));
         let symbol_references = Arc::new(Mutex::new(HashMap::new()));
 
-        let sources = vec![ 
-            ("index.php", "<?php $cat = 'Marci'; $"),
-        ];
+        let sources = vec![("index.php", "<?php $cat = 'Marci'; $")];
 
         for (resolve, collect) in [(false, true), (true, false)].iter() {
             for (file, source) in sources.iter() {
@@ -539,7 +537,7 @@ mod tests {
 
         let files = files.lock().await;
         let arena = arena.lock().await;
-        let global_symbols = global_symbols.lock().await; 
+        let global_symbols = global_symbols.lock().await;
         let mut scanner = Scanner::new(&sources[0].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -570,8 +568,11 @@ mod tests {
         let diagnostics = Arc::new(Mutex::new(HashMap::new()));
         let symbol_references = Arc::new(Mutex::new(HashMap::new()));
 
-        let sources = vec![ 
-            ("stdlib.php", "<?php function array_a() {} function array_b() {} function strpos() {}"),
+        let sources = vec![
+            (
+                "stdlib.php",
+                "<?php function array_a() {} function array_b() {} function strpos() {}",
+            ),
             ("index.php", "<?php array_"),
         ];
 
@@ -602,7 +603,7 @@ mod tests {
 
         let files = files.lock().await;
         let arena = arena.lock().await;
-        let global_symbols = global_symbols.lock().await; 
+        let global_symbols = global_symbols.lock().await;
         let mut scanner = Scanner::new(&sources[1].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -612,19 +613,15 @@ mod tests {
         };
         let references = Vec::new();
         let suc = files.get("index.php").unwrap();
-        let actual = super::get_suggestions_at(
-            None,
-            pos,
-            *suc,
-            &pr.0,
-            &arena,
-            &global_symbols,
-            &references,
-        );
+        let actual =
+            super::get_suggestions_at(None, pos, *suc, &pr.0, &arena, &global_symbols, &references);
 
         assert_eq!(2, actual.len());
 
-        let actual = actual.iter().map(|n| { &arena[*n].get().name }).collect::<Vec<&String>>();
+        let actual = actual
+            .iter()
+            .map(|n| &arena[*n].get().name)
+            .collect::<Vec<&String>>();
 
         assert!(actual.contains(&&"array_a".to_string()));
         assert!(actual.contains(&&"array_b".to_string()));

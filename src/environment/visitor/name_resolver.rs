@@ -638,9 +638,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         let (root_node, mut minimal_visibility) = 'root_node: loop {
             match current_object {
                 AstNode::Binary { left, right, token } => {
-                    if token.t == TokenType::Assignment {
-                        let data_type = self.resolve_member_type(&right, arena);
+                    let data_type = self.resolve_member_type(&right, arena);
 
+                    if token.t == TokenType::Assignment {
                         if let AstNode::Variable(token) = left.as_ref() {
                             let child = if let Some(data_type) = data_type {
                                 arena.new_node(Symbol {
@@ -659,6 +659,8 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                             current_object = left;
                         }
+                    } else {
+                        return None;
                     }
                 }
                 AstNode::Unary { expr, .. } => {
@@ -809,25 +811,31 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                 } else {
                     link.name()
                 };
- 
-                let child = arena[root_node].get().get_all_symbols(&root_node, self.resolver, arena).iter().find_map(|node| {
-                    let s = arena[*node].get();
 
-                    if s.name == link_name {
-                        if s.visibility < minimal_visibility {
-                            self.resolver.diagnostic(
-                                file_name.clone(),
-                                link.range(),
-                                String::from("Method was found but is not accessible from this scope."),
-                            );
-                        } else {
-                            return Some(*node);
+                let child = arena[root_node]
+                    .get()
+                    .get_all_symbols(&root_node, self.resolver, arena)
+                    .iter()
+                    .find_map(|node| {
+                        let s = arena[*node].get();
+
+                        if s.name == link_name {
+                            if s.visibility < minimal_visibility {
+                                self.resolver.diagnostic(
+                                    file_name.clone(),
+                                    link.range(),
+                                    String::from(
+                                        "Method was found but is not accessible from this scope.",
+                                    ),
+                                );
+                            } else {
+                                return Some(*node);
+                            }
                         }
-                    } 
 
-                    return None;
-                });
- 
+                        return None;
+                    });
+
                 if let Some(child) = child {
                     // Check all children of the current class
                     let child_symbol = arena[child].get();
@@ -852,12 +860,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                     }
 
                                     if TokenType::Parent == first_type {
-                                        if let Some(root_parent) =
-                                            arena[root_node].get().get_unique_parent(
-                                                &root_node,
-                                                self.resolver,
-                                                arena,
-                                            )
+                                        if let Some(root_parent) = arena[root_node]
+                                            .get()
+                                            .get_unique_parent(&root_node, self.resolver, arena)
                                         {
                                             root_node = root_parent;
 
@@ -875,10 +880,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                         }
                                     }
 
-                                    if let Some(resolved_type) =
-                                        self.resolver.resolve_type_ref(
-                                            &type_ref, arena, &root_node, true,
-                                        )
+                                    if let Some(resolved_type) = self
+                                        .resolver
+                                        .resolve_type_ref(&type_ref, arena, &root_node, true)
                                     {
                                         root_node = resolved_type;
 
@@ -896,9 +900,11 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         }
                     }
                 } else {
-                    self.resolver
-                        .diagnostic(file_name, link.range(), 
-                        format!("Unresolvable symbol {}", link.name()),);
+                    self.resolver.diagnostic(
+                        file_name,
+                        link.range(),
+                        format!("Unresolvable symbol {}", link.name()),
+                    );
                     return None;
                 }
             }
@@ -1395,7 +1401,8 @@ mod tests {
         let diagnostics = Arc::new(Mutex::new(HashMap::new()));
         let symbol_references = Arc::new(Mutex::new(HashMap::new()));
 
-        let sources = vec![
+        let sources =
+            vec![
             ("if1.php", "<?php namespace App1; interface If1 { public function m1(); }"),
             ("if2.php", "<?php namespace App1; interface If2 { public function m2(); }"),
             ("if3.php", "<?php namespace App1; interface If3 extends If1, If2 { }"),
@@ -1455,8 +1462,14 @@ mod tests {
         let symbol_references = Arc::new(Mutex::new(HashMap::new()));
 
         let sources = vec![
-            ("c1.php", "<?php namespace App1; class Test { /** @var OtherTest */ public string $inst; }"),
-            ("c2.php", "<?php namespace App1; class OtherTest { public function test() {} }"), 
+            (
+                "c1.php",
+                "<?php namespace App1; class Test { /** @var OtherTest */ public string $inst; }",
+            ),
+            (
+                "c2.php",
+                "<?php namespace App1; class OtherTest { public function test() {} }",
+            ),
             (
                 "index.php",
                 "<?php namespace App1; $o = new Test(); $o->inst->test();",
@@ -1524,7 +1537,7 @@ mod tests {
             (
                 "index.php",
                 "<?php namespace App2; use App1\\Living; 
-                $inst = new Living(); $inst->me()->myself()->i()->my_parent();",
+                $inst = new Living(); $inst->me()->myself()->i()->my_parent(); ",
             ),
         ];
 

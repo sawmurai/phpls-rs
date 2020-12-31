@@ -846,11 +846,11 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let uri = params.text_document.uri;
-        let file_path = uri.to_file_path().unwrap();
-        let path = normalize_path(&file_path);
-
         if let Some(changes) = params.content_changes.first() {
+            let uri = params.text_document.uri;
+            let file_path = uri.to_file_path().unwrap();
+            let path = normalize_path(&file_path);
+
             self.latest_version_of_file
                 .lock()
                 .await
@@ -858,14 +858,6 @@ impl LanguageServer for Backend {
 
             self.refresh_file(uri, &changes.text).await;
         }
-    }
-
-    async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        let uri = params.text_document.uri;
-        let content = tokio::fs::read_to_string(uri.to_file_path().unwrap())
-            .await
-            .unwrap();
-        //self.refresh_file(uri, &content).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {

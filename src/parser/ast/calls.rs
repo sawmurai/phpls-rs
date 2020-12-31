@@ -471,15 +471,4 @@ $object-><Missing>;
 
         assert_eq!(expected, formatted);
     }
-
-    #[test]
-    fn test_parses_nested_call() {
-        let mut scanner = Scanner::new(
-            // "<?php\r\n\r\n/** @var LoggerInterface|MockObject $logger */\r\n$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger =$logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $logger = $this->getMockByCalls(LoggerInterface::class, [\r\n    Call::create('error')->with(\r\n        'Exception',\r\n         new ArgumentCallback(function (array $context): void {\r\n            //$this->assertArrayHasKey('exceptions', $context);\r\n            $a = 1;\r\n        }) \r\n    ),\r\n]);",
-            "<?php $logger = true && true && true && true && true && true && true && true && true && true && true && true && true && true && true && true;",
-        );
-
-        scanner.scan().unwrap();
-        Parser::ast(scanner.tokens).unwrap();
-    }
 }
