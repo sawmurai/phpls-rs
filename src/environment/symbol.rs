@@ -4,7 +4,10 @@ use crate::environment::scope::Reference;
 use crate::parser::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
 use std::{cmp::PartialOrd, fmt::Display};
-use tower_lsp::lsp_types::{Diagnostic, DocumentSymbol, Position, Range, SymbolKind};
+use tower_lsp::lsp_types::{
+    CompletionItem, CompletionItemKind, CompletionItemTag, Diagnostic, DocumentSymbol, Position,
+    Range, SymbolKind,
+};
 
 /// An extension if the LSP-type "SymbolKind"
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -185,6 +188,32 @@ impl PhpSymbolKind {
                 | PhpSymbolKind::Function
                 | PhpSymbolKind::Constant
         )
+    }
+}
+
+impl Into<CompletionItem> for &Symbol {
+    fn into(self) -> CompletionItem {
+        let tags = if let Some(true) = self.deprecated {
+            Some(vec![CompletionItemTag::Deprecated])
+        } else {
+            None
+        };
+
+        match self.kind {
+            PhpSymbolKind::Method => CompletionItem {
+                label: self.name.clone(),
+                detail: Some(format!("{} {}()", self.visibility, self.name)),
+                kind: Some(CompletionItemKind::Method),
+                insert_text: Some(format!("{}()", self.name)),
+                tags,
+                ..CompletionItem::default()
+            },
+            _ => CompletionItem {
+                label: self.name.clone(),
+                tags,
+                ..CompletionItem::default()
+            },
+        }
     }
 }
 

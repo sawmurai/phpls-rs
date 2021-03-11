@@ -1038,18 +1038,8 @@ impl LanguageServer for Backend {
                 return Ok(Some(CompletionResponse::Array(
                     suggestions
                         .drain(..)
-                        .map(|s| {
-                            let s = arena[s].get();
-                            let s = Suggestion::from(s);
-
-                            CompletionItem {
-                                label: s.label,
-                                detail: Some(s.description),
-                                kind: Some(CompletionItemKind::Variable),
-                                ..CompletionItem::default()
-                            }
-                            //CompletionItem::new_simple(s.label, s.description)
-                        })
+                        .map(|s| arena[s].get())
+                        .map(|s| s.into())
                         .collect::<Vec<CompletionItem>>(),
                 )));
             }
