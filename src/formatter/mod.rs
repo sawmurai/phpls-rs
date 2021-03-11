@@ -286,6 +286,27 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 }
                 parts.push(";".to_string());
             }
+            Node::UseStatement { token, imports } => {
+                parts.push(" ".repeat(col));
+                parts.push(token.to_string());
+                parts.push(" ".to_string());
+                parts.push(
+                    imports
+                        .iter()
+                        .map(|n| format_node(n, line, col, options))
+                        .collect::<Vec<String>>()
+                        .join(", "),
+                );
+                parts.push(";\n".to_string());
+            }
+            Node::UseDeclaration {
+                declaration,
+                alias,
+                aliased,
+                ..
+            } => {
+                parts.push(format_node(declaration, line, col, options));
+            }
             _ => unimplemented!("{:?}", node),
         }
     }
@@ -303,6 +324,40 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
 /// * options - The formatter options
 fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions) -> String {
     match node {
+        Node::UseDeclaration {
+            declaration, alias, ..
+        } => {
+            if let Some(alias) = alias {
+                format!(
+                    "{} as {}",
+                    format_node(declaration, line, col, options),
+                    alias
+                )
+            } else {
+                format_node(declaration, line, col, options)
+            }
+        }
+
+        Node::GroupedUse {
+            parent,
+            uses,
+            oc,
+            cc,
+            ..
+        } => {
+            format!(
+                "{}{}\n{}{}{}\n{}",
+                format_node(parent, line, col, options),
+                oc,
+                " ".repeat(col + options.indent),
+                uses.iter()
+                    .map(|n| format_node(n, line, col + options.indent, options))
+                    .collect::<Vec<String>>()
+                    .join(&format!(",\n{}", " ".repeat(col + options.indent))),
+                " ".repeat(col),
+                cc
+            )
+        }
         Node::ClassConstant { name, value, .. } => {
             format!(
                 "{}{} = {}",
