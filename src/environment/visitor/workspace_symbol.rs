@@ -107,15 +107,16 @@ impl Visitor for WorkspaceSymbolVisitor {
                     None
                 };
                 let selection_range = get_range(name.range());
-                let name = name.clone().label.unwrap();
+                let s_name = name.clone().label.unwrap();
                 let range = get_range(node.range());
 
                 let child = arena.new_node(Symbol {
-                    name,
+                    name: s_name,
                     kind: PhpSymbolKind::Class,
                     range,
                     selection_range,
                     inherits_from,
+                    data_types: vec![Reference::type_ref(vec![name.clone()])],
                     ..Symbol::default()
                 });
 

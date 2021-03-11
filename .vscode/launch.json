@@ -48,7 +48,9 @@
                     "test",
                     "--no-run",
                     "--bin=phpls-rs",
-                    "--package=phpls-rs"
+                    "--package=phpls-rs",
+                    "--",
+                    "test_suggests_members_of_this"
                 ],
                 "filter": {
                     "name": "phpls-rs",

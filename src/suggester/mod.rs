@@ -5,7 +5,7 @@ use crate::environment::{
 use crate::{environment::get_range, environment::in_range, parser::node::Node as AstNode};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
-use tower_lsp::lsp_types::Position;
+use tower_lsp::lsp_types::{Position, SymbolKind};
 
 #[derive(Debug)]
 pub struct Suggestion {
@@ -24,7 +24,13 @@ impl Suggestion {
 
 impl From<&Symbol> for Suggestion {
     fn from(symbol: &Symbol) -> Self {
-        Suggestion::new(&symbol.name, &symbol.detail().unwrap_or("".to_string()))
+        let name = if symbol.kind == PhpSymbolKind::Variable {
+            format!("${}", &symbol.name)
+        } else {
+            symbol.name.clone()
+        };
+
+        Suggestion::new(&name, &symbol.detail().unwrap_or("[PHPLS]".to_string()))
     }
 }
 
@@ -158,28 +164,51 @@ pub fn get_suggestions_at(
         (node, ancestors)
     } else if let Some('$') = trigger {
         // Maybe the $ is the last char of the entire source
-        return symbol_under_cursor.children(arena)
+        return symbol_under_cursor
+            .children(arena)
             .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
             .collect::<Vec<NodeId>>();
     } else {
-        return
-            global_symbols
-                .iter()
-                .map(|(_key, value)| value.to_owned())
-                .collect::<Vec<NodeId>>();
+        return global_symbols
+            .iter()
+            .map(|(_key, value)| value.to_owned())
+            .collect::<Vec<NodeId>>();
     };
 
     let mut suggestions = Vec::new();
 
     let parent = ancestors.pop();
 
+    let mut built_in_references = Vec::new();
     match node {
-        AstNode::Variable(..) => {
-            return symbol_under_cursor.children(arena)
-                .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
-                .collect::<Vec<NodeId>>(); 
+        AstNode::Variable(..) | AstNode::AliasedVariable { .. } => {
+            if let Some(parent_scope) = arena[symbol_under_cursor].parent() {
+                return parent_scope
+                    .children(arena)
+                    .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
+                    .collect::<Vec<NodeId>>();
+            }
         }
-        AstNode::Missing(..) | AstNode::Literal(..) => {
+        AstNode::Missing(..) | AstNode::Literal(..) | AstNode::Member { .. } => {
+            match node {
+                AstNode::Member { object, .. } => {
+                    match object.as_ref() {
+                        AstNode::Variable(name) => {
+                            // do something like
+                            // arena[scope_under_cursor].get().resolve(name).children()
+                            if name.label == Some(String::from("this")) {
+                                if let Some(parent_class) = arena[symbol_under_cursor].parent() {
+                                    built_in_references
+                                        .push(Reference::new(object.range(), parent_class));
+                                }
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+                _ => (),
+            }
+
             if let Some(parent) = parent {
                 let mut range = parent.range();
 
@@ -188,16 +217,27 @@ pub fn get_suggestions_at(
                     if let AstNode::Call { callee, .. } = &**object {
                         if let AstNode::Member { member, .. } = &**callee {
                             range = member.range();
+                            eprintln!("new parent range {:?}", range);
+                        }
+                    } else if let AstNode::Variable(token) = object.as_ref() {
+                        if Some(String::from("this")) == token.label {
+                            if let Some(parent_class) = arena[symbol_under_cursor].parent() {
+                                built_in_references.push(Reference::new(range, parent_class));
+                            }
                         }
                     }
                 }
+
                 let pos = Position {
                     line: range.0 .0 as u64,
                     character: range.0 .1 as u64,
                 };
 
-                for reference in references {
+                for reference in references.iter().chain(built_in_references.iter()) {
                     if in_range(&pos, &get_range(reference.range)) {
+                        // Data types of the parent reference. Go through all data types and collect the things
+                        // that are visibile from the current class
+
                         let current_class = symbol_under_cursor.ancestors(&arena).find(|n| {
                             let s = arena[*n].get();
 
@@ -222,20 +262,45 @@ pub fn get_suggestions_at(
                             );
                         }
 
-                        suggestions.extend(
-                            members_of(reference.node, &arena, &global_symbols)
-                                .drain(..)
-                                .filter(|n| {
-                                    let s = arena[*n].get();
+                        let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
 
-                                    // Either the element is accessible from this scope anyway or its public ...
-                                    s.visibility >= Visibility::Public
-                                        || accessible_members.contains(&n)
+                        arena[reference.node]
+                            .get()
+                            .data_types
+                            .iter()
+                            .filter_map(|dt_reference| {
+                                if let Some(type_ref) = dt_reference.type_ref.as_ref() {
+                                    if let Some(referenced_node) = resolver.resolve_type_ref(
+                                        &type_ref,
+                                        arena,
+                                        &symbol_under_cursor,
+                                        false,
+                                    ) {
+                                        return Some(referenced_node);
+                                    }
 
-                                    // ... or we ignore it
-                                })
-                                .collect::<Vec<NodeId>>(),
-                        );
+                                    return None;
+                                }
+                                return dt_reference.node;
+                            })
+                            .for_each(|node| {
+                                suggestions.extend(
+                                    members_of(node, &arena, &global_symbols)
+                                        .drain(..)
+                                        .filter(|n| {
+                                            let s = arena[*n].get();
+
+                                            eprintln!("Checking {:?}", s.name);
+
+                                            // Either the element is accessible from this scope anyway or its public ...
+                                            s.visibility >= Visibility::Public
+                                                || accessible_members.contains(&n)
+
+                                            // ... or we ignore it
+                                        })
+                                        .collect::<Vec<NodeId>>(),
+                                );
+                            });
 
                         break;
                     }
@@ -243,9 +308,8 @@ pub fn get_suggestions_at(
             } else {
                 eprintln!("got no parent!");
             }
-        },
+        }
         _ => {
-            eprint!("{:?}", node);
             suggestions.extend(
                 global_symbols
                     .iter()
@@ -256,7 +320,7 @@ pub fn get_suggestions_at(
                             None
                         }
                     })
-                    .collect::<Vec<NodeId>>()
+                    .collect::<Vec<NodeId>>(),
             );
         }
     }
@@ -508,9 +572,7 @@ mod tests {
         let diagnostics = Arc::new(Mutex::new(HashMap::new()));
         let symbol_references = Arc::new(Mutex::new(HashMap::new()));
 
-        let sources = vec![ 
-            ("index.php", "<?php $cat = 'Marci'; $"),
-        ];
+        let sources = vec![("index.php", "<?php $cat = 'Marci'; $")];
 
         for (resolve, collect) in [(false, true), (true, false)].iter() {
             for (file, source) in sources.iter() {
@@ -539,7 +601,7 @@ mod tests {
 
         let files = files.lock().await;
         let arena = arena.lock().await;
-        let global_symbols = global_symbols.lock().await; 
+        let global_symbols = global_symbols.lock().await;
         let mut scanner = Scanner::new(&sources[0].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -570,8 +632,11 @@ mod tests {
         let diagnostics = Arc::new(Mutex::new(HashMap::new()));
         let symbol_references = Arc::new(Mutex::new(HashMap::new()));
 
-        let sources = vec![ 
-            ("stdlib.php", "<?php function array_a() {} function array_b() {} function strpos() {}"),
+        let sources = vec![
+            (
+                "stdlib.php",
+                "<?php function array_a() {} function array_b() {} function strpos() {}",
+            ),
             ("index.php", "<?php array_"),
         ];
 
@@ -602,7 +667,7 @@ mod tests {
 
         let files = files.lock().await;
         let arena = arena.lock().await;
-        let global_symbols = global_symbols.lock().await; 
+        let global_symbols = global_symbols.lock().await;
         let mut scanner = Scanner::new(&sources[1].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -612,10 +677,76 @@ mod tests {
         };
         let references = Vec::new();
         let suc = files.get("index.php").unwrap();
+        let actual =
+            super::get_suggestions_at(None, pos, *suc, &pr.0, &arena, &global_symbols, &references);
+
+        assert_eq!(2, actual.len());
+
+        let actual = actual
+            .iter()
+            .map(|n| &arena[*n].get().name)
+            .collect::<Vec<&String>>();
+
+        assert!(actual.contains(&&"array_a".to_string()));
+        assert!(actual.contains(&&"array_b".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_suggests_members_of_this() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![(
+            "animal.php",
+            "<?php class Animal { private $name; public function getName() { $this-> }}",
+        )];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        let files = files.lock().await;
+        let arena = arena.lock().await;
+        let global_symbols = global_symbols.lock().await;
+        let mut scanner = Scanner::new(&sources[0].1);
+        scanner.scan().unwrap();
+        let pr = Parser::ast(scanner.tokens).unwrap();
+        let pos = Position {
+            line: 0,
+            character: 71,
+        };
+
+        let references = Vec::new();
+        let suc = files.get("animal.php").unwrap();
+        let file = arena[*suc].get();
         let actual = super::get_suggestions_at(
-            None,
+            Some('>'),
             pos,
-            *suc,
+            file.symbol_at(&pos, *suc, &arena),
             &pr.0,
             &arena,
             &global_symbols,
@@ -624,9 +755,12 @@ mod tests {
 
         assert_eq!(2, actual.len());
 
-        let actual = actual.iter().map(|n| { &arena[*n].get().name }).collect::<Vec<&String>>();
+        let actual = actual
+            .iter()
+            .map(|n| &arena[*n].get().name)
+            .collect::<Vec<&String>>();
 
-        assert!(actual.contains(&&"array_a".to_string()));
-        assert!(actual.contains(&&"array_b".to_string()));
+        assert!(actual.contains(&&"getName".to_string()));
+        assert!(actual.contains(&&"name".to_string()));
     }
 }

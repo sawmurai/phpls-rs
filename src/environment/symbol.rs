@@ -239,22 +239,20 @@ impl Symbol {
     }
 
     /// Collect all available symbols, including used through traits and symbols of parents
-    pub fn get_all_symbols(&self, 
+    pub fn get_all_symbols(
+        &self,
         my_node_id: &NodeId,
         resolver: &mut NameResolver,
-        arena: &Arena<Self>
+        arena: &Arena<Self>,
     ) -> Vec<NodeId> {
         let mut children = my_node_id.children(arena).collect::<Vec<NodeId>>();
 
         // Go through all used traits
         if let Some(imports) = self.imports.as_ref() {
             for import in imports.iter() {
-                if let Some(used_trait) = resolver.resolve_type_ref(
-                    &import.path,
-                    arena,
-                    &my_node_id,
-                    true,
-                ) {
+                if let Some(used_trait) =
+                    resolver.resolve_type_ref(&import.path, arena, &my_node_id, true)
+                {
                     children.extend(used_trait.children(arena));
                 }
             }
@@ -262,7 +260,7 @@ impl Symbol {
 
         children.extend(self.get_inherited_symbols(my_node_id, resolver, arena));
 
-        children        
+        children
     }
 
     pub fn get_unique_parent(
@@ -364,13 +362,8 @@ impl Symbol {
         })
     }
 
-    pub fn hover_text(&self, arena: &Arena<Symbol>, me: &NodeId) -> String {
-        format!(
-            "{} ({:?}) < {:?}",
-            self.name,
-            self.kind,
-            arena[arena[*me].parent().unwrap()].get().kind
-        )
+    pub fn hover_text(&self) -> String {
+        format!("{} ({:?})", self.name, self.kind)
     }
 }
 

@@ -22,15 +22,15 @@ use tokio::io::{self};
 use tokio::sync::Mutex;
 use tokio::task;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
-    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
+    Diagnostic, DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
     InitializedParams, Location, MarkedString, MessageType, Position, Range, ReferenceParams,
-    ServerCapabilities, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
-    WorkspaceCapability, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
-    WorkspaceSymbolParams,
+    ServerCapabilities, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Url, WorkspaceCapability, WorkspaceFolderCapability,
+    WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
 };
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
@@ -973,9 +973,7 @@ impl LanguageServer for Backend {
 
                     return Ok(Some(Hover {
                         range: Some(get_range(reference.range)),
-                        contents: HoverContents::Scalar(MarkedString::String(
-                            symbol.hover_text(&arena, &reference.node),
-                        )),
+                        contents: HoverContents::Scalar(MarkedString::String(symbol.hover_text())),
                     }));
                 }
             }
@@ -1037,7 +1035,6 @@ impl LanguageServer for Backend {
                     &global_symbols,
                     references,
                 );
-
                 return Ok(Some(CompletionResponse::Array(
                     suggestions
                         .drain(..)
@@ -1045,7 +1042,13 @@ impl LanguageServer for Backend {
                             let s = arena[s].get();
                             let s = Suggestion::from(s);
 
-                            CompletionItem::new_simple(s.label, s.description)
+                            CompletionItem {
+                                label: s.label,
+                                detail: Some(s.description),
+                                kind: Some(CompletionItemKind::Variable),
+                                ..CompletionItem::default()
+                            }
+                            //CompletionItem::new_simple(s.label, s.description)
                         })
                         .collect::<Vec<CompletionItem>>(),
                 )));
