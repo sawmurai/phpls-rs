@@ -125,7 +125,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 child.append(
                     arena.new_node(Symbol {
                         name: "class".to_string(),
-                        kind: PhpSymbolKind::Constant,
+                        kind: PhpSymbolKind::MagicConst,
                         range: selection_range,
                         selection_range,
                         is_static: true,

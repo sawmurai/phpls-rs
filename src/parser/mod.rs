@@ -11,6 +11,9 @@ pub enum Error {
         token: Token,
     },
 
+    #[snafu(display("Missing identifier on line {}, col {}", token.line, token.col))]
+    MissingIdentifier { token: Token },
+
     #[snafu(display("Unexpected token {:?} on line {}, col {}", token.t, token.line, token.col))]
     UnexpectedTokenError { token: Token },
 
@@ -601,12 +604,11 @@ mod tests {
         let tokens = scanner.scan().unwrap();
         let ast_result = Parser::ast(tokens.clone());
 
-        let expected = Error::WrongTokenError {
-            expected: vec![TokenType::Identifier],
+        let expected = Error::MissingIdentifier {
             token: Token {
-                col: 12,
-                line: 4,
-                t: TokenType::CloseCurly,
+                col: 21,
+                line: 3,
+                t: TokenType::ObjectOperator,
                 label: None,
             },
         };

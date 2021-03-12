@@ -152,6 +152,7 @@ pub fn get_suggestions_at(
     global_symbols: &HashMap<String, NodeId>,
     references: &Vec<Reference>,
 ) -> Vec<NodeId> {
+    let mut no_magic_const = false;
     if let Some('>') = trigger {
         pos.character -= 1;
     }
@@ -214,6 +215,7 @@ pub fn get_suggestions_at(
 
                 // Find the reference for the parent, i.e. the $object in $object->|
                 if let AstNode::Member { object, .. } = parent {
+                    no_magic_const = true;
                     if let AstNode::Call { callee, .. } = &**object {
                         if let AstNode::Member { member, .. } = &**callee {
                             range = member.range();
@@ -264,6 +266,7 @@ pub fn get_suggestions_at(
 
                         let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
 
+                        let static_only = Some(':') == trigger;
                         arena[reference.node]
                             .get()
                             .data_types
@@ -291,6 +294,13 @@ pub fn get_suggestions_at(
                                             let s = arena[*n].get();
 
                                             eprintln!("Checking {:?}", s.name);
+
+                                            if static_only && !s.is_static
+                                                || no_magic_const
+                                                    && s.kind == PhpSymbolKind::MagicConst
+                                            {
+                                                return false;
+                                            }
 
                                             // Either the element is accessible from this scope anyway or its public ...
                                             s.visibility >= Visibility::Public

@@ -1378,7 +1378,7 @@ impl Node {
 
     pub fn name(&self) -> String {
         match self {
-            Node::NamedFunctionDefinitionStatement { name, ..} => name.to_string(),
+            Node::NamedFunctionDefinitionStatement { name, .. } => name.to_string(),
             Node::Variable(token) | Node::Literal(token) => token.to_string(),
             Node::TypeRef(type_ref) => type_ref
                 .iter()

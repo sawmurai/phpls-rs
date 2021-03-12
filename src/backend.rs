@@ -75,6 +75,11 @@ pub struct Backend {
 impl From<&ParserError> for Diagnostic {
     fn from(e: &ParserError) -> Diagnostic {
         match e {
+            ParserError::MissingIdentifier { token } => Diagnostic {
+                range: get_range(token.range()),
+                message: "Missing identifier".to_string(),
+                ..Diagnostic::default()
+            },
             ParserError::WrongTokenError { token, expected } => Diagnostic {
                 range: get_range(token.range()),
                 message: format!("Wrong token {:?}, expected one of {:?}", token.t, expected),

@@ -1,5 +1,8 @@
+use crate::parser;
+
 use super::super::node::Node;
 use super::super::token::TokenType;
+use super::super::Error;
 use super::super::{ExpressionResult, Parser};
 use super::{expressions, variables};
 
@@ -45,6 +48,9 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                     cc: None,
                 };
             } else {
+                parser
+                    .errors
+                    .push(Error::MissingIdentifier { token: os.clone() });
                 expr = Node::Member {
                     object: Box::new(expr),
                     arrow: os.clone(),
@@ -84,6 +90,9 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                     cc: None,
                 };
             } else {
+                parser
+                    .errors
+                    .push(Error::MissingIdentifier { token: pn.clone() });
                 expr = Node::StaticMember {
                     object: Box::new(expr),
                     pn: pn.clone(),
@@ -463,7 +472,7 @@ $object->$dyn = 10;
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
-        assert_eq!(true, errors.is_empty());
+        assert_eq!(false, errors.is_empty());
 
         let options = FormatterOptions {
             max_line_length: 100,
