@@ -122,6 +122,18 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 parent.append(child, arena);
 
+                child.append(
+                    arena.new_node(Symbol {
+                        name: "class".to_string(),
+                        kind: PhpSymbolKind::Constant,
+                        range: selection_range,
+                        selection_range,
+                        is_static: true,
+                        ..Symbol::default()
+                    }),
+                    arena,
+                );
+
                 NextAction::ProcessChildren(child)
             }
             AstNode::TraitStatement { name, .. } => {

@@ -200,6 +200,27 @@ impl Into<CompletionItem> for &Symbol {
         };
 
         match self.kind {
+            PhpSymbolKind::Class => CompletionItem {
+                label: self.name.clone(),
+                detail: Some(format!("class {}", self.name)),
+                kind: Some(CompletionItemKind::Class),
+                tags,
+                ..CompletionItem::default()
+            },
+            PhpSymbolKind::Constant => {
+                let detail = if self.name == "class" {
+                    None
+                } else {
+                    Some(format!("class {}", self.name))
+                };
+                CompletionItem {
+                    label: self.name.clone(),
+                    detail,
+                    kind: Some(CompletionItemKind::Constant),
+                    tags,
+                    ..CompletionItem::default()
+                }
+            }
             PhpSymbolKind::Method => CompletionItem {
                 label: self.name.clone(),
                 detail: Some(format!("{} {}()", self.visibility, self.name)),

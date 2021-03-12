@@ -763,4 +763,77 @@ mod tests {
         assert!(actual.contains(&&"getName".to_string()));
         assert!(actual.contains(&&"name".to_string()));
     }
+
+    #[tokio::test]
+    async fn test_suggests_class_after_new() {
+        let arena = Arc::new(Mutex::new(Arena::new()));
+        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
+        let files = Arc::new(Mutex::new(HashMap::new()));
+        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+
+        let sources = vec![
+            ("animal.php", "<?php class Animal { } function x() {}"),
+            ("index.php", "<?php Animal::"),
+        ];
+
+        for (resolve, collect) in [(false, true), (true, false)].iter() {
+            for (file, source) in sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::reindex(
+                    *file,
+                    &pr.0,
+                    &get_range(dr),
+                    *resolve,
+                    *collect,
+                    arena.clone(),
+                    global_symbols.clone(),
+                    symbol_references.clone(),
+                    files.clone(),
+                    diagnostics.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
+
+        let files = files.lock().await;
+        let arena = arena.lock().await;
+        let global_symbols = global_symbols.lock().await;
+        let mut scanner = Scanner::new(&sources[1].1);
+        scanner.scan().unwrap();
+        let pr = Parser::ast(scanner.tokens).unwrap();
+        let pos = Position {
+            line: 0,
+            character: 14,
+        };
+
+        let symbol_references = symbol_references.lock().await;
+        let references = symbol_references.get("index.php").unwrap();
+        let suc = files.get("index.php").unwrap();
+        let file = arena[*suc].get();
+        let actual = super::get_suggestions_at(
+            Some(':'),
+            pos,
+            file.symbol_at(&pos, *suc, &arena),
+            &pr.0,
+            &arena,
+            &global_symbols,
+            &references,
+        );
+
+        assert_eq!(1, actual.len());
+
+        let actual = actual
+            .iter()
+            .map(|n| &arena[*n].get().name)
+            .collect::<Vec<&String>>();
+
+        assert!(actual.contains(&&"class".to_string()));
+    }
 }

@@ -75,12 +75,20 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                     cc: Some(parser.consume(TokenType::CloseCurly)?),
                 };
             // Class constant
-            } else {
+            } else if let Ok(identifier) = parser.consume_identifier() {
                 expr = Node::StaticMember {
                     object: Box::new(expr),
                     pn,
                     oc: None,
-                    member: Box::new(Node::Literal(parser.consume_member()?)),
+                    member: Box::new(Node::Literal(identifier)),
+                    cc: None,
+                };
+            } else {
+                expr = Node::StaticMember {
+                    object: Box::new(expr),
+                    pn: pn.clone(),
+                    oc: None,
+                    member: Box::new(Node::Missing(pn)),
                     cc: None,
                 };
             }
