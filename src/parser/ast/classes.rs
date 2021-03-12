@@ -1,6 +1,6 @@
-use super::super::node::Node;
 use super::super::token::{Token, TokenType};
 use super::super::{ExpressionListResult, ExpressionResult, Parser};
+use super::{super::node::Node, attributes};
 use super::{comments, expressions, functions, types};
 
 // abstract_class -> "abstract" class
@@ -102,6 +102,19 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
         }
 
         let doc_comment = comments::consume_optional_doc_comment(parser)?;
+
+        if parser
+            .consume_or_ignore(TokenType::AttributeStart)
+            .is_some()
+        {
+            statements.push(attributes::attribute(parser)?);
+        }
+
+        let doc_comment = if doc_comment.is_some() {
+            doc_comment
+        } else {
+            comments::consume_optional_doc_comment(parser)?
+        };
 
         let mut is_abstract = None;
         let mut is_final = None;

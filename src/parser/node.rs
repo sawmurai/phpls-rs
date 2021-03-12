@@ -926,6 +926,7 @@ impl Node {
             }
             Node::DocComment { var_docs, .. } => (*var_docs).iter().collect::<Vec<&Node>>(),
             Node::Grouping(node) => vec![node],
+            Node::Attribute { expression, .. } => expression.children(),
             _ => Vec::new(),
         }
     }
