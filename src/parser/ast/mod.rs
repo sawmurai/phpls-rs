@@ -1,4 +1,5 @@
 pub mod arrays;
+pub mod attributes;
 pub mod calls;
 pub mod classes;
 pub mod comments;

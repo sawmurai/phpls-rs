@@ -547,6 +547,11 @@ pub enum Node {
         start: Token,
         end: Option<Token>,
     },
+    Attribute {
+        ats: Token,
+        expression: Box<Node>,
+        cb: Token,
+    },
 }
 
 impl Node {

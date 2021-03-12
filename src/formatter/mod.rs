@@ -299,6 +299,21 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 );
                 parts.push(";\n".to_string());
             }
+            Node::Attribute {
+                ats,
+                expression,
+                cb,
+            } => {
+                parts.push(" ".repeat(col));
+                parts.push(format!(
+                    "{}{}{}",
+                    ats,
+                    format_node(expression, col, line, options),
+                    cb
+                ));
+                parts.push("\n".to_string());
+            }
+
             Node::UseDeclaration {
                 declaration,
                 alias,
@@ -577,6 +592,25 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
             .map(|n| n.clone().to_string())
             .collect::<String>(),
         Node::Missing(..) => "<Missing>".to_string(),
+        Node::Array { cb, elements, ob } => {
+            format!(
+                "{}{}{}",
+                ob,
+                elements
+                    .iter()
+                    .map(|element| format_node(element, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(", "),
+                cb
+            )
+        }
+        Node::ArrayElement { arrow, key, value } => {
+            let mut parts = Vec::new();
+            parts.push(optional_ident!("", " ", key, line, col, options));
+            push_if_some!(arrow, parts);
+            parts.push(format_node(value, line, col, options));
+            parts.join("")
+        }
         _ => unimplemented!("{:?}", node),
     }
 }

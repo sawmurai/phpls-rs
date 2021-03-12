@@ -17,20 +17,19 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use suggester::Suggestion;
 use tokio::io::{self};
 use tokio::sync::Mutex;
 use tokio::task;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams, CompletionResponse,
-    Diagnostic, DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
+    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
     InitializedParams, Location, MarkedString, MessageType, Position, Range, ReferenceParams,
-    ServerCapabilities, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url, WorkspaceCapability, WorkspaceFolderCapability,
-    WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
+    ServerCapabilities, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    WorkspaceCapability, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
+    WorkspaceSymbolParams,
 };
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
