@@ -502,6 +502,14 @@ impl Parser {
         Err(Error::Eof)
     }
 
+    fn next_is_member(&mut self) -> bool {
+        if let Some(token) = self.peek() {
+            return token.is_identifier() || token.t == TokenType::Variable;
+        }
+
+        return false;
+    }
+
     // Consume a token of one of the types of `types` or return an error
     fn consume_one_of(&mut self, types: &[TokenType]) -> Result<Token> {
         if let Some(token) = self.next() {
