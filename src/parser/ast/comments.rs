@@ -1,5 +1,6 @@
 use super::super::node::Node;
 use super::super::token::{Token, TokenType};
+use super::super::variables;
 use super::super::Parser;
 use super::super::Result;
 
@@ -24,7 +25,7 @@ impl DocBlockScanner {
     }
 
     fn token_type(&self, name: &str) -> TokenType {
-        match name {
+        match name.to_lowercase().as_ref() {
             "null" => TokenType::Null,
             "mixed" => TokenType::Mixed,
             "bool" | "boolean" => TokenType::TypeBool,
@@ -37,6 +38,7 @@ impl DocBlockScanner {
             "float" | "double" => TokenType::TypeFloat,
             "void" => TokenType::Void,
             "callable" => TokenType::Callable,
+            "generator" => TokenType::Generator,
             _ => TokenType::Identifier,
         }
     }

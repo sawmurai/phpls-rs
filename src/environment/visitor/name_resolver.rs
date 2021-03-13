@@ -29,7 +29,7 @@ pub struct NameResolver<'a> {
     global_scope: &'a HashMap<String, NodeId>,
 
     /// Contains locally defined variables and functions
-    local_scopes: Vec<HashMap<String, NodeId>>,
+    pub local_scopes: Vec<HashMap<String, NodeId>>,
 
     /// Contains a stack of references to $this
     current_class: Option<NodeId>,
@@ -487,10 +487,17 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     }
                 }
 
-                let child = arena.new_node(Symbol {
-                    data_types,
-                    ..Symbol::from(name)
-                });
+                let child = if let Some(existing) = self.resolver.get_local(name) {
+                    arena[existing].get_mut().data_types.extend(data_types);
+
+                    existing
+                } else {
+                    arena.new_node(Symbol {
+                        data_types,
+                        ..Symbol::from(name)
+                    })
+                };
+
                 self.resolver.scope_container.append(child, arena);
                 self.resolver.declare_local(self.file, name, child);
 
@@ -572,7 +579,9 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 if token.t == TokenType::Assignment {
                     let data_type = self.resolve_member_type(&right, arena);
                     if let AstNode::Variable(token) = left.as_ref() {
-                        let child = if let Some(data_type) = data_type {
+                        let child = if let Some(existing) = self.resolver.get_local(token) {
+                            existing
+                        } else if let Some(data_type) = data_type {
                             arena.new_node(Symbol {
                                 data_types: vec![SymbolReference::node(
                                     &[token.clone()],
@@ -586,6 +595,8 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                         self.resolver.scope_container.append(child, arena);
                         self.resolver.declare_local(self.file, token, child);
+                    } else {
+                        self.resolve_member_type(&left, arena);
                     }
                     NextAction::Abort
                 } else {
@@ -642,7 +653,10 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                         if let AstNode::Variable(token) = left.as_ref() {
                             let data_type = self.resolve_member_type(&right, arena);
-                            let child = if let Some(data_type) = data_type {
+
+                            let child = if let Some(existing) = self.resolver.get_local(token) {
+                                existing
+                            } else if let Some(data_type) = data_type {
                                 arena.new_node(Symbol {
                                     data_types: vec![SymbolReference::node(
                                         &[token.clone()],
@@ -814,7 +828,13 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         return None;
                     }
                 }
-                _ => return None,
+                _ => {
+                    node.children().iter().for_each(|c| {
+                        self.resolve_member_type(c, arena);
+                    });
+
+                    return None;
+                }
             }
         };
 

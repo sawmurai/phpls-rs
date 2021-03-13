@@ -988,6 +988,7 @@ impl Scanner {
             "self" => TokenType::TypeSelf,
             "parent" => TokenType::Parent,
             "generator" => TokenType::Generator,
+            "die" => TokenType::Die,
             _ => {
                 return None;
             }

@@ -316,6 +316,12 @@ pub enum Node {
         vars: Vec<Node>,
         cp: Token,
     },
+    DieStatement {
+        token: Token,
+        op: Token,
+        expr: Option<Box<Node>>,
+        cp: Token,
+    },
     ReturnStatement {
         token: Token,
         expression: Option<Box<Node>>,
@@ -660,6 +666,13 @@ impl Node {
 
             Node::UnsetStatement { vars, .. } | Node::GlobalVariablesStatement { vars, .. } => {
                 (*vars).iter().collect()
+            }
+            Node::DieStatement { expr, .. } => {
+                if let Some(expr) = expr.as_ref() {
+                    expr.children()
+                } else {
+                    vec![]
+                }
             }
             Node::ReturnStatement { expression, .. } => {
                 if let Some(expression) = expression {
@@ -1180,6 +1193,7 @@ impl Node {
             } => (token.start(), expression.range().1),
             Node::DeclareStatement { token, cp, .. } => (token.start(), cp.end()),
             Node::UnsetStatement { token, cp, .. } => (token.start(), cp.end()),
+            Node::DieStatement { token, cp, .. } => (token.start(), cp.end()),
             Node::ReturnStatement { token, expression } => {
                 if let Some(expr) = expression {
                     (token.start(), expr.range().1)

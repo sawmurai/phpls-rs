@@ -48,6 +48,28 @@ pub(crate) fn unset_statement(parser: &mut Parser) -> ExpressionResult {
     })
 }
 
+/// Parses die statements
+pub(crate) fn die_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::Die)?;
+    let op = parser.consume(TokenType::OpenParenthesis)?;
+
+    let (expr, cp) = if let Some(cp) = parser.consume_or_ignore(TokenType::CloseParenthesis) {
+        (None, cp)
+    } else {
+        (
+            Some(Box::new(expressions::expression(parser)?)),
+            parser.consume(TokenType::CloseParenthesis)?,
+        )
+    };
+
+    Ok(Node::DieStatement {
+        token,
+        cp,
+        op,
+        expr,
+    })
+}
+
 /// Parses define statements
 pub(crate) fn define_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Define)?;
