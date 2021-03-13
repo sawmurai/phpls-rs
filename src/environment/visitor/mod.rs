@@ -4,7 +4,6 @@ use indextree::{Arena, NodeId};
 
 pub mod name_resolver;
 pub mod workspace_symbol;
-
 pub enum NextAction {
     /// Do not continue processing the children
     Abort,

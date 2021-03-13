@@ -1,4 +1,3 @@
-use crate::environment;
 use crate::environment::get_range;
 use crate::environment::in_range;
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
@@ -6,6 +5,7 @@ use crate::environment::traverser::traverse;
 use crate::environment::visitor::name_resolver::Reference;
 use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolver};
 use crate::environment::visitor::workspace_symbol::WorkspaceSymbolVisitor;
+use crate::environment::{self};
 use crate::parser::node::Node as AstNode;
 use crate::parser::scanner::Scanner;
 use crate::parser::token::{Token, TokenType};
@@ -251,69 +251,7 @@ impl Backend {
 
             *self.global_symbols.lock().await = global_table;
         }
-        /*
-                let mut joins = Vec::new();
-                for path in file_paths {
-                    let content = match tokio::fs::read_to_string(&path).await {
-                        Ok(content) => content,
-                        Err(error) => {
-                            eprintln!("{}", error);
 
-                            continue;
-                        }
-                    };
-
-                    let arena = self.arena.clone();
-                    let global_symbols = self.global_symbols.clone();
-                    let files = self.files.clone();
-                    let references = self.symbol_references.clone();
-                    let diagnostics = self.diagnostics.clone();
-
-                    joins.push(task::spawn(async move {
-                        let p = normalize_path(&path);
-
-                        //eprintln!("Resolving refs in {}", p);
-
-                        if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-                            let reindex_result = Backend::reindex(
-                                &p,
-                                &ast,
-                                &range,
-                                true,
-                                false,
-                                arena,
-                                global_symbols,
-                                references,
-                                files,
-                                diagnostics.clone(),
-                            )
-                            .await;
-
-                            match reindex_result {
-                                Ok(()) => (),
-                                Err(err) => {
-                                    eprintln!("{}", err);
-                                }
-                            }
-
-                            let diags = errors.iter().map(Diagnostic::from).collect();
-                            diagnostics.lock().await.insert(p, diags);
-                        } else {
-                            // TODO: Publish errors as diagnostics
-                            eprintln!("Could not index {} due to syntax errors", p);
-                        }
-                    }));
-                }
-
-                for j in joins {
-                    match j.await {
-                        Ok(()) => (),
-                        Err(err) => {
-                            eprintln!("{}", err);
-                        }
-                    }
-                }
-        */
         eprintln!("Done doing the stuff");
 
         Ok(())
@@ -738,41 +676,117 @@ impl LanguageServer for Backend {
                 .unwrap(),
         );
 
-        let arena = self.arena.lock().await;
-        if let Some(file) = self.files.lock().await.get(&file) {
-            let symbol_under_cursor = arena[*file].get().symbol_at(&position, *file, &arena);
+        let arena = self.arena.clone();
+        let files = self.files.clone();
 
-            let symbol_references = self.symbol_references.lock().await;
-
-            let locations = symbol_references
-                .iter()
-                .map(|(file, refs)| {
-                    // Find all refs that point to our symbol, across all files
-                    refs.iter()
-                        .filter_map(|one_ref| {
-                            if one_ref.node == symbol_under_cursor {
-                                return Some(Location {
-                                    uri: Url::from_file_path(file).unwrap(),
-                                    range: get_range(one_ref.range),
-                                });
-                            }
-
-                            return None;
-                        })
-                        .collect()
-                })
-                .fold(Vec::new(), |cur, mut tot: Vec<Location>| {
-                    tot.extend(cur);
-
-                    tot
-                });
-
-            return Ok(Some(locations));
+        let (suc, nuc) = if let Some(file) = files.lock().await.get(&file) {
+            let arena = arena.lock().await;
+            let suc = arena[*file].get().symbol_at(&position, *file, &arena);
+            (suc, arena[suc].get().name.clone())
         } else {
-            eprintln!("File '{}' not found", file);
+            return Ok(None);
+        };
+
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let all_files = files
+            .lock()
+            .await
+            .iter()
+            .filter_map(|(k, _)| {
+                if k.contains("/vendor/") {
+                    return None;
+                } else {
+                    Some(k.clone())
+                }
+            })
+            .collect::<Vec<String>>();
+
+        //let mut joins = Vec::new();
+        for p in all_files {
+            let arena = self.arena.clone();
+            let files = self.files.clone();
+            let global_symbols = self.global_symbols.clone();
+            let diagnostics = self.diagnostics.clone();
+            let symbol_references = symbol_references.clone();
+
+            let content = match tokio::fs::read_to_string(&p).await {
+                Ok(content) => content,
+                Err(error) => {
+                    eprintln!("{}", error);
+                    continue;
+                }
+            };
+
+            // Full text search ....
+            if !content.contains(&nuc) {
+                continue;
+            }
+
+            // TODO: Figure out deadlock and parallize
+            //joins.push(task::spawn(async move {
+            if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
+                let reindex_result = Backend::reindex(
+                    &p,
+                    &ast,
+                    &range,
+                    true,
+                    false,
+                    arena,
+                    global_symbols,
+                    symbol_references,
+                    files,
+                    diagnostics,
+                )
+                .await;
+
+                match reindex_result {
+                    Ok(()) => (),
+                    Err(err) => {
+                        eprintln!("{}", err);
+                    }
+                }
+            } else {
+                // TODO: Publish errors as diagnostics
+                eprintln!("Could not index {} due to syntax errors", p);
+            }
+            //}));
         }
 
-        Ok(None)
+        /*for j in joins {
+            match j.await {
+                Ok(()) => (),
+                Err(err) => {
+                    eprintln!("{}", err);
+                }
+            }
+        }*/
+
+        let locations = symbol_references
+            .lock()
+            .await
+            .iter()
+            .map(|(file, refs)| {
+                // Find all refs that point to our symbol, across all files
+                refs.iter()
+                    .filter_map(|one_ref| {
+                        if one_ref.node == suc {
+                            return Some(Location {
+                                uri: Url::from_file_path(file).unwrap(),
+                                range: get_range(one_ref.range),
+                            });
+                        }
+
+                        return None;
+                    })
+                    .collect()
+            })
+            .fold(Vec::new(), |cur, mut tot: Vec<Location>| {
+                tot.extend(cur);
+
+                tot
+            });
+
+        return Ok(Some(locations));
     }
 
     async fn goto_definition(
