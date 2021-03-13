@@ -569,9 +569,8 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 NextAction::Abort
             }
             AstNode::Binary { left, right, token } => {
-                let data_type = self.resolve_member_type(&right, arena);
-
                 if token.t == TokenType::Assignment {
+                    let data_type = self.resolve_member_type(&right, arena);
                     if let AstNode::Variable(token) = left.as_ref() {
                         let child = if let Some(data_type) = data_type {
                             arena.new_node(Symbol {
@@ -588,10 +587,10 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         self.resolver.scope_container.append(child, arena);
                         self.resolver.declare_local(self.file, token, child);
                     }
+                    NextAction::Abort
+                } else {
+                    NextAction::ProcessChildren(parent)
                 }
-
-                NextAction::Abort
-                //NextAction::ProcessChildren(parent)
             }
             AstNode::StaticMember { .. } | AstNode::Member { .. } => {
                 self.resolve_member_type(node, arena);
@@ -663,8 +662,25 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             return None;
                         }
                     } else {
-                        return None;
+                        self.resolve_member_type(left, arena);
+
+                        return self.resolve_member_type(right, arena);
                     }
+                }
+                AstNode::Ternary {
+                    check,
+                    true_arm,
+                    false_arm,
+                    ..
+                } => {
+                    self.resolve_member_type(check, arena);
+                    if let Some(true_arm) = true_arm {
+                        self.resolve_member_type(true_arm, arena);
+                    }
+
+                    self.resolve_member_type(false_arm, arena);
+
+                    return None;
                 }
                 AstNode::Unary { expr, .. } => {
                     current_object = expr;
@@ -678,8 +694,26 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                 AstNode::Grouping(inside) => {
                     current_object = inside;
                 }
-                AstNode::Call { callee, .. } => {
+                AstNode::Call {
+                    callee, parameters, ..
+                } => {
+                    parameters.iter().for_each(|param| {
+                        self.resolve_member_type(param, arena);
+                    });
+
                     current_object = callee;
+                }
+                AstNode::Array { elements, .. } => {
+                    elements.iter().for_each(|param| {
+                        self.resolve_member_type(param, arena);
+                    });
+
+                    return None;
+                }
+                AstNode::ArrayElement { value, .. } => {
+                    self.resolve_member_type(&**value, arena);
+
+                    return None;
                 }
                 AstNode::StaticMember { object, member, .. }
                 | AstNode::Member { object, member, .. } => {
@@ -852,6 +886,12 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                         || TokenType::Static == first_type
                                     {
                                         continue 'link_loop;
+                                    }
+
+                                    if let Some(first) = type_ref.first() {
+                                        if first.label == Some("$this".to_string()) {
+                                            continue 'link_loop;
+                                        }
                                     }
 
                                     if TokenType::Parent == first_type {

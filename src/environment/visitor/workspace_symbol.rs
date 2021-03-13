@@ -277,23 +277,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                             data_types.extend(
                                 get_type_refs(rt)
                                     .iter()
-                                    .map(|tr| {
-                                        if let Some(first) = tr.first() {
-                                            if let Some(lbl) = first.label.as_ref() {
-                                                if lbl == "$this" || lbl == "this" {
-                                                    let new_first = Token {
-                                                        label: Some(
-                                                            arena[parent].get().name.clone(),
-                                                        ),
-                                                        ..first.clone()
-                                                    };
-                                                    return Reference::type_ref(vec![new_first]);
-                                                }
-                                            }
-                                        }
-
-                                        Reference::type_ref(tr.clone())
-                                    })
+                                    .map(|tr| Reference::type_ref(tr.clone()))
                                     .collect::<Vec<Reference>>(),
                             );
                         }

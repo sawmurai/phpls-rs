@@ -75,14 +75,16 @@ fn members_of(
     );
 
     // Direct children ($this, parent, self ...)
-    if resolved_object_variable.kind == PhpSymbolKind::Class {
+    if resolved_object_variable.kind == PhpSymbolKind::Class
+        || resolved_object_variable.kind == PhpSymbolKind::Interface
+    {
         suggestions
             .extend(members_of_parents_of(referenced_node, &arena, &global_symbols).drain(..));
 
         referenced_node.children(&arena).for_each(|child| {
             suggestions.push(child);
         });
-        eprintln!("Reference is a class, done");
+        eprintln!("Reference is a class or interface, done");
 
         return suggestions;
     }
@@ -273,6 +275,16 @@ pub fn get_suggestions_at(
                             .iter()
                             .filter_map(|dt_reference| {
                                 if let Some(type_ref) = dt_reference.type_ref.as_ref() {
+                                    // TODO: resolve $this
+                                    if let Some(tr) = dt_reference.type_ref.as_ref() {
+                                        if let Some(first) = tr.first() {
+                                            if let Some(label) = first.label.as_ref() {
+                                                if label == "$this" {
+                                                    return arena[reference.node].parent();
+                                                }
+                                            }
+                                        }
+                                    }
                                     if let Some(referenced_node) = resolver.resolve_type_ref(
                                         &type_ref,
                                         arena,
@@ -516,10 +528,15 @@ mod tests {
                 "<?php namespace App; class Animal extends Living { protected function getType() { } }",
             ),
             (
+                "aniinterface.php",
+                "<?php namespace App; interface AniInter { public function getName() { } }",
+            ),
+            (
                 "cat.php",
-                "<?php namespace App; class Cat extends Animal { public function getName() { } }",
+                "<?php namespace App; class Cat extends Animal implements AniInter { public function getName() { } }",
             ),
             ("index.php", "<?php use App\\Cat; $cat = new Cat(); $cat->"),
+            ("index2.php", "<?php use App\\AniInter; function x(AniInter $y) {$y->}"),
         ];
 
         for (resolve, collect) in [(false, true), (true, false)].iter() {
@@ -551,7 +568,7 @@ mod tests {
         let arena = arena.lock().await;
         let global_symbols = global_symbols.lock().await;
         let symbol_references = symbol_references.lock().await;
-        let mut scanner = Scanner::new(&sources[3].1);
+        let mut scanner = Scanner::new(&sources[4].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
         let pos = Position {
@@ -572,6 +589,28 @@ mod tests {
 
         assert_eq!("getPulse", arena[actual[0]].get().name);
         assert_eq!("getName", arena[actual[1]].get().name);
+
+        // Suggest interface method
+        let mut scanner = Scanner::new(&sources[5].1);
+        scanner.scan().unwrap();
+        let pr = Parser::ast(scanner.tokens).unwrap();
+        let pos = Position {
+            line: 0,
+            character: 54,
+        };
+        let references = symbol_references.get("index2.php").unwrap();
+        let suc = files.get("index2.php").unwrap();
+        let actual = super::get_suggestions_at(
+            Some('>'),
+            pos,
+            *suc,
+            &pr.0,
+            &arena,
+            &global_symbols,
+            references,
+        );
+
+        assert_eq!("getName", arena[actual[0]].get().name);
     }
 
     #[tokio::test]
