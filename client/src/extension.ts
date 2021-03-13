@@ -7,7 +7,7 @@ import {
 	ServerOptions,
 	TransportKind,
 	Executable
-} from 'vscode-languageclient';
+} from 'vscode-languageclient/node';
 
 let client: LanguageClient;
 
@@ -46,7 +46,9 @@ export function activate(context: ExtensionContext) {
 		]
 	});
 
-	let serverModule = context.asAbsolutePath(
+	let installedServer = workspace.getConfiguration('phplsrs').get('binary');
+
+	let serverModule = (installedServer as string) || context.asAbsolutePath(
 		path.join('target', 'debug', 'phpls-rs')
 	);
 

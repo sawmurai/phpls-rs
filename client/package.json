@@ -10,21 +10,27 @@
 		"url": "https://github.com/sawmurai/phpls-rs"
 	},
 	"engines": {
-		"vscode": "^1.43.0"
+		"vscode": "^1.52.0"
 	},
 	"dependencies": {
-		"vscode-languageclient": "^6.1.3"
+		"vscode-languageclient": "^7.0.0"
 	},
 	"activationEvents": [
 		"onLanguage:php"
 	],
-	"main": "./client/out/extension",
+	"main": "./out/extension",
 	"contributes": {
 		"configuration": {
 			"type": "object",
 			"title": "PHP LS RS",
 			"properties": {
-				"phplsrs.php-stubs": {
+				"phplsrs.binary": {
+					"scope": "resource",
+					"type": "string",
+					"default": ".",
+					"description": "Path to the binary."
+				},
+				"phplsrs.stubs": {
 					"scope": "resource",
 					"type": "string",
 					"default": ".",
@@ -45,7 +51,7 @@
 		}
 	},
 	"scripts": {
-		"vscode:prepublish": "cd client && npm run update-vscode && cd .. && npm run compile",
+		"vscode:prepublish": "npm run compile",
 		"compile": "tsc -b",
 		"watch": "tsc -b -w",
 		"test": "sh ./scripts/e2e.sh"
@@ -53,7 +59,7 @@
 	"devDependencies": {
 		"@types/mocha": "^5.2.7",
 		"@types/node": "^12.12.0",
-		"@types/vscode": "1.43.0",
+		"@types/vscode": "1.52.0",
 		"@typescript-eslint/parser": "^2.3.0",
 		"eslint": "^6.4.0",
 		"mocha": "^6.2.2",
