@@ -83,13 +83,11 @@ impl<'a> NameResolver<'a> {
 
     /// Enter a new class
     pub fn enter_class(&mut self, node: NodeId) {
-        eprintln!("entering");
         self.current_class = Some(node);
     }
 
     /// Enter a new class
     pub fn leave_class(&mut self) {
-        eprintln!("leaving");
         self.current_class = None;
     }
 
@@ -635,7 +633,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         let mut reversed_chain = Vec::with_capacity(5);
 
         let mut current_object = node;
-        let (root_node, mut minimal_visibility) = 'root_node: loop {
+        let (root_node, minimal_visibility) = 'root_node: loop {
             match current_object {
                 AstNode::Binary { left, right, token } => {
                     if token.t == TokenType::Assignment {
@@ -662,9 +660,10 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                             current_object = left;
                         } else {
-                            eprintln!("Shiiit {:?}", left);
                             return None;
                         }
+                    } else {
+                        return None;
                     }
                 }
                 AstNode::Unary { expr, .. } => {
@@ -824,15 +823,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         let s = arena[*node].get();
 
                         if s.name == link_name {
-                            if s.visibility < minimal_visibility {
-                                self.resolver.diagnostic(
-                                    file_name.clone(),
-                                    link.range(),
-                                    String::from(
-                                        "Method was found but is not accessible from this scope.",
-                                    ),
-                                );
-                            } else {
+                            if s.visibility >= minimal_visibility {
                                 return Some(*node);
                             }
                         }
@@ -981,7 +972,6 @@ mod tests {
             }
         }
 
-        eprintln!("{:?}", diagnostics.lock().await);
         assert!(diagnostics.lock().await.is_empty());
         let symbol_references = symbol_references.lock().await;
         let arena = arena.lock().await;

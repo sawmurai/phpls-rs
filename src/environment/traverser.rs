@@ -16,7 +16,9 @@ where
             // If node is a namespace somehow the classes and interface etc. are not added to it but still to the file
             // Probably because they are not children in the ast node of namespace
             for child in node.children() {
+                //eprintln!("[environment::traverser::traverse] calling traverse()");
                 traverse(child, visitor, arena, next_parent);
+                //eprintln!("[environment::traverser::traverse] calling traverse() ended");
             }
         }
     }

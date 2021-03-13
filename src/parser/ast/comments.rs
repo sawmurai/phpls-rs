@@ -244,6 +244,8 @@ impl DocBlockScanner {
                 || ('A'..='Z').contains(&c)
                 || ('0'..='9').contains(&c)
                 || c == '_'
+                // Need to support $ as @return $this is possible
+                || c == '$'
                 || c >= 0x80 as char
             {
                 name.push(c);

@@ -453,7 +453,9 @@ impl Backend {
             let mut visitor = NameResolveVisitor::new(&mut resolver, enclosing_file);
             let iter = ast.iter();
             for node in iter {
+                eprintln!("[reindex] calling traverse()");
                 traverse(node, &mut visitor, &mut arena, enclosing_file);
+                eprintln!("[reindex] calling traverse() ended");
             }
 
             let mut symbol_references = symbol_references.lock().await;
@@ -887,6 +889,7 @@ impl LanguageServer for Backend {
         let mut opened_files = self.opened_files.lock().await;
 
         if !opened_files.contains_key(&path) {
+            eprintln!("[did_open] indexing file");
             self.client
                 .log_message(MessageType::Info, "Need to freshly index")
                 .await;
@@ -910,6 +913,8 @@ impl LanguageServer for Backend {
             }
         }
 
+        eprintln!("[did_open] file stored in opened files");
+
         let (ast, range) = if let Some((ast, range)) = opened_files.get(&path) {
             self.client
                 .log_message(MessageType::Info, "Opened from cache")
@@ -923,6 +928,7 @@ impl LanguageServer for Backend {
             return;
         };
 
+        eprintln!("[did_open] start resolving symbols");
         if let Err(e) = Backend::reindex(
             &path,
             ast,
@@ -943,6 +949,7 @@ impl LanguageServer for Backend {
 
             return;
         }
+        eprintln!("[did_open] done resolving symbols");
 
         let diagnostics = self.diagnostics.lock().await;
 
