@@ -158,6 +158,91 @@ impl Backend {
         }
     }
 
+    /// Returns the nodeid and name of the symbol under the cursor
+    async fn symbol_under_cursor(
+        &self,
+        position: &Position,
+        file: &str,
+    ) -> Option<(NodeId, String)> {
+        let arena = self.arena.clone();
+        let files = self.files.clone();
+
+        if let Some(file) = files.lock().await.get(file) {
+            let arena = arena.lock().await;
+            let suc = arena[*file].get().symbol_at(&position, *file, &arena);
+            return Some((suc, arena[suc].get().name.clone()));
+        }
+
+        None
+    }
+
+    async fn references_of_symbol_under_cursor(&self, nuc: &str) -> Option<ReferenceMapMutex> {
+        let files = self.files.clone();
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let all_files = files
+            .lock()
+            .await
+            .iter()
+            .filter_map(|(k, _)| {
+                if k.contains("/vendor/") {
+                    return None;
+                } else {
+                    Some(k.clone())
+                }
+            })
+            .collect::<Vec<String>>();
+
+        //let mut joins = Vec::new();
+        for p in all_files {
+            let arena = self.arena.clone();
+            let files = self.files.clone();
+            let global_symbols = self.global_symbols.clone();
+            let diagnostics = self.diagnostics.clone();
+            let symbol_references = symbol_references.clone();
+
+            let content = match tokio::fs::read_to_string(&p).await {
+                Ok(content) => content,
+                Err(error) => {
+                    eprintln!("{}", error);
+                    continue;
+                }
+            };
+
+            // Full text search ....
+            if !content.contains(nuc) {
+                continue;
+            }
+
+            if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
+                let reindex_result = Backend::reindex(
+                    &p,
+                    &ast,
+                    &range,
+                    true,
+                    false,
+                    arena,
+                    global_symbols,
+                    symbol_references,
+                    files,
+                    diagnostics,
+                )
+                .await;
+
+                match reindex_result {
+                    Ok(()) => (),
+                    Err(err) => {
+                        eprintln!("{}", err);
+                    }
+                }
+            } else {
+                // TODO: Publish errors as diagnostics
+                eprintln!("Could not index {} due to syntax errors", p);
+            }
+        }
+
+        Some(symbol_references)
+    }
+
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
         let mut file_paths = self.reindex_folder(&PathBuf::from(&self.stdlib))?;
@@ -391,9 +476,9 @@ impl Backend {
             let mut visitor = NameResolveVisitor::new(&mut resolver, enclosing_file);
             let iter = ast.iter();
             for node in iter {
-                eprintln!("[reindex] calling traverse()");
+                //eprintln!("[reindex] calling traverse()");
                 traverse(node, &mut visitor, &mut arena, enclosing_file);
-                eprintln!("[reindex] calling traverse() ended");
+                //eprintln!("[reindex] calling traverse() ended");
             }
 
             let mut symbol_references = symbol_references.lock().await;
@@ -568,8 +653,6 @@ impl LanguageServer for Backend {
                 continue;
             }
 
-            eprintln!("{:?}", Url::from_file_path(file).unwrap());
-
             self.client
                 .publish_diagnostics(
                     Url::from_file_path(file).unwrap(),
@@ -675,91 +758,18 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-
-        let arena = self.arena.clone();
-        let files = self.files.clone();
-
-        let (suc, nuc) = if let Some(file) = files.lock().await.get(&file) {
-            let arena = arena.lock().await;
-            let suc = arena[*file].get().symbol_at(&position, *file, &arena);
-            (suc, arena[suc].get().name.clone())
+        let (suc, nuc) = if let Some((suc, nuc)) = self.symbol_under_cursor(position, &file).await {
+            (suc, nuc)
         } else {
             return Ok(None);
         };
 
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
-        let all_files = files
-            .lock()
-            .await
-            .iter()
-            .filter_map(|(k, _)| {
-                if k.contains("/vendor/") {
-                    return None;
-                } else {
-                    Some(k.clone())
-                }
-            })
-            .collect::<Vec<String>>();
-
-        //let mut joins = Vec::new();
-        for p in all_files {
-            let arena = self.arena.clone();
-            let files = self.files.clone();
-            let global_symbols = self.global_symbols.clone();
-            let diagnostics = self.diagnostics.clone();
-            let symbol_references = symbol_references.clone();
-
-            let content = match tokio::fs::read_to_string(&p).await {
-                Ok(content) => content,
-                Err(error) => {
-                    eprintln!("{}", error);
-                    continue;
-                }
-            };
-
-            // Full text search ....
-            if !content.contains(&nuc) {
-                continue;
-            }
-
-            // TODO: Figure out deadlock and parallize
-            //joins.push(task::spawn(async move {
-            if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-                let reindex_result = Backend::reindex(
-                    &p,
-                    &ast,
-                    &range,
-                    true,
-                    false,
-                    arena,
-                    global_symbols,
-                    symbol_references,
-                    files,
-                    diagnostics,
-                )
-                .await;
-
-                match reindex_result {
-                    Ok(()) => (),
-                    Err(err) => {
-                        eprintln!("{}", err);
-                    }
-                }
+        let symbol_references =
+            if let Some(symbol_references) = self.references_of_symbol_under_cursor(&nuc).await {
+                symbol_references
             } else {
-                // TODO: Publish errors as diagnostics
-                eprintln!("Could not index {} due to syntax errors", p);
-            }
-            //}));
-        }
-
-        /*for j in joins {
-            match j.await {
-                Ok(()) => (),
-                Err(err) => {
-                    eprintln!("{}", err);
-                }
-            }
-        }*/
+                return Ok(None);
+            };
 
         let locations = symbol_references
             .lock()
