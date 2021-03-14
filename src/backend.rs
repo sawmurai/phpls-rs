@@ -27,9 +27,10 @@ use tower_lsp::lsp_types::{
     DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
     InitializedParams, Location, MarkedString, MessageType, Position, Range, ReferenceParams,
-    ServerCapabilities, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
-    WorkspaceCapability, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
-    WorkspaceSymbolParams,
+    RenameCapability, RenameParams, RenameProviderCapability, ServerCapabilities,
+    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
+    WorkspaceCapability, WorkspaceEdit, WorkspaceFolderCapability,
+    WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
 };
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
@@ -515,6 +516,7 @@ impl Backend {
         let files = self.files.clone();
         let references = self.symbol_references.clone();
         let diagnostics = self.diagnostics.clone();
+        let mut opened_files = self.opened_files.lock().await;
 
         if let Ok((ast, range, errors)) = Backend::source_to_ast(&src) {
             let reindex_result = Backend::reindex(
@@ -537,10 +539,7 @@ impl Backend {
             diagnostics.clear();
             diagnostics.extend(errors.iter().map(Diagnostic::from));
 
-            self.opened_files
-                .lock()
-                .await
-                .insert(path.to_string(), (ast.to_owned(), range));
+            opened_files.insert(path.to_string(), (ast.to_owned(), range));
 
             if let Err(e) = reindex_result {
                 self.client.log_message(MessageType::Error, e).await;
@@ -550,7 +549,7 @@ impl Backend {
         }
 
         // Now reindex all the other currently opened files to update references
-        for (path, (ast, range)) in self.opened_files.lock().await.iter() {
+        for (path, (ast, range)) in opened_files.iter() {
             match Backend::reindex(
                 path,
                 &ast,
@@ -620,6 +619,7 @@ impl LanguageServer for Backend {
                     work_done_progress_options: Default::default(),
                 }),*/
                 references_provider: Some(true),
+                rename_provider: Some(RenameProviderCapability::Simple(true)),
                 definition_provider: Some(true),
                 document_highlight_provider: Some(true),
                 document_symbol_provider: Some(true),
@@ -707,20 +707,23 @@ impl LanguageServer for Backend {
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         let file_path = normalize_path(&params.text_document.uri.to_file_path().unwrap());
+
+        let node_id = if let Some(node_id) = self.files.lock().await.get(&file_path) {
+            node_id.clone()
+        } else {
+            return Ok(None);
+        };
+
         let arena = self.arena.lock().await;
 
-        if let Some(node_id) = self.files.lock().await.get(&file_path) {
-            return Ok(Some(DocumentSymbolResponse::Nested(
-                node_id
-                    .children(&arena)
-                    .map(|s| arena[s].get().to_doc_sym(&arena, &s))
-                    .filter(std::option::Option::is_some)
-                    .map(std::option::Option::unwrap)
-                    .collect(),
-            )));
-        }
-
-        Ok(None)
+        Ok(Some(DocumentSymbolResponse::Nested(
+            node_id
+                .children(&arena)
+                .map(|s| arena[s].get().to_doc_sym(&arena, &s))
+                .filter(std::option::Option::is_some)
+                .map(std::option::Option::unwrap)
+                .collect(),
+        )))
     }
 
     async fn document_highlight(
@@ -799,6 +802,69 @@ impl LanguageServer for Backend {
         return Ok(Some(locations));
     }
 
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let position = &params.text_document_position.position;
+        let file = normalize_path(
+            &params
+                .text_document_position
+                .text_document
+                .uri
+                .to_file_path()
+                .unwrap(),
+        );
+        let (suc, nuc) = if let Some((suc, nuc)) = self.symbol_under_cursor(position, &file).await {
+            (suc, nuc)
+        } else {
+            return Ok(None);
+        };
+
+        let symbol_references =
+            if let Some(symbol_references) = self.references_of_symbol_under_cursor(&nuc).await {
+                symbol_references
+            } else {
+                return Ok(None);
+            };
+
+        let symbol_range = self.arena.lock().await[suc].get().selection_range;
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        changes.insert(
+            Url::from_file_path(file).unwrap(),
+            vec![TextEdit {
+                range: symbol_range,
+                new_text: params.new_name.clone(),
+            }],
+        );
+        symbol_references
+            .lock()
+            .await
+            .iter()
+            .for_each(|(file, refs)| {
+                let edits: Vec<TextEdit> = refs
+                    .iter()
+                    .filter_map(|one_ref| {
+                        if one_ref.node == suc {
+                            return Some(TextEdit {
+                                range: get_range(one_ref.range),
+                                new_text: params.new_name.clone(),
+                            });
+                        }
+
+                        return None;
+                    })
+                    .collect();
+                // Find all refs that point to our symbol, across all files
+                changes
+                    .entry(Url::from_file_path(file).unwrap())
+                    .or_insert_with(Vec::new)
+                    .extend(edits);
+            });
+
+        Ok(Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+        }))
+    }
+
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -873,6 +939,7 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        eprintln!("[did_change] start");
         let uri = params.text_document.uri;
         let file_path = uri.to_file_path().unwrap();
         let path = normalize_path(&file_path);
@@ -885,6 +952,7 @@ impl LanguageServer for Backend {
 
             self.refresh_file(uri, &changes.text).await;
         }
+        eprintln!("[did_change] end");
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
