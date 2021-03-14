@@ -3,14 +3,24 @@ use super::super::import::collect_uses;
 use super::NextAction;
 use super::Symbol;
 use super::Visitor;
-use crate::environment::scope::Reference;
 use crate::environment::symbol::{PhpSymbolKind, Visibility};
+use crate::environment::{import::namespace_to_string, scope::Reference};
 use crate::parser::node::Node as AstNode;
 use crate::parser::token::Token;
 
 use indextree::{Arena, NodeId};
 
-pub struct WorkspaceSymbolVisitor {}
+pub struct WorkspaceSymbolVisitor {
+    namespace_stack: Vec<String>,
+}
+
+impl WorkspaceSymbolVisitor {
+    pub fn new() -> Self {
+        WorkspaceSymbolVisitor {
+            namespace_stack: Vec::new(),
+        }
+    }
+}
 
 impl Visitor for WorkspaceSymbolVisitor {
     /// Decides if a symbol is worth collecting
@@ -110,7 +120,14 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let s_name = name.clone().label.unwrap();
                 let range = get_range(node.range());
 
+                let namespace = if let Some(ns) = self.namespace_stack.last() {
+                    Some(ns.clone())
+                } else {
+                    None
+                };
+
                 let child = arena.new_node(Symbol {
+                    namespace,
                     name: s_name,
                     kind: PhpSymbolKind::Class,
                     range,
@@ -141,7 +158,14 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let name = name.clone().label.unwrap();
                 let range = get_range(node.range());
 
+                let namespace = if let Some(ns) = self.namespace_stack.last() {
+                    Some(ns.clone())
+                } else {
+                    None
+                };
+
                 let child = arena.new_node(Symbol {
+                    namespace,
                     name,
                     kind: PhpSymbolKind::Class,
                     range,
@@ -168,7 +192,14 @@ impl Visitor for WorkspaceSymbolVisitor {
                     None
                 };
 
+                let namespace = if let Some(ns) = self.namespace_stack.last() {
+                    Some(ns.clone())
+                } else {
+                    None
+                };
+
                 let child = arena.new_node(Symbol {
+                    namespace,
                     name,
                     kind: PhpSymbolKind::Interface,
                     range,
@@ -356,9 +387,32 @@ impl Visitor for WorkspaceSymbolVisitor {
         }
     }
 
-    fn before(&mut self, _node: &AstNode) {}
+    fn before(&mut self, node: &AstNode) {
+        match node {
+            AstNode::NamespaceStatement { type_ref, .. } => {
+                if let AstNode::TypeRef(type_ref) = type_ref.as_ref() {
+                    self.namespace_stack.push(namespace_to_string(type_ref))
+                }
+            }
+            AstNode::NamespaceBlock { type_ref, .. } => {
+                if let Some(type_ref) = type_ref {
+                    if let AstNode::TypeRef(type_ref) = type_ref.as_ref() {
+                        self.namespace_stack.push(namespace_to_string(type_ref))
+                    }
+                }
+            }
+            _ => (),
+        }
+    }
 
-    fn after(&mut self, _node: &AstNode) {}
+    fn after(&mut self, node: &AstNode) {
+        match node {
+            AstNode::NamespaceBlock { .. } => {
+                self.namespace_stack.pop();
+            }
+            _ => (),
+        }
+    }
 }
 
 // TODO: Think about supporting multiple types

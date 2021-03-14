@@ -113,6 +113,9 @@ pub struct Symbol {
     pub selection_range: Range,
     pub deprecated: Option<bool>,
 
+    // Optional namespace this symbol is defined in
+    pub namespace: Option<String>,
+
     pub imports: Option<Vec<SymbolImport>>,
 
     /// Parent symbol(s) (used for inheritance)
@@ -133,6 +136,7 @@ pub struct Symbol {
 impl Default for Symbol {
     fn default() -> Self {
         Symbol {
+            namespace: None,
             name: String::new(),
             kind: PhpSymbolKind::File,
             range: get_range(((0, 0), (0, 0))),
@@ -199,17 +203,30 @@ impl Into<CompletionItem> for &Symbol {
             None
         };
 
+        let ns = if let Some(ns) = self.namespace.as_ref() {
+            ns
+        } else {
+            ""
+        };
+
         match self.kind {
+            PhpSymbolKind::Interface => CompletionItem {
+                label: self.name.clone(),
+                detail: Some(format!("interface {}\\{}", ns, self.name)),
+                kind: Some(CompletionItemKind::Interface),
+                tags,
+                ..CompletionItem::default()
+            },
             PhpSymbolKind::Class => CompletionItem {
                 label: self.name.clone(),
-                detail: Some(format!("class {}", self.name)),
+                detail: Some(format!("class {}\\{}", ns, self.name)),
                 kind: Some(CompletionItemKind::Class),
                 tags,
                 ..CompletionItem::default()
             },
             PhpSymbolKind::Constant => CompletionItem {
                 label: self.name.clone(),
-                detail: Some(format!("class {}", self.name)),
+                detail: Some(format!("{} {}()", self.visibility, self.name)),
                 kind: Some(CompletionItemKind::Constant),
                 tags,
                 ..CompletionItem::default()

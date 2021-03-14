@@ -9,6 +9,12 @@ pub struct SymbolImport {
     pub alias: Option<Token>,
 }
 
+pub fn namespace_to_string(path: &[Token]) -> String {
+    path.iter()
+        .map(|p| p.label.clone().unwrap_or_else(|| "\\".to_owned()))
+        .collect::<String>()
+}
+
 impl SymbolImport {
     pub fn name(&self) -> String {
         if let Some(alias) = &self.alias {

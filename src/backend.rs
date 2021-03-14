@@ -27,10 +27,10 @@ use tower_lsp::lsp_types::{
     DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
     InitializedParams, Location, MarkedString, MessageType, Position, Range, ReferenceParams,
-    RenameCapability, RenameParams, RenameProviderCapability, ServerCapabilities,
-    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
-    WorkspaceCapability, WorkspaceEdit, WorkspaceFolderCapability,
-    WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
+    RenameParams, RenameProviderCapability, ServerCapabilities, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceCapability,
+    WorkspaceEdit, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
+    WorkspaceSymbolParams,
 };
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
@@ -420,7 +420,7 @@ impl Backend {
                 ..Symbol::default()
             });
 
-            let mut visitor = WorkspaceSymbolVisitor {};
+            let mut visitor = WorkspaceSymbolVisitor::new();
             let iter = ast.iter();
             for node in iter {
                 traverse(node, &mut visitor, &mut arena, enclosing_file);
@@ -1119,13 +1119,14 @@ impl LanguageServer for Backend {
             let ast = file_ast;
 
             let files = self.files.lock().await;
-            let symbol_under_cursor = if let Some(current_file_symbol) = files.get(&opened_file) {
-                arena[*current_file_symbol]
-                    .get()
-                    .symbol_at(&pos, *current_file_symbol, &arena)
+            let current_file_symbol = if let Some(current_file_symbol) = files.get(&opened_file) {
+                current_file_symbol
             } else {
                 return Ok(None);
             };
+            let current_file = arena[*current_file_symbol].get();
+
+            let symbol_under_cursor = current_file.symbol_at(&pos, *current_file_symbol, &arena);
 
             let local_references = self.symbol_references.lock().await;
             if let Some(references) = local_references.get(&opened_file) {
@@ -1141,8 +1142,53 @@ impl LanguageServer for Backend {
                 return Ok(Some(CompletionResponse::Array(
                     suggestions
                         .drain(..)
-                        .map(|s| arena[s].get())
-                        .map(|s| s.into())
+                        .map(|s| {
+                            let symbol = arena[s].get();
+
+                            // If the symbol is a class we try to add a namespace as a text edit
+                            if symbol.kind == PhpSymbolKind::Class {
+                                let ns = if let Some(ns) = symbol.namespace.as_ref() {
+                                    ns
+                                } else {
+                                    return symbol.into();
+                                };
+
+                                let fqdn = format!("{}\\{}", ns, symbol.name);
+                                let to_import = format!("use {};\n", fqdn);
+                                // Check if the current file already has that import. if yes we are good
+                                let line = if let Some(imports) = current_file.imports.as_ref() {
+                                    if imports
+                                        .iter()
+                                        .find(|import| import.full_name() == fqdn)
+                                        .is_some()
+                                    {
+                                        return symbol.into();
+                                    } else {
+                                        // add use to the end of the imports
+                                        if let Some(first_import) = imports.first() {
+                                            first_import.path.first().unwrap().line
+                                        } else {
+                                            3
+                                        }
+                                    }
+                                } else {
+                                    // add use right after the namespace or the opening <?php
+                                    3
+                                };
+
+                                // if not, we add it as a text edit
+
+                                return CompletionItem {
+                                    additional_text_edits: Some(vec![TextEdit {
+                                        range: get_range(((line, 0), (line, 0))),
+                                        new_text: to_import,
+                                    }]),
+                                    ..symbol.into()
+                                };
+                            }
+
+                            symbol.into()
+                        })
                         .collect::<Vec<CompletionItem>>(),
                 )));
             }
