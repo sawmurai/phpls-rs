@@ -289,15 +289,9 @@ impl Symbol {
         self.get_parent_nodes(my_node_id, resolver, arena)
             .iter()
             .map(|parent| {
-                let mut children = parent.children(arena).collect::<Vec<NodeId>>();
-
-                children.extend(
-                    arena[*parent]
-                        .get()
-                        .get_inherited_symbols(parent, resolver, arena),
-                );
-
-                children
+                arena[*parent]
+                    .get()
+                    .get_all_symbols(parent, resolver, arena)
             })
             .fold(Vec::new(), |cur, mut tot| {
                 tot.extend(cur);
@@ -312,18 +306,43 @@ impl Symbol {
         resolver: &mut NameResolver,
         arena: &Arena<Self>,
     ) -> Vec<NodeId> {
+        // Get this symbols children
         let mut children = my_node_id.children(arena).collect::<Vec<NodeId>>();
 
-        // Go through all used traits
+        // Go through all used traits and get the children of all traits
         if let Some(imports) = self.imports.as_ref() {
             for import in imports.iter() {
                 if let Some(used_trait) =
                     resolver.resolve_type_ref(&import.path, arena, &my_node_id, true)
                 {
-                    children.extend(used_trait.children(arena));
+                    children.extend(arena[used_trait].get().get_all_symbols(
+                        &used_trait,
+                        resolver,
+                        arena,
+                    ));
                 }
             }
         }
+
+        // Get the children of all data_types, which are also all implemented interfaces
+        let resolved_datatypes = self
+            .data_types
+            .iter()
+            .filter_map(|dt| {
+                if let Some(tr) = dt.type_ref.as_ref() {
+                    resolver.resolve_type_ref(tr, arena, &my_node_id, false)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<NodeId>>();
+
+        resolved_datatypes.iter().for_each(|dt| {
+            // Skip self-reference
+            if my_node_id != dt {
+                children.extend(arena[*dt].get().get_all_symbols(&dt, resolver, arena));
+            }
+        });
 
         children.extend(self.get_inherited_symbols(my_node_id, resolver, arena));
 

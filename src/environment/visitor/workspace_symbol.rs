@@ -107,7 +107,12 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 NextAction::Abort
             }
-            AstNode::ClassStatement { name, extends, .. } => {
+            AstNode::ClassStatement {
+                name,
+                extends,
+                implements,
+                ..
+            } => {
                 let inherits_from = if let Some(extends) = extends {
                     if let Some(extends) = get_type_ref(extends) {
                         Some(vec![Reference::type_ref(extends)])
@@ -127,6 +132,16 @@ impl Visitor for WorkspaceSymbolVisitor {
                     None
                 };
 
+                let mut data_types = vec![Reference::type_ref(vec![name.clone()])];
+                if let Some(implements) = implements {
+                    data_types.extend(
+                        implements
+                            .iter()
+                            .filter_map(get_type_ref)
+                            .map(Reference::type_ref),
+                    );
+                }
+
                 let child = arena.new_node(Symbol {
                     namespace,
                     name: s_name,
@@ -134,7 +149,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     range,
                     selection_range,
                     inherits_from,
-                    data_types: vec![Reference::type_ref(vec![name.clone()])],
+                    data_types,
                     ..Symbol::default()
                 });
 
