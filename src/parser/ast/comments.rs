@@ -5,21 +5,27 @@ use super::super::Parser;
 use super::super::Result;
 
 struct DocBlockScanner {
+    comment: Token,
     col: u32,
     line: u32,
 
-    pub tokens: Vec<Token>,
     chars: Vec<char>,
 }
 
 impl DocBlockScanner {
     pub fn new(comment: Token) -> Self {
-        let chars = comment.label.unwrap().chars().rev().collect::<Vec<char>>();
+        let chars = comment
+            .label
+            .as_ref()
+            .unwrap()
+            .chars()
+            .rev()
+            .collect::<Vec<char>>();
 
         DocBlockScanner {
             col: comment.col,
             line: comment.line,
-            tokens: Vec::new(),
+            comment,
             chars,
         }
     }
@@ -247,6 +253,7 @@ impl DocBlockScanner {
         }
 
         Ok(Some(Box::new(Node::DocComment {
+            comment: self.comment.clone(),
             description,
             is_deprecated,
             params,

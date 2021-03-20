@@ -345,7 +345,7 @@ impl Backend {
     }
 
     /// Index a source string to an ast
-    fn source_to_ast(
+    pub fn source_to_ast(
         source: &str,
     ) -> std::result::Result<(Vec<AstNode>, Range, Vec<ParserError>), String> {
         let mut scanner = Scanner::new(&source);

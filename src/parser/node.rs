@@ -5,6 +5,7 @@ use super::token::Token;
 pub enum Node {
     /// Represents a doc comment
     DocComment {
+        comment: Token,
         return_type: Vec<Node>,
         description: String,
         is_deprecated: bool,
@@ -1413,6 +1414,7 @@ impl Node {
             Node::Literal(token) | Node::Variable(token) => token.range(),
             Node::Missing(token) => token.range(),
             Node::DefineStatement { token, cp, .. } => (token.range().0, cp.range().1),
+            Node::DocComment { comment, .. } => comment.range(),
             Node::DocCommentProperty { name, types, .. } => {
                 if let Some(types) = types {
                     (name.range().0, types.last().unwrap().range().1)
@@ -1420,6 +1422,7 @@ impl Node {
                     name.range()
                 }
             }
+            Node::Grouping(content) => content.range(),
             _ => {
                 eprintln!("Implement range for {:?}!", self);
                 ((1, 1), (1, 1))

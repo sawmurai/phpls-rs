@@ -2,9 +2,11 @@
 
 extern crate clap;
 
+use std::path::PathBuf;
+
 use crate::backend::Backend;
 use clap::{App, Arg, SubCommand};
-use tower_lsp::{LspService, Server};
+use tower_lsp::{Client, LspService, Server};
 
 pub mod backend;
 pub mod environment;
@@ -27,6 +29,22 @@ async fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("file")
+                .long("file")
+                .short("f")
+                .value_name("Parse single file")
+                .help("Only parse a single file instead of launching a server")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("dir")
+                .long("dir")
+                .short("d")
+                .value_name("Parse files in directory")
+                .help("Only parse files in directory instead of launching a server")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("ignore-patterns")
                 .long("ignore-patterns")
                 .value_name("Path ending to ignore")
@@ -35,6 +53,31 @@ async fn main() {
                 .takes_value(true),
         )
         .get_matches();
+
+    if let Some(file) = matches.value_of("file") {
+        match Backend::source_to_ast(file) {
+            Ok((_, _, _)) => println!("Parsed ok"),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+
+        return;
+    }
+    if let Some(dir) = matches.value_of("dir") {
+        match environment::fs::reindex_folder(&PathBuf::from(dir), &vec![]) {
+            Ok(paths) => {
+                paths
+                    .iter()
+                    .map(environment::fs::normalize_path)
+                    .for_each(|file| match Backend::source_to_ast(&file) {
+                        Err(e) => eprintln!("Error: {}", e),
+                        _ => (),
+                    });
+            }
+            Err(_) => (),
+        }
+
+        return;
+    }
 
     let ignore_patterns = matches
         .values_of("ignore-patterns")

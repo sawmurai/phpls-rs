@@ -2,3 +2,6 @@
 /fixtures
 /tests
 *.vsix
+profile.sh
+rust-perf.svg
+perf.data*
