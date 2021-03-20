@@ -131,19 +131,19 @@ impl<'a> NameResolver<'a> {
     /// to just pass the token
     pub fn get_local(&self, token: &Token) -> Option<NodeId> {
         // Resolve $this to current class
-        if token.t == TokenType::Variable {
-            if let Some(label) = token.label.as_ref() {
+        if let Some(label) = token.label.as_ref() {
+            if token.t == TokenType::Variable {
                 if label == "this" {
                     if let Some(current_class) = self.current_class {
                         return Some(current_class);
                     }
                 }
             }
-        }
 
-        if let Some(top_scope) = self.local_scopes.last() {
-            if let Some(node) = top_scope.get(&token.clone().label.unwrap()) {
-                return Some(*node);
+            if let Some(top_scope) = self.local_scopes.last() {
+                if let Some(node) = top_scope.get(label) {
+                    return Some(*node);
+                }
             }
         }
 
@@ -405,10 +405,10 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         .map(|t| t.to_string())
                         .collect::<Vec<String>>()
                         .join("");
-                    let range = node.range();
+
                     if let Some(resolved) = self.resolver.resolve_fully_qualified(&name) {
                         self.resolver
-                            .reference(self.file, Reference::new(range, resolved));
+                            .reference(self.file, Reference::new(node.range(), resolved));
                     }
                 }
 

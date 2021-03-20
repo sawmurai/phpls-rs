@@ -415,7 +415,6 @@ impl Visitor for WorkspaceSymbolVisitor {
     }
 }
 
-// TODO: Think about supporting multiple types
 pub(crate) fn get_type_refs(node: &AstNode) -> Vec<Vec<Token>> {
     match node {
         AstNode::ReturnType { data_type, .. } => get_type_refs(data_type),
