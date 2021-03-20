@@ -29,6 +29,7 @@ impl Visitor for WorkspaceSymbolVisitor {
             AstNode::UseFunctionStatement { .. } => NextAction::ProcessChildren(parent),
             AstNode::UseStatement { .. } => NextAction::ProcessChildren(parent),
             AstNode::UseTraitStatement { .. } => NextAction::ProcessChildren(parent),
+            AstNode::DocComment { .. } => NextAction::ProcessChildren(parent),
             AstNode::GroupedUse { .. }
             | AstNode::UseDeclaration { .. }
             | AstNode::UseFunction { .. }
@@ -224,6 +225,35 @@ impl Visitor for WorkspaceSymbolVisitor {
                     visibility: Visibility::from(visibility),
                     ..Symbol::default()
                 });
+                parent.append(child, arena);
+
+                NextAction::Abort
+            }
+            AstNode::DocCommentProperty { name, types, .. } => {
+                let range = get_range(node.range());
+                let mut combined_data_types = Vec::new();
+
+                if let Some(data_types) = types {
+                    for rt in data_types {
+                        combined_data_types.extend(
+                            get_type_refs(rt)
+                                .iter()
+                                .map(|tr| Reference::type_ref(tr.clone()))
+                                .collect::<Vec<Reference>>(),
+                        );
+                    }
+                }
+
+                let child = arena.new_node(Symbol {
+                    name: name.clone().label.unwrap(),
+                    kind: PhpSymbolKind::Property,
+                    range,
+                    selection_range: range,
+                    data_types: combined_data_types,
+                    visibility: Visibility::Private,
+                    ..Symbol::default()
+                });
+
                 parent.append(child, arena);
 
                 NextAction::Abort

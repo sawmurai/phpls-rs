@@ -10,6 +10,7 @@ pub enum Node {
         is_deprecated: bool,
         params: Vec<Node>,
         var_docs: Vec<Node>,
+        properties: Vec<Node>,
     },
     /// Represents a @param inside of a doc comment
     DocCommentParam {
@@ -18,6 +19,11 @@ pub enum Node {
         // Node::TypeRef
         types: Option<Vec<Node>>,
 
+        description: String,
+    },
+    DocCommentProperty {
+        name: Token,
+        types: Option<Vec<Node>>,
         description: String,
     },
     DocCommentVar {
@@ -771,9 +777,14 @@ impl Node {
                 extends,
                 implements,
                 body,
+                doc_comment,
                 ..
             } => {
                 let mut children: Vec<&Node> = Vec::new();
+
+                if let Some(doc_comment) = doc_comment {
+                    children.push(doc_comment);
+                }
 
                 if let Some(extends) = extends {
                     children.push(&**extends);
@@ -937,7 +948,17 @@ impl Node {
             Node::UseTraitStatement { traits_usages, .. } => {
                 (*traits_usages).iter().collect::<Vec<&Node>>()
             }
-            Node::DocComment { var_docs, .. } => (*var_docs).iter().collect::<Vec<&Node>>(),
+            Node::DocComment {
+                var_docs,
+                properties,
+                ..
+            } => {
+                let mut children: Vec<&Node> = (*var_docs).iter().collect::<Vec<&Node>>();
+
+                children.extend((*properties).iter().collect::<Vec<&Node>>());
+
+                children
+            }
             Node::Grouping(node) => vec![node],
             Node::Attribute { expression, .. } => expression.children(),
             _ => Vec::new(),
@@ -1254,13 +1275,16 @@ impl Node {
                 }
             }
             Node::ClassStatement {
+                doc_comment,
                 is_abstract,
                 is_final,
                 token,
                 body,
                 ..
             } => {
-                if let Some(is_abstract) = is_abstract {
+                if let Some(doc_comment) = doc_comment {
+                    (doc_comment.range().0, body.range().1)
+                } else if let Some(is_abstract) = is_abstract {
                     (is_abstract.start(), body.range().1)
                 } else if let Some(is_final) = is_final {
                     (is_final.start(), body.range().1)
@@ -1389,6 +1413,13 @@ impl Node {
             Node::Literal(token) | Node::Variable(token) => token.range(),
             Node::Missing(token) => token.range(),
             Node::DefineStatement { token, cp, .. } => (token.range().0, cp.range().1),
+            Node::DocCommentProperty { name, types, .. } => {
+                if let Some(types) = types {
+                    (name.range().0, types.last().unwrap().range().1)
+                } else {
+                    name.range()
+                }
+            }
             _ => {
                 eprintln!("Implement range for {:?}!", self);
                 ((1, 1), (1, 1))

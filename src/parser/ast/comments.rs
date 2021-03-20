@@ -46,6 +46,7 @@ impl DocBlockScanner {
     pub fn scan(&mut self) -> Result<Option<Box<Node>>> {
         let mut description = String::new();
         let mut is_deprecated = false;
+        let mut properties = Vec::new();
         let mut params = Vec::new();
         let mut return_type = Vec::new();
         let mut var_docs = Vec::new();
@@ -53,7 +54,7 @@ impl DocBlockScanner {
         while let Some(c) = self.advance() {
             match c {
                 '@' => {
-                    let directive = self.collect_identifer();
+                    let directive = self.collect_identifer(false);
                     self.skip_blanks();
 
                     if directive.eq("param") {
@@ -61,7 +62,7 @@ impl DocBlockScanner {
                         self.skip_blanks();
 
                         let mut type_refs = Vec::new();
-                        while let Some(type_ref) = self.collect_type_ref() {
+                        while let Some(type_ref) = self.collect_type_ref(false) {
                             type_refs.push(type_ref);
 
                             match self.peek() {
@@ -79,7 +80,7 @@ impl DocBlockScanner {
                         let param_name = match self.peek() {
                             Some('$') => {
                                 self.advance();
-                                self.collect_identifer()
+                                self.collect_identifer(false)
                             }
                             _ => "".to_owned(),
                         };
@@ -106,7 +107,7 @@ impl DocBlockScanner {
                         self.skip_blanks();
 
                         let mut type_refs = Vec::new();
-                        while let Some(type_ref) = self.collect_type_ref() {
+                        while let Some(type_ref) = self.collect_type_ref(true) {
                             type_refs.push(type_ref);
 
                             match self.peek() {
@@ -144,7 +145,7 @@ impl DocBlockScanner {
                         self.skip_blanks();
 
                         let mut type_refs = Vec::new();
-                        while let Some(type_ref) = self.collect_type_ref() {
+                        while let Some(type_ref) = self.collect_type_ref(false) {
                             type_refs.push(type_ref);
 
                             match self.peek() {
@@ -162,7 +163,7 @@ impl DocBlockScanner {
                         let param_name = match self.peek() {
                             Some('$') => {
                                 self.advance();
-                                self.collect_identifer()
+                                self.collect_identifer(false)
                             }
                             _ => "".to_owned(),
                         };
@@ -187,6 +188,57 @@ impl DocBlockScanner {
                         });
                     } else if directive.eq("deprecated") {
                         is_deprecated = true;
+                    } else if directive.eq("property") {
+                        self.skip_blanks();
+
+                        let mut type_refs = Vec::new();
+                        while let Some(type_ref) = self.collect_type_ref(false) {
+                            type_refs.push(type_ref);
+
+                            match self.peek() {
+                                Some('|') => {
+                                    self.advance();
+                                    continue;
+                                }
+                                _ => break,
+                            }
+                        }
+
+                        self.skip_blanks();
+
+                        let identifier_start = (self.line, self.col);
+                        let param_name = match self.peek() {
+                            Some('$') => {
+                                self.advance();
+                                self.collect_identifer(false)
+                            }
+                            _ => "".to_owned(),
+                        };
+
+                        let mut param_descr = String::new();
+                        while let Some(n) = self.advance() {
+                            match n {
+                                '\n' => break,
+                                _ => param_descr.push(n),
+                            }
+                        }
+
+                        let type_refs = if type_refs.is_empty() {
+                            None
+                        } else {
+                            Some(type_refs)
+                        };
+
+                        properties.push(Node::DocCommentProperty {
+                            name: Token::named(
+                                TokenType::Variable,
+                                identifier_start.0,
+                                identifier_start.1,
+                                &param_name,
+                            ),
+                            types: type_refs,
+                            description: param_descr,
+                        })
                     }
                 }
                 '*' => (),
@@ -200,15 +252,16 @@ impl DocBlockScanner {
             params,
             return_type,
             var_docs,
+            properties,
         })))
     }
 
-    fn collect_type_ref(&mut self) -> Option<Node> {
+    fn collect_type_ref(&mut self, allow_this: bool) -> Option<Node> {
         let mut type_ref_parts = Vec::new();
         let current_start = (self.line, self.col);
 
         loop {
-            let identifier = &self.collect_identifer();
+            let identifier = &self.collect_identifer(allow_this);
             if !identifier.is_empty() {
                 type_ref_parts.push(Token::named(
                     self.token_type(&identifier),
@@ -238,7 +291,7 @@ impl DocBlockScanner {
         }
     }
 
-    fn collect_identifer(&mut self) -> String {
+    fn collect_identifer(&mut self, allow_this: bool) -> String {
         let mut name = String::new();
 
         while let Some(&c) = self.peek() {
@@ -247,7 +300,7 @@ impl DocBlockScanner {
                 || ('0'..='9').contains(&c)
                 || c == '_'
                 // Need to support $ as @return $this is possible
-                || c == '$'
+                || c == '$' && allow_this
                 || c >= 0x80 as char
             {
                 name.push(c);
