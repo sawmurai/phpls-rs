@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 use tokio::io::{self};
 
-pub(crate) fn reindex_folder(dir: &PathBuf) -> io::Result<Vec<PathBuf>> {
+pub(crate) fn reindex_folder(dir: &PathBuf, ignore: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
 
     if dir.is_dir() {
@@ -24,9 +24,13 @@ pub(crate) fn reindex_folder(dir: &PathBuf) -> io::Result<Vec<PathBuf>> {
                 }
             };
             let path = entry.path();
+            if ignore.iter().any(|s| path.ends_with(s)) {
+                continue;
+            }
+
             if path.is_dir() {
                 // && !path.ends_with("vendor") {
-                files.extend(reindex_folder(&path)?);
+                files.extend(reindex_folder(&path, ignore)?);
             } else if let Some(ext) = path.extension() {
                 if ext == "php" {
                     files.push(path);

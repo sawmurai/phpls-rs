@@ -70,6 +70,9 @@ pub struct Backend {
 
     /// Path to stdlib
     stdlib: String,
+
+    /// Patterns of folders to be ignored during indexing
+    ignore_patterns: Vec<PathBuf>,
 }
 
 impl From<&ParserError> for Diagnostic {
@@ -141,7 +144,7 @@ impl From<&Token> for Symbol {
 }
 
 impl Backend {
-    pub fn new(client: Client, stdlib: String) -> Self {
+    pub fn new(client: Client, stdlib: String, ignore_patterns: Vec<String>) -> Self {
         Backend {
             client,
             arena: Arc::new(Mutex::new(Arena::new())),
@@ -152,6 +155,7 @@ impl Backend {
             opened_files: Arc::new(Mutex::new(HashMap::new())),
             latest_version_of_file: Arc::new(Mutex::new(HashMap::new())),
             stdlib,
+            ignore_patterns: ignore_patterns.iter().map(PathBuf::from).collect(),
         }
     }
 
@@ -242,11 +246,12 @@ impl Backend {
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-        let mut file_paths = EnvFs::reindex_folder(&PathBuf::from(&self.stdlib))?;
+        let mut file_paths =
+            EnvFs::reindex_folder(&PathBuf::from(&self.stdlib), &self.ignore_patterns)?;
 
         let mut joins = Vec::new();
         if let Ok(root_path) = url.to_file_path() {
-            file_paths.extend(EnvFs::reindex_folder(&root_path)?);
+            file_paths.extend(EnvFs::reindex_folder(&root_path, &self.ignore_patterns)?);
 
             for path in file_paths.clone() {
                 let content = match tokio::fs::read_to_string(&path).await {
@@ -854,6 +859,14 @@ impl LanguageServer for Backend {
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         for change in params.changes {
             let file_path = change.uri.to_file_path().unwrap();
+            if self
+                .ignore_patterns
+                .iter()
+                .any(|ip| file_path.ends_with(ip))
+            {
+                continue;
+            }
+
             let path = EnvFs::normalize_path(&file_path);
 
             // If the file is currently opened we don't have to refresh
