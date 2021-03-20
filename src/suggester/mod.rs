@@ -5,7 +5,7 @@ use crate::environment::{
 use crate::{environment::get_range, environment::in_range, parser::node::Node as AstNode};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
-use tower_lsp::lsp_types::{Position, SymbolKind};
+use tower_lsp::lsp_types::Position;
 
 #[derive(Debug)]
 pub struct Suggestion {
@@ -69,10 +69,10 @@ fn members_of(
 ) -> Vec<NodeId> {
     let mut suggestions = Vec::new();
     let resolved_object_variable = arena[referenced_node].get();
-    eprintln!(
-        "Found the reference: {} ({:?})",
-        resolved_object_variable.name, resolved_object_variable.kind
-    );
+    //eprintln!(
+    //    "Found the reference: {} ({:?})",
+    //    resolved_object_variable.name, resolved_object_variable.kind
+    //);
 
     // Direct children ($this, parent, self ...)
     if resolved_object_variable.kind == PhpSymbolKind::Class
@@ -84,7 +84,7 @@ fn members_of(
         referenced_node.children(&arena).for_each(|child| {
             suggestions.push(child);
         });
-        eprintln!("Reference is a class or interface, done");
+        //eprintln!("Reference is a class or interface, done");
 
         return suggestions;
     }
@@ -95,7 +95,7 @@ fn members_of(
         .iter()
         .filter_map(|dt| dt.node)
         .for_each(|node: NodeId| {
-            eprintln!("Reference has a node");
+            //eprintln!("Reference has a node");
             suggestions.extend(members_of(node, &arena, &global_symbols).drain(..));
         });
 
@@ -103,14 +103,13 @@ fn members_of(
     resolved_object_variable
         .data_types
         .iter()
-        .filter_map(|dt| dt.type_ref.clone())
+        .filter_map(|dt| dt.type_ref.as_ref())
         .for_each(|type_ref| {
-            eprintln!("Reference has a type ref");
+            //eprintln!("Reference has a type ref");
 
             let mut resolver = NameResolver::new(&global_symbols, referenced_node);
 
-            if let Some(node) =
-                resolver.resolve_type_ref(&type_ref, &arena, &referenced_node, false)
+            if let Some(node) = resolver.resolve_type_ref(type_ref, &arena, &referenced_node, false)
             {
                 suggestions.extend(members_of_parents_of(node, &arena, &global_symbols).drain(..));
             }
