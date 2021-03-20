@@ -46,7 +46,20 @@ export function activate(context: ExtensionContext) {
 		]
 	});
 
+	const args: string[] = [
+		'--stubs',
+		workspace.getConfiguration('phplsrs').get('stubs')
+	];
+
 	let installedServer = workspace.getConfiguration('phplsrs').get('binary');
+
+	const ignorePatterns = workspace.getConfiguration('phplsrs').get('ignorePatterns') as string | undefined;
+	if (ignorePatterns) {
+		ignorePatterns.split(';').forEach(element => {
+			args.push('--ignore-patterns');
+			args.push(element);
+		});
+	}
 
 	let serverModule = (installedServer as string) || context.asAbsolutePath(
 		path.join('target', 'debug', 'phpls-rs')
@@ -55,10 +68,7 @@ export function activate(context: ExtensionContext) {
 	const run: Executable = {
 		command: serverModule,
 		options: { cwd: "." },
-		args: [
-			'--stubs',
-			workspace.getConfiguration('phplsrs').get('stubs')
-		]
+		args,
 	};
 
 	let serverOptions: ServerOptions = {

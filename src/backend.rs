@@ -68,8 +68,8 @@ pub struct Backend {
     /// Map of latest edits on files
     pub latest_version_of_file: InFlightFileMutex,
 
-    /// Path to stdlib
-    stdlib: String,
+    /// Path to stubs
+    stubs: String,
 
     /// Patterns of folders to be ignored during indexing
     ignore_patterns: Vec<PathBuf>,
@@ -144,7 +144,7 @@ impl From<&Token> for Symbol {
 }
 
 impl Backend {
-    pub fn new(client: Client, stdlib: String, ignore_patterns: Vec<String>) -> Self {
+    pub fn new(client: Client, stubs: String, ignore_patterns: Vec<String>) -> Self {
         Backend {
             client,
             arena: Arc::new(Mutex::new(Arena::new())),
@@ -154,7 +154,7 @@ impl Backend {
             symbol_references: Arc::new(Mutex::new(HashMap::new())),
             opened_files: Arc::new(Mutex::new(HashMap::new())),
             latest_version_of_file: Arc::new(Mutex::new(HashMap::new())),
-            stdlib,
+            stubs,
             ignore_patterns: ignore_patterns.iter().map(PathBuf::from).collect(),
         }
     }
@@ -245,9 +245,9 @@ impl Backend {
     }
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
-        // Index stdlib
+        // Index stubs
         let mut file_paths =
-            EnvFs::reindex_folder(&PathBuf::from(&self.stdlib), &self.ignore_patterns)?;
+            EnvFs::reindex_folder(&PathBuf::from(&self.stubs), &self.ignore_patterns)?;
 
         let mut joins = Vec::new();
         if let Ok(root_path) = url.to_file_path() {
@@ -1198,10 +1198,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_knows_stdlib() {
+    async fn test_knows_stubs() {
         let base_dir = std::env::current_dir().unwrap();
-        let root = format!("{}/fixtures/projects/stdlib", base_dir.display());
-        let file = format!("{}/fixtures/projects/stdlib/index.php", base_dir.display());
+        let root = format!("{}/fixtures/projects/stubs", base_dir.display());
+        let file = format!("{}/fixtures/projects/stubs/index.php", base_dir.display());
 
         let backend = Backend::new();
         let uri = Url::from_file_path(root).unwrap();

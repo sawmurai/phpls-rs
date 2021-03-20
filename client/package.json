@@ -36,6 +36,12 @@
 					"default": ".",
 					"description": "Path to the PHPStorm language stubs."
 				},
+				"phplsrs.ignorePatterns": {
+					"scope": "resource",
+					"type": "string",
+					"default": "node_modules",
+					"description": "Path endings to ignore while indexing."
+				},
 				"phplsrs.trace.server": {
 					"scope": "window",
 					"type": "string",
