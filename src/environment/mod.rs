@@ -3,6 +3,7 @@ use crate::parser::node::NodeRange;
 use indextree::{Arena, NodeId};
 use tower_lsp::lsp_types::{DocumentHighlight, Location, Position, Range, Url};
 
+pub mod fs;
 pub mod import;
 pub mod scope;
 pub mod symbol;

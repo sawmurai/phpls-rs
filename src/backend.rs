@@ -1,3 +1,4 @@
+use crate::environment::fs as EnvFs;
 use crate::environment::get_range;
 use crate::environment::in_range;
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
@@ -14,7 +15,6 @@ use crate::parser::Parser;
 use crate::suggester;
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{self};
@@ -140,10 +140,6 @@ impl From<&Token> for Symbol {
     }
 }
 
-fn normalize_path(path: &PathBuf) -> String {
-    path.to_str().unwrap().to_owned()
-}
-
 impl Backend {
     pub fn new(client: Client, stdlib: String) -> Self {
         Backend {
@@ -246,11 +242,11 @@ impl Backend {
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stdlib
-        let mut file_paths = self.reindex_folder(&PathBuf::from(&self.stdlib))?;
+        let mut file_paths = EnvFs::reindex_folder(&PathBuf::from(&self.stdlib))?;
 
         let mut joins = Vec::new();
         if let Ok(root_path) = url.to_file_path() {
-            file_paths.extend(self.reindex_folder(&root_path)?);
+            file_paths.extend(EnvFs::reindex_folder(&root_path)?);
 
             for path in file_paths.clone() {
                 let content = match tokio::fs::read_to_string(&path).await {
@@ -269,7 +265,7 @@ impl Backend {
                 let diagnostics = self.diagnostics.clone();
 
                 joins.push(task::spawn(async move {
-                    let p = normalize_path(&path);
+                    let p = EnvFs::normalize_path(&path);
 
                     if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
                         let reindex_result = Backend::reindex(
@@ -341,42 +337,6 @@ impl Backend {
         eprintln!("Done doing the stuff");
 
         Ok(())
-    }
-
-    fn reindex_folder(&self, dir: &PathBuf) -> io::Result<Vec<PathBuf>> {
-        let mut files = Vec::new();
-
-        if dir.is_dir() {
-            let entries = match fs::read_dir(dir) {
-                Ok(entries) => entries,
-                Err(e) => {
-                    eprintln!("Error reading folder {:?}: {}", dir, e);
-
-                    return Ok(files);
-                }
-            };
-
-            for entry in entries {
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(e) => {
-                        eprintln!("- Error reading folder {:?}: {}", dir, e);
-
-                        return Ok(files);
-                    }
-                };
-                let path = entry.path();
-                if path.is_dir() {
-                    // && !path.ends_with("vendor") {
-                    files.extend(self.reindex_folder(&path)?);
-                } else if let Some(ext) = path.extension() {
-                    if ext == "php" {
-                        files.push(path);
-                    }
-                }
-            }
-        }
-        Ok(files)
     }
 
     /// Index a source string to an ast
@@ -509,7 +469,7 @@ impl Backend {
 
     async fn refresh_file(&self, uri: Url, src: &str) {
         let file_path = uri.to_file_path().unwrap();
-        let path = normalize_path(&file_path);
+        let path = EnvFs::normalize_path(&file_path);
 
         let arena = self.arena.clone();
         let global_symbols = self.global_symbols.clone();
@@ -706,7 +666,7 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let file_path = normalize_path(&params.text_document.uri.to_file_path().unwrap());
+        let file_path = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
 
         let node_id = if let Some(node_id) = self.files.lock().await.get(&file_path) {
             node_id.clone()
@@ -730,7 +690,7 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentHighlightParams,
     ) -> Result<Option<Vec<DocumentHighlight>>> {
-        let file = normalize_path(
+        let file = EnvFs::normalize_path(
             &params
                 .text_document_position_params
                 .text_document
@@ -753,7 +713,7 @@ impl LanguageServer for Backend {
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let position = &params.text_document_position.position;
-        let file = normalize_path(
+        let file = EnvFs::normalize_path(
             &params
                 .text_document_position
                 .text_document
@@ -804,7 +764,7 @@ impl LanguageServer for Backend {
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let position = &params.text_document_position.position;
-        let file = normalize_path(
+        let file = EnvFs::normalize_path(
             &params
                 .text_document_position
                 .text_document
@@ -870,7 +830,7 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
-        let file = normalize_path(&uri.to_file_path().unwrap());
+        let file = EnvFs::normalize_path(&uri.to_file_path().unwrap());
 
         let local_references = self.symbol_references.lock().await;
 
@@ -894,7 +854,7 @@ impl LanguageServer for Backend {
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         for change in params.changes {
             let file_path = change.uri.to_file_path().unwrap();
-            let path = normalize_path(&file_path);
+            let path = EnvFs::normalize_path(&file_path);
 
             // If the file is currently opened we don't have to refresh
             if self.opened_files.lock().await.contains_key(&path) {
@@ -942,7 +902,7 @@ impl LanguageServer for Backend {
         eprintln!("[did_change] start");
         let uri = params.text_document.uri;
         let file_path = uri.to_file_path().unwrap();
-        let path = normalize_path(&file_path);
+        let path = EnvFs::normalize_path(&file_path);
 
         if let Some(changes) = params.content_changes.first() {
             self.latest_version_of_file
@@ -964,7 +924,7 @@ impl LanguageServer for Backend {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let p = normalize_path(&params.text_document.uri.to_file_path().unwrap());
+        let p = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
         self.opened_files.lock().await.remove(&p);
         self.symbol_references.lock().await.remove(&p);
         self.latest_version_of_file.lock().await.remove(&p);
@@ -972,7 +932,7 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let file_path = params.text_document.uri.to_file_path().unwrap();
-        let path = normalize_path(&file_path);
+        let path = EnvFs::normalize_path(&file_path);
         let arena = self.arena.clone();
         let global_symbols = self.global_symbols.clone();
         let files = self.files.clone();
@@ -1057,7 +1017,7 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let file = normalize_path(
+        let file = EnvFs::normalize_path(
             &params
                 .text_document_position_params
                 .text_document
@@ -1095,7 +1055,7 @@ impl LanguageServer for Backend {
         let arena = self.arena.lock().await;
         let pos = params.text_document_position.position;
 
-        let opened_file = normalize_path(
+        let opened_file = EnvFs::normalize_path(
             &params
                 .text_document_position
                 .text_document
