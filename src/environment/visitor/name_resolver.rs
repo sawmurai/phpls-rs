@@ -166,15 +166,15 @@ impl<'a> NameResolver<'a> {
     /// Declare a local symbol, usually a variable or a function
     pub fn declare_local(&mut self, file: NodeId, token: &Token, t: NodeId) {
         if let Some(top_scope) = self.local_scopes.last_mut() {
-            let name = token.clone().label.unwrap();
-
-            if let Some(node) = top_scope.get(&name) {
-                self.document_references
-                    .entry(file)
-                    .or_insert_with(Vec::new)
-                    .push(Reference::new(token.range(), *node))
-            } else {
-                top_scope.insert(name, t);
+            if let Some(name) = token.label.as_ref() {
+                if let Some(node) = top_scope.get(name) {
+                    self.document_references
+                        .entry(file)
+                        .or_insert_with(Vec::new)
+                        .push(Reference::new(token.range(), *node))
+                } else {
+                    top_scope.insert(name.clone(), t);
+                }
             }
         }
     }
@@ -215,7 +215,7 @@ impl<'a> NameResolver<'a> {
 
         let mut file = *context_anchor;
 
-        let mut current_namespace = String::new();
+        let mut current_namespace = "";
         let mut current_available_imports = HashMap::new();
         let mut file_symbol;
 
@@ -229,7 +229,7 @@ impl<'a> NameResolver<'a> {
                     }
                 }
             } else if file_symbol.kind == PhpSymbolKind::Namespace {
-                current_namespace = file_symbol.name.clone();
+                current_namespace = file_symbol.name.as_ref();
             }
 
             if let Some(parent) = arena[file].parent() {
@@ -279,7 +279,7 @@ impl<'a> NameResolver<'a> {
             if let Some(ns) = file.children(arena).find_map(|c| {
                 let s = arena[c].get();
                 if s.kind == PhpSymbolKind::Namespace {
-                    Some(s.name.clone())
+                    Some(s.name.as_ref())
                 } else {
                     None
                 }
