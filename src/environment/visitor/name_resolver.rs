@@ -1,12 +1,13 @@
 use super::{super::PhpSymbolKind, Symbol};
 use super::{workspace_symbol::get_type_ref, Visitor};
 use super::{workspace_symbol::get_type_refs, NextAction};
-use crate::environment::scope::Reference as SymbolReference;
 use crate::environment::symbol::Visibility;
+use crate::environment::{scope::Reference as SymbolReference, Notification};
 use crate::parser::node::{Node as AstNode, NodeRange};
 use crate::parser::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
+use tower_lsp::lsp_types::DiagnosticSeverity;
 
 #[derive(Debug, Clone)]
 pub struct Reference {
@@ -22,8 +23,6 @@ impl Reference {
         Reference { range, node }
     }
 }
-
-pub type Notification = (String, NodeRange, String);
 
 pub struct NameResolver<'a> {
     global_scope: &'a HashMap<String, NodeId>,
@@ -61,14 +60,20 @@ impl<'a> NameResolver<'a> {
         self.document_references.clone()
     }
 
-    /// Return the collected diagnostics
-    pub fn diagnostics(&self) -> Vec<Notification> {
-        self.diagnostics.clone()
-    }
-
     /// Push a diagnostic message to the queue
-    pub fn diagnostic(&mut self, file: String, range: NodeRange, message: String) {
-        self.diagnostics.push((file, range, message));
+    pub fn diagnostic(
+        &mut self,
+        file: String,
+        range: NodeRange,
+        message: String,
+        severity: DiagnosticSeverity,
+    ) {
+        self.diagnostics.push(Notification {
+            file,
+            range,
+            message,
+            severity,
+        });
     }
 
     /// Enter a new scope
@@ -241,19 +246,20 @@ impl<'a> NameResolver<'a> {
 
         // Maybe do the following only if the name starts with a backslash?
         let name = tokens.first().unwrap().label.clone().unwrap();
+        let range = (
+            tokens.first().unwrap().start(),
+            tokens.last().unwrap().end(),
+        );
 
         if name == "self" || name == "static" {
             if self.current_class.is_some() {
                 return self.current_class;
             }
 
-            self.diagnostics.push((
+            self.diagnostics.push(Notification::error(
                 file_symbol.name.clone(),
-                (
-                    tokens.first().unwrap().range().0,
-                    tokens.last().unwrap().range().1,
-                ),
                 String::from("Can only be used inside a class"),
+                range,
             ));
         }
 
@@ -263,14 +269,10 @@ impl<'a> NameResolver<'a> {
                     .get()
                     .get_unique_parent(&current_class, self, arena);
             }
-
-            self.diagnostics.push((
+            self.diagnostics.push(Notification::error(
                 file_symbol.name.clone(),
-                (
-                    tokens.first().unwrap().range().0,
-                    tokens.last().unwrap().range().1,
-                ),
                 String::from("Parent can only be used inside a class"),
+                range,
             ));
         }
 
@@ -322,10 +324,6 @@ impl<'a> NameResolver<'a> {
         };
 
         let normalized_joined_name = joined_name.to_lowercase();
-        let range = (
-            tokens.first().unwrap().start(),
-            tokens.last().unwrap().end(),
-        );
 
         let node = if let Some(node) = self.global_scope.get(&normalized_joined_name) {
             if register_ref {
@@ -349,10 +347,10 @@ impl<'a> NameResolver<'a> {
 
             Some(*node)
         } else {
-            self.diagnostics.push((
+            self.diagnostics.push(Notification::error(
                 file_symbol.name.clone(),
-                range,
                 format!("Unresolvable type ({}) '{}'", fully_qualified, joined_name),
+                range,
             ));
 
             return None;
@@ -360,10 +358,10 @@ impl<'a> NameResolver<'a> {
 
         if let Some(node) = node {
             if !arena[node].get().fqdn_matches(&joined_name) {
-                self.diagnostics.push((
+                self.diagnostics.push(Notification::warning(
                     file_symbol.name.clone(),
-                    range,
                     String::from("Case mismatch between call and definition"),
+                    range,
                 ));
             }
         }
@@ -386,9 +384,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         self.resolver.references()
     }
 
-    pub fn diagnostics(&self) -> Vec<Notification> {
+    pub fn diagnostics(&self) -> &Vec<Notification> {
         // TODO: Rather return an iterator?
-        self.resolver.diagnostics()
+        &self.resolver.diagnostics
     }
 }
 
@@ -418,7 +416,8 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                             self.resolver.diagnostic(
                                 arena[self.file].get().name.clone(),
                                 declaration.range(),
-                                String::from("Case mismatch between reference and definition"),
+                                String::from("Case mismatch between call and definition"),
+                                DiagnosticSeverity::Warning,
                             );
                         }
 
@@ -898,6 +897,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                         file_name.clone(),
                                         link.range(),
                                         String::from("Case mismatch between call and definition"),
+                                        DiagnosticSeverity::Warning,
                                     );
                                 }
 
@@ -952,6 +952,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                                 String::from(
                                                     "Method returns an instance of its parent, but its class has no parent or the parent could not be resolved."
                                                 ),
+                                                DiagnosticSeverity::Warning
                                             );
 
                                             return None;
@@ -982,6 +983,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         file_name,
                         link.range(),
                         format!("Unresolvable symbol {}", link.name()),
+                        DiagnosticSeverity::Error,
                     );
                     return None;
                 }

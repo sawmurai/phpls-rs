@@ -461,11 +461,12 @@ impl Backend {
 
             for notification in visitor.diagnostics().iter() {
                 diagnostics
-                    .entry(notification.0.clone())
+                    .entry(notification.file.clone())
                     .or_insert_with(Vec::new)
                     .push(Diagnostic {
-                        range: get_range(notification.1),
-                        message: notification.2.clone(),
+                        range: get_range(notification.range),
+                        message: notification.message.clone(),
+                        severity: Some(notification.severity),
                         ..Diagnostic::default()
                     })
             }

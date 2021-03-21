@@ -1,7 +1,7 @@
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use crate::parser::node::NodeRange;
 use indextree::{Arena, NodeId};
-use tower_lsp::lsp_types::{DocumentHighlight, Location, Position, Range, Url};
+use tower_lsp::lsp_types::{DiagnosticSeverity, DocumentHighlight, Location, Position, Range, Url};
 
 pub mod fs;
 pub mod import;
@@ -85,6 +85,34 @@ pub fn in_range(position: &Position, range: &Range) -> bool {
     }
 
     true
+}
+
+#[derive(Clone)]
+pub struct Notification {
+    pub file: String,
+    pub message: String,
+    pub range: NodeRange,
+    pub severity: DiagnosticSeverity,
+}
+
+impl Notification {
+    pub fn error(file: String, message: String, range: NodeRange) -> Self {
+        Notification {
+            file,
+            message,
+            range,
+            severity: DiagnosticSeverity::Error,
+        }
+    }
+
+    pub fn warning(file: String, message: String, range: NodeRange) -> Self {
+        Notification {
+            file,
+            message,
+            range,
+            severity: DiagnosticSeverity::Warning,
+        }
+    }
 }
 
 #[cfg(test)]
