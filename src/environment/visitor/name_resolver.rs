@@ -181,7 +181,7 @@ impl<'a> NameResolver<'a> {
 
     /// Resolve fully qualified
     pub fn resolve_fully_qualified(&mut self, name: &str) -> Option<NodeId> {
-        if let Some(node) = self.global_scope.get(name) {
+        if let Some(node) = self.global_scope.get(&name.to_lowercase()) {
             Some(*node)
         } else {
             None
@@ -321,47 +321,54 @@ impl<'a> NameResolver<'a> {
                 .join("\\")
         };
 
-        if let Some(node) = self.global_scope.get(&joined_name) {
+        let normalized_joined_name = joined_name.to_lowercase();
+        let range = (
+            tokens.first().unwrap().start(),
+            tokens.last().unwrap().end(),
+        );
+
+        let node = if let Some(node) = self.global_scope.get(&normalized_joined_name) {
             if register_ref {
-                let range = (
-                    tokens.first().unwrap().start(),
-                    tokens.last().unwrap().end(),
-                );
                 self.reference(file, Reference::new(range, *node));
             }
 
-            return Some(*node);
-        } else if let Some(node) = self.global_scope.get(&format!("\\{}", joined_name)) {
+            Some(*node)
+        } else if let Some(node) = self
+            .global_scope
+            .get(&format!("\\{}", normalized_joined_name))
+        {
             if register_ref {
-                let range = (
-                    tokens.first().unwrap().start(),
-                    tokens.last().unwrap().end(),
-                );
                 self.reference(file, Reference::new(range, *node));
             }
 
-            return Some(*node);
-        } else if let Some(node) = self.global_scope.get(&format!("\\{}", name)) {
+            Some(*node)
+        } else if let Some(node) = self.global_scope.get(&format!("\\{}", name.to_lowercase())) {
             if register_ref {
-                let range = (
-                    tokens.first().unwrap().start(),
-                    tokens.last().unwrap().end(),
-                );
                 self.reference(file, Reference::new(range, *node));
             }
-            return Some(*node);
+
+            Some(*node)
+        } else {
+            self.diagnostics.push((
+                file_symbol.name.clone(),
+                range,
+                format!("Unresolvable type ({}) '{}'", fully_qualified, joined_name),
+            ));
+
+            return None;
+        };
+
+        if let Some(node) = node {
+            if !arena[node].get().fqdn_matches(&joined_name) {
+                self.diagnostics.push((
+                    file_symbol.name.clone(),
+                    range,
+                    String::from("Case mismatch between call and definition"),
+                ));
+            }
         }
 
-        self.diagnostics.push((
-            file_symbol.name.clone(),
-            (
-                tokens.first().unwrap().range().0,
-                tokens.last().unwrap().range().1,
-            ),
-            format!("Unresolvable type ({}) '{}'", fully_qualified, joined_name),
-        ));
-
-        None
+        node
     }
 }
 
@@ -407,6 +414,14 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         .join("");
 
                     if let Some(resolved) = self.resolver.resolve_fully_qualified(&name) {
+                        if !arena[resolved].get().fqdn_matches(&name) {
+                            self.resolver.diagnostic(
+                                arena[self.file].get().name.clone(),
+                                declaration.range(),
+                                String::from("Case mismatch between reference and definition"),
+                            );
+                        }
+
                         self.resolver
                             .reference(self.file, Reference::new(node.range(), resolved));
                     }

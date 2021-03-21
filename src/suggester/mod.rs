@@ -503,8 +503,8 @@ mod tests {
         cat_file_node.append(cat_instance_node, &mut arena);
 
         let mut global_symbols = HashMap::new();
-        global_symbols.insert("Animal".to_string(), animal_node);
-        global_symbols.insert("Cat".to_string(), cat_node);
+        global_symbols.insert("animal".to_string(), animal_node);
+        global_symbols.insert("cat".to_string(), cat_node);
 
         let actual = super::members_of(cat_instance_node, &arena, &global_symbols);
 

@@ -264,6 +264,34 @@ impl Symbol {
         self.name.to_lowercase()
     }
 
+    pub fn fqdn(&self) -> String {
+        if let Some(namespace) = self.namespace.as_ref() {
+            format!("{}\\{}", namespace, self.name)
+        } else {
+            format!("{}", self.name)
+        }
+    }
+
+    pub fn fqdn_matches(&self, pattern: &str) -> bool {
+        eprintln!("{}", pattern);
+        let fqdn = self.fqdn();
+
+        if fqdn.eq(pattern) {
+            return true;
+        }
+
+        let pattern = &format!("\\{}", pattern);
+        if fqdn.eq(pattern) {
+            return true;
+        }
+
+        let fqdn = format!("\\{}", fqdn);
+
+        eprintln!("{}", fqdn.eq(pattern));
+
+        fqdn.eq(pattern)
+    }
+
     pub fn symbol_at(
         &self,
         position: &Position,

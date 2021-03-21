@@ -417,10 +417,12 @@ impl Backend {
                 let symbol = arena[symbol_id].get();
 
                 if symbol.kind == PhpSymbolKind::Namespace {
-                    current_namespace = symbol.name.clone();
+                    current_namespace = symbol.normalized_name();
                 } else if symbol.kind.register_global() {
-                    global_symbols
-                        .insert(format!("{}\\{}", current_namespace, symbol.name), symbol_id);
+                    global_symbols.insert(
+                        format!("{}\\{}", current_namespace, symbol.normalized_name()),
+                        symbol_id,
+                    );
                 }
             }
         }
