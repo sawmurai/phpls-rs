@@ -647,7 +647,7 @@ impl LanguageServer for Backend {
             for symbol in node.descendants(&arena) {
                 let symbol = arena[symbol].get();
 
-                if symbol.name.to_lowercase().starts_with(&query) {
+                if symbol.normalized_name().starts_with(&query) {
                     if let Some(kind) = symbol.kind.to_symbol_kind() {
                         symbols.push(SymbolInformation {
                             name: symbol.name.clone(),

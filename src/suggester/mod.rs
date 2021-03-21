@@ -24,13 +24,15 @@ impl Suggestion {
 
 impl From<&Symbol> for Suggestion {
     fn from(symbol: &Symbol) -> Self {
-        let name = if symbol.kind == PhpSymbolKind::Variable {
-            format!("${}", &symbol.name)
-        } else {
-            symbol.name.clone()
-        };
+        if symbol.kind == PhpSymbolKind::Variable {
+            let n = format!("${}", &symbol.name);
+            return Suggestion::new(&n, &symbol.detail().unwrap_or("[PHPLS]".to_string()));
+        }
 
-        Suggestion::new(&name, &symbol.detail().unwrap_or("[PHPLS]".to_string()))
+        Suggestion::new(
+            &symbol.name,
+            &symbol.detail().unwrap_or("[PHPLS]".to_string()),
+        )
     }
 }
 
@@ -335,7 +337,11 @@ pub fn get_suggestions_at(
                 global_symbols
                     .iter()
                     .filter_map(|(_key, value)| {
-                        if arena[*value].get().name.starts_with(&node.name()) {
+                        if arena[*value]
+                            .get()
+                            .normalized_name()
+                            .starts_with(&node.normalized_name())
+                        {
                             Some(value.to_owned())
                         } else {
                             None

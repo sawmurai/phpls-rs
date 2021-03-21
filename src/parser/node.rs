@@ -1443,6 +1443,10 @@ impl Node {
         }
     }
 
+    pub fn normalized_name(&self) -> String {
+        self.name().to_lowercase()
+    }
+
     // TODO: Add other boundaries
     pub fn scope_boundary(&self) -> bool {
         match self {

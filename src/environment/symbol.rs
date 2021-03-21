@@ -260,6 +260,10 @@ impl Into<CompletionItem> for &Symbol {
 
 /// Basically a 1:1 mapping that omits the data type
 impl Symbol {
+    pub fn normalized_name(&self) -> String {
+        self.name.to_lowercase()
+    }
+
     pub fn symbol_at(
         &self,
         position: &Position,

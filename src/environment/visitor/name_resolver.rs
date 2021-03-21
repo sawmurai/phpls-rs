@@ -876,8 +876,16 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     .find_map(|node| {
                         let s = arena[*node].get();
 
-                        if s.name == link_name {
+                        if s.normalized_name() == link_name.to_lowercase() {
                             if s.visibility >= minimal_visibility {
+                                if s.name != link_name {
+                                    self.resolver.diagnostic(
+                                        file_name.clone(),
+                                        link.range(),
+                                        String::from("Case mismatch between call and definition"),
+                                    );
+                                }
+
                                 return Some(*node);
                             }
                         }
