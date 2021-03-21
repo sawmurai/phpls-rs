@@ -181,7 +181,10 @@ impl PhpSymbolKind {
     }
 
     pub fn is_internal(&self) -> bool {
-        matches!(self, PhpSymbolKind::Unknown | PhpSymbolKind::Import)
+        matches!(
+            self,
+            PhpSymbolKind::Unknown | PhpSymbolKind::Import | PhpSymbolKind::MagicConst
+        )
     }
 
     pub fn register_global(&self) -> bool {
