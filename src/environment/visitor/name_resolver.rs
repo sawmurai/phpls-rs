@@ -296,12 +296,7 @@ impl<'a> NameResolver<'a> {
         } else if let Some(import) = current_available_imports.get(&name) {
             // If not fully qualified, check imports
             if tokens.len() > 1 {
-                let end = tokens
-                    .iter()
-                    .skip(1)
-                    .map(|n| n.clone().label.unwrap_or_else(|| "\\".to_owned()))
-                    .collect::<Vec<String>>()
-                    .join("");
+                let end = to_fqdn(tokens.iter().skip(1));
 
                 format!("{}\\{}", import, end)
             } else {

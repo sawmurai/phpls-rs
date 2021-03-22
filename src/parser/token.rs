@@ -367,9 +367,13 @@ impl Token {
 }
 
 /// Join parts together to create a FQDN
-pub fn to_fqdn(tokens: &[Token]) -> String {
+/// tokens: The tokens that shall be joined together
+pub fn to_fqdn<'a, I>(tokens: I) -> String
+where
+    I: IntoIterator<Item = &'a Token>,
+{
     tokens
-        .iter()
+        .into_iter()
         .filter_map(|t| t.label.clone())
         .collect::<Vec<String>>()
         .join("\\")
