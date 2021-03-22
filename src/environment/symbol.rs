@@ -1,7 +1,8 @@
 use super::{get_range, in_range, visitor::name_resolver::NameResolver};
 use crate::environment::import::SymbolImport;
 use crate::environment::scope::Reference;
-use crate::parser::token::{Token, TokenType};
+use crate::environment::visitor::name_resolver::Reference as NameResolverReference;
+use crate::parser::token::{to_fqdn, Token, TokenType};
 use indextree::{Arena, NodeId};
 use std::{cmp::PartialOrd, fmt::Display};
 use tower_lsp::lsp_types::{
@@ -480,8 +481,27 @@ impl Symbol {
         })
     }
 
-    pub fn hover_text(&self) -> String {
-        format!("{} ({:?})", self.name, self.kind)
+    pub fn hover_text(&self, references: &[NameResolverReference], arena: &Arena<Self>) -> String {
+        let data_types = self
+            .data_types
+            .iter()
+            .filter_map(|dt| {
+                for reference in references {
+                    if in_range(&dt.range.start, &get_range(reference.range)) {
+                        return Some(arena[reference.node].get().fqdn());
+                    }
+                }
+
+                if let Some(token) = dt.type_ref.as_ref() {
+                    return Some(to_fqdn(token));
+                }
+
+                None
+            })
+            .collect::<Vec<String>>()
+            .join(" | ");
+
+        format!("{} {}", self.fqdn(), data_types)
     }
 }
 

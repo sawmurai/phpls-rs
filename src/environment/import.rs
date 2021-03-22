@@ -1,6 +1,6 @@
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use crate::parser::node::Node;
-use crate::parser::token::Token;
+use crate::parser::token::{to_fqdn, Token};
 use tower_lsp::lsp_types::{Position, Range};
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -10,9 +10,7 @@ pub struct SymbolImport {
 }
 
 pub fn namespace_to_string(path: &[Token]) -> String {
-    path.iter()
-        .map(|p| p.label.clone().unwrap_or_else(|| "\\".to_owned()))
-        .collect::<String>()
+    to_fqdn(path)
 }
 
 impl SymbolImport {
@@ -34,10 +32,7 @@ impl SymbolImport {
     }
 
     pub fn full_name(&self) -> String {
-        self.path
-            .iter()
-            .map(|p| p.label.clone().unwrap_or_else(|| "\\".to_owned()))
-            .collect::<String>()
+        to_fqdn(&self.path)
     }
 }
 

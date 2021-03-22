@@ -1,13 +1,10 @@
 use super::get_range;
-use crate::parser::token::Token;
+use crate::parser::token::{to_fqdn, Token};
 use indextree::NodeId;
 use tower_lsp::lsp_types::Range;
 
 #[derive(Clone, Debug)]
 pub struct Reference {
-    /// Used for variables
-    pub token: Option<Token>,
-
     /// The type_ref if applicable
     pub type_ref: Option<Vec<Token>>,
 
@@ -19,18 +16,8 @@ pub struct Reference {
 
 impl std::fmt::Display for Reference {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(token) = self.token.as_ref() {
-            f.write_str(&token.to_string())?;
-        }
-
         if let Some(type_ref) = self.type_ref.as_ref() {
-            let mut name = Vec::with_capacity(type_ref.len());
-
-            for token in type_ref.iter() {
-                name.push(token.to_string());
-            }
-
-            f.write_str(&name.join("\\"))?;
+            f.write_str(&to_fqdn(type_ref))?;
         }
 
         Ok(())
@@ -46,7 +33,6 @@ impl Reference {
         ));
 
         Self {
-            token: None,
             type_ref: None,
             range: range,
             node: Some(node),
@@ -61,7 +47,6 @@ impl Reference {
         ));
 
         Self {
-            token: None,
             type_ref: Some(type_ref),
             range,
             node: None,

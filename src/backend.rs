@@ -165,16 +165,16 @@ impl Backend {
         position: &Position,
         file: &str,
     ) -> Option<(NodeId, String)> {
-        let arena = self.arena.clone();
-        let files = self.files.clone();
+        let file = if let Some(node) = self.files.lock().await.get(file) {
+            node.clone()
+        } else {
+            return None;
+        };
 
-        if let Some(file) = files.lock().await.get(file) {
-            let arena = arena.lock().await;
-            let suc = arena[*file].get().symbol_at(&position, *file, &arena);
-            return Some((suc, arena[suc].get().name.clone()));
-        }
+        let arena = self.arena.lock().await;
+        let suc = arena[file].get().symbol_at(&position, file, &arena);
 
-        None
+        Some((suc, arena[suc].get().name.clone()))
     }
 
     async fn references_of_symbol_under_cursor(&self, nuc: &str) -> Option<ReferenceMapMutex> {
@@ -646,12 +646,14 @@ impl LanguageServer for Backend {
             return Ok(None);
         }
 
+        let arena = self.arena.lock().await;
+        let files = self.files.lock().await;
+
         let query = params.query.to_lowercase();
 
         let mut symbols = Vec::new();
-        let arena = self.arena.lock().await;
 
-        for (file_name, node) in self.files.lock().await.iter() {
+        for (file_name, node) in files.iter() {
             for symbol in node.descendants(&arena) {
                 let symbol = arena[symbol].get();
 
@@ -681,13 +683,12 @@ impl LanguageServer for Backend {
     ) -> Result<Option<DocumentSymbolResponse>> {
         let file_path = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
 
+        let arena = self.arena.lock().await;
         let node_id = if let Some(node_id) = self.files.lock().await.get(&file_path) {
             node_id.clone()
         } else {
             return Ok(None);
         };
-
-        let arena = self.arena.lock().await;
 
         Ok(Some(DocumentSymbolResponse::Nested(
             node_id
@@ -845,9 +846,8 @@ impl LanguageServer for Backend {
         let uri = params.text_document_position_params.text_document.uri;
         let file = EnvFs::normalize_path(&uri.to_file_path().unwrap());
 
-        let local_references = self.symbol_references.lock().await;
-
         let arena = self.arena.lock().await;
+        let local_references = self.symbol_references.lock().await;
 
         let position = &params.text_document_position_params.position;
 
@@ -865,6 +865,9 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        let mut diagnostics = self.diagnostics.lock().await;
+        let opened_files = self.opened_files.lock().await;
+
         for change in params.changes {
             let file_path = change.uri.to_file_path().unwrap();
             if self
@@ -878,15 +881,10 @@ impl LanguageServer for Backend {
             let path = EnvFs::normalize_path(&file_path);
 
             // If the file is currently opened we don't have to refresh
-            if self.opened_files.lock().await.contains_key(&path) {
+            if opened_files.contains_key(&path) {
                 return;
             }
 
-            let arena = self.arena.clone();
-            let global_symbols = self.global_symbols.clone();
-            let files = self.files.clone();
-            let references = self.symbol_references.clone();
-            let diagnostics = self.diagnostics.clone();
             let content = tokio::fs::read_to_string(file_path).await.unwrap();
 
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
@@ -894,13 +892,11 @@ impl LanguageServer for Backend {
                     &path,
                     &ast,
                     &range,
-                    arena.clone(),
-                    global_symbols.clone(),
-                    files.clone(),
+                    self.arena.clone(),
+                    self.global_symbols.clone(),
+                    self.files.clone(),
                 )
                 .await;
-
-                let mut diagnostics = diagnostics.lock().await;
 
                 let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
                 diagnostics.clear();
@@ -942,9 +938,9 @@ impl LanguageServer for Backend {
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let p = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
+        self.latest_version_of_file.lock().await.remove(&p);
         self.opened_files.lock().await.remove(&p);
         self.symbol_references.lock().await.remove(&p);
-        self.latest_version_of_file.lock().await.remove(&p);
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -1039,8 +1035,8 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-        let local_references = self.symbol_references.lock().await;
         let arena = self.arena.lock().await;
+        let local_references = self.symbol_references.lock().await;
         let position = &params.text_document_position_params.position;
 
         if let Some(references) = local_references.get(&file) {
@@ -1050,7 +1046,9 @@ impl LanguageServer for Backend {
 
                     return Ok(Some(Hover {
                         range: Some(get_range(reference.range)),
-                        contents: HoverContents::Scalar(MarkedString::String(symbol.hover_text())),
+                        contents: HoverContents::Scalar(MarkedString::String(
+                            symbol.hover_text(references, &arena),
+                        )),
                     }));
                 }
             }
@@ -1064,9 +1062,12 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let arena = self.arena.lock().await;
+        let files = self.files.lock().await;
         let global_symbols = self.global_symbols.lock().await;
         let opened_files = self.opened_files.lock().await;
-        let arena = self.arena.lock().await;
+        let local_references = self.symbol_references.lock().await;
+
         let pos = params.text_document_position.position;
 
         let opened_file = EnvFs::normalize_path(
@@ -1077,7 +1078,6 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-        let file_ast = opened_files.get(&opened_file);
 
         let trigger = if let Some(context) = params.context {
             if let Some(tc) = context.trigger_character {
@@ -1089,10 +1089,10 @@ impl LanguageServer for Backend {
             None
         };
 
+        let file_ast = opened_files.get(&opened_file);
         if let Some((file_ast, _range)) = file_ast {
             let ast = file_ast;
 
-            let files = self.files.lock().await;
             let current_file_symbol = if let Some(current_file_symbol) = files.get(&opened_file) {
                 current_file_symbol
             } else {
@@ -1102,7 +1102,6 @@ impl LanguageServer for Backend {
 
             let symbol_under_cursor = current_file.symbol_at(&pos, *current_file_symbol, &arena);
 
-            let local_references = self.symbol_references.lock().await;
             if let Some(references) = local_references.get(&opened_file) {
                 let mut suggestions = suggester::get_suggestions_at(
                     trigger,

@@ -366,6 +366,15 @@ impl Token {
     }
 }
 
+/// Join parts together to create a FQDN
+pub fn to_fqdn(tokens: &[Token]) -> String {
+    tokens
+        .iter()
+        .filter_map(|t| t.label.clone())
+        .collect::<Vec<String>>()
+        .join("\\")
+}
+
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let dis = match self.t {

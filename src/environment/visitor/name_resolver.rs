@@ -4,7 +4,7 @@ use super::{workspace_symbol::get_type_refs, NextAction};
 use crate::environment::symbol::Visibility;
 use crate::environment::{scope::Reference as SymbolReference, Notification};
 use crate::parser::node::{Node as AstNode, NodeRange};
-use crate::parser::token::{Token, TokenType};
+use crate::parser::token::{to_fqdn, Token, TokenType};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::DiagnosticSeverity;
@@ -292,11 +292,7 @@ impl<'a> NameResolver<'a> {
 
         // Simple, if fully qualified do not tamper with the name
         let joined_name = if fully_qualified {
-            tokens
-                .iter()
-                .map(|n| n.clone().label.unwrap())
-                .collect::<Vec<String>>()
-                .join("\\")
+            to_fqdn(&tokens)
         } else if let Some(import) = current_available_imports.get(&name) {
             // If not fully qualified, check imports
             if tokens.len() > 1 {
@@ -316,11 +312,7 @@ impl<'a> NameResolver<'a> {
             format!("{}\\{}", current_namespace, name)
         } else {
             // Otherwise use a fqdn but cut off the leading backslash
-            tokens
-                .iter()
-                .map(|n| n.clone().label.unwrap())
-                .collect::<Vec<String>>()
-                .join("\\")
+            to_fqdn(&tokens)
         };
 
         let normalized_joined_name = joined_name.to_lowercase();
