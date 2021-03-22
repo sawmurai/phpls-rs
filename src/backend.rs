@@ -247,7 +247,7 @@ impl Backend {
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         // Index stubs
         let mut file_paths =
-            EnvFs::reindex_folder(&PathBuf::from(&self.stubs), &self.ignore_patterns)?;
+            EnvFs::reindex_folder(&PathBuf::from(&self.stubs), &vec![])?;
 
         let mut joins = Vec::new();
         if let Ok(root_path) = url.to_file_path() {
@@ -328,10 +328,10 @@ impl Backend {
                     let symbol = arena[symbol_id].get();
 
                     if symbol.kind == PhpSymbolKind::Namespace {
-                        current_namespace = symbol.name.clone();
+                        current_namespace = symbol.normalized_name();
                     } else if symbol.kind.register_global() {
                         global_table
-                            .insert(format!("{}\\{}", current_namespace, symbol.name), symbol_id);
+                            .insert(format!("{}\\{}", current_namespace, symbol.normalized_name()), symbol_id);
                     }
                 }
             }
@@ -401,9 +401,9 @@ impl Backend {
                     let symbol = arena[symbol_id].get();
 
                     if symbol.kind == PhpSymbolKind::Namespace {
-                        current_namespace = symbol.name.clone();
+                        current_namespace = symbol.normalized_name();
                     } else if symbol.kind.register_global() {
-                        global_symbols.remove(&format!("{}\\{}", current_namespace, symbol.name));
+                        global_symbols.remove(&format!("{}\\{}", current_namespace, symbol.normalized_name()));
                     }
                 }
 

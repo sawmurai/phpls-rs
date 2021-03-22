@@ -344,8 +344,15 @@ impl<'a> NameResolver<'a> {
             if register_ref {
                 self.reference(file, Reference::new(range, *node));
             }
-
-            Some(*node)
+            
+            if !arena[*node].get().fqdn_matches(&name) {
+                self.diagnostics.push(Notification::warning(
+                    file_symbol.name.clone(),
+                    String::from("Case mismatch between call and definition"),
+                    range,
+                ));
+            }
+            return Some(*node);
         } else {
             self.diagnostics.push(Notification::error(
                 file_symbol.name.clone(),

@@ -2,10 +2,9 @@
 
 extern crate clap;
 
-use std::path::PathBuf;
-
 use crate::backend::Backend;
 use clap::{App, Arg, SubCommand};
+use std::path::PathBuf;
 use tower_lsp::{Client, LspService, Server};
 
 pub mod backend;
@@ -54,6 +53,12 @@ async fn main() {
         )
         .get_matches();
 
+    let ignore_patterns: Vec<String> = matches
+        .values_of("ignore-patterns")
+        .unwrap_or(clap::Values::default())
+        .map(|s| s.to_owned())
+        .collect();
+
     if let Some(file) = matches.value_of("file") {
         match Backend::source_to_ast(file) {
             Ok((_, _, _)) => println!("Parsed ok"),
@@ -63,7 +68,8 @@ async fn main() {
         return;
     }
     if let Some(dir) = matches.value_of("dir") {
-        match environment::fs::reindex_folder(&PathBuf::from(dir), &vec![]) {
+        let ip: Vec<PathBuf> = ignore_patterns.iter().map(PathBuf::from).collect();
+        match environment::fs::reindex_folder(&PathBuf::from(dir), &ip) {
             Ok(paths) => {
                 paths
                     .iter()
@@ -78,12 +84,6 @@ async fn main() {
 
         return;
     }
-
-    let ignore_patterns = matches
-        .values_of("ignore-patterns")
-        .unwrap_or(clap::Values::default())
-        .map(|s| s.to_owned())
-        .collect();
 
     let stubs = matches.value_of("stubs").unwrap().to_owned();
 

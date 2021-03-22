@@ -273,7 +273,6 @@ impl Symbol {
     }
 
     pub fn fqdn_matches(&self, pattern: &str) -> bool {
-        eprintln!("{}", pattern);
         let fqdn = self.fqdn();
 
         if fqdn.eq(pattern) {
@@ -286,8 +285,6 @@ impl Symbol {
         }
 
         let fqdn = format!("\\{}", fqdn);
-
-        eprintln!("{}", fqdn.eq(pattern));
 
         fqdn.eq(pattern)
     }
