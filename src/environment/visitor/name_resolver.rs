@@ -344,7 +344,7 @@ impl<'a> NameResolver<'a> {
             if register_ref {
                 self.reference(file, Reference::new(range, *node));
             }
-            
+
             if !arena[*node].get().fqdn_matches(&name) {
                 self.diagnostics.push(Notification::warning(
                     file_symbol.name.clone(),
@@ -1039,29 +1039,35 @@ mod tests {
             ("index3.php", "<?php use App\\Cat; $kaetzchen = new Cat(); $kaetzchen->setName(($marci = new Cat())->getName()); $marci->getName(); echo Cat::ROFL;"),
         ];
 
-        for (resolve, collect) in [(false, true), (true, false)].iter() {
-            for (file, source) in sources.iter() {
-                let mut scanner = Scanner::new(*source);
-                scanner.scan().unwrap();
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
 
-                let dr = scanner.document_range();
-                let pr = Parser::ast(scanner.tokens).unwrap();
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
 
-                Backend::reindex(
-                    *file,
-                    &pr.0,
-                    &get_range(dr),
-                    *resolve,
-                    *collect,
-                    arena.clone(),
-                    global_symbols.clone(),
-                    symbol_references.clone(),
-                    files.clone(),
-                    diagnostics.clone(),
-                )
-                .await
-                .unwrap();
-            }
+            Backend::collect_symbols(
+                *file,
+                &pr.0,
+                &get_range(dr),
+                arena.clone(),
+                global_symbols.clone(),
+                files.clone(),
+            )
+            .await
+            .unwrap();
+
+            Backend::collect_references(
+                *file,
+                &pr.0,
+                arena.clone(),
+                global_symbols.clone(),
+                symbol_references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            .unwrap();
         }
 
         assert!(diagnostics.lock().await.is_empty());
@@ -1149,29 +1155,35 @@ mod tests {
             ),
         ];
 
-        for (resolve, collect) in [(false, true), (true, false)].iter() {
-            for (file, source) in sources.iter() {
-                let mut scanner = Scanner::new(*source);
-                scanner.scan().unwrap();
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
 
-                let dr = scanner.document_range();
-                let pr = Parser::ast(scanner.tokens).unwrap();
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
 
-                Backend::reindex(
-                    *file,
-                    &pr.0,
-                    &get_range(dr),
-                    *resolve,
-                    *collect,
-                    arena.clone(),
-                    global_symbols.clone(),
-                    symbol_references.clone(),
-                    files.clone(),
-                    diagnostics.clone(),
-                )
-                .await
-                .unwrap();
-            }
+            Backend::collect_symbols(
+                *file,
+                &pr.0,
+                &get_range(dr),
+                arena.clone(),
+                global_symbols.clone(),
+                files.clone(),
+            )
+            .await
+            .unwrap();
+
+            Backend::collect_references(
+                *file,
+                &pr.0,
+                arena.clone(),
+                global_symbols.clone(),
+                symbol_references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            .unwrap();
         }
 
         eprintln!("{:?}", diagnostics.lock().await);
@@ -1210,29 +1222,35 @@ mod tests {
             ),
         ];
 
-        for (resolve, collect) in [(false, true), (true, false)].iter() {
-            for (file, source) in sources.iter() {
-                let mut scanner = Scanner::new(*source);
-                scanner.scan().unwrap();
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
 
-                let dr = scanner.document_range();
-                let pr = Parser::ast(scanner.tokens).unwrap();
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
 
-                Backend::reindex(
-                    *file,
-                    &pr.0,
-                    &get_range(dr),
-                    *resolve,
-                    *collect,
-                    arena.clone(),
-                    global_symbols.clone(),
-                    symbol_references.clone(),
-                    files.clone(),
-                    diagnostics.clone(),
-                )
-                .await
-                .unwrap();
-            }
+            Backend::collect_symbols(
+                *file,
+                &pr.0,
+                &get_range(dr),
+                arena.clone(),
+                global_symbols.clone(),
+                files.clone(),
+            )
+            .await
+            .unwrap();
+
+            Backend::collect_references(
+                *file,
+                &pr.0,
+                arena.clone(),
+                global_symbols.clone(),
+                symbol_references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            .unwrap();
         }
 
         eprintln!("{:?}", diagnostics.lock().await);
@@ -1278,29 +1296,35 @@ mod tests {
             ("cat.php", "<?php namespace App; class Cat extends Living { public function test() { $this->getName(); $this->getOther(); } }"),
         ];
 
-        for (resolve, collect) in [(false, true), (true, false)].iter() {
-            for (file, source) in sources.iter() {
-                let mut scanner = Scanner::new(*source);
-                scanner.scan().unwrap();
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
 
-                let dr = scanner.document_range();
-                let pr = Parser::ast(scanner.tokens).unwrap();
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
 
-                Backend::reindex(
-                    *file,
-                    &pr.0,
-                    &get_range(dr),
-                    *resolve,
-                    *collect,
-                    arena.clone(),
-                    global_symbols.clone(),
-                    symbol_references.clone(),
-                    files.clone(),
-                    diagnostics.clone(),
-                )
-                .await
-                .unwrap();
-            }
+            Backend::collect_symbols(
+                *file,
+                &pr.0,
+                &get_range(dr),
+                arena.clone(),
+                global_symbols.clone(),
+                files.clone(),
+            )
+            .await
+            .unwrap();
+
+            Backend::collect_references(
+                *file,
+                &pr.0,
+                arena.clone(),
+                global_symbols.clone(),
+                symbol_references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            .unwrap();
         }
 
         eprintln!("{:?}", diagnostics.lock().await);
@@ -1362,29 +1386,35 @@ mod tests {
             ),
         ];
 
-        for (resolve, collect) in [(false, true), (true, false)].iter() {
-            for (file, source) in sources.iter() {
-                let mut scanner = Scanner::new(*source);
-                scanner.scan().unwrap();
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
 
-                let dr = scanner.document_range();
-                let pr = Parser::ast(scanner.tokens).unwrap();
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
 
-                Backend::reindex(
-                    *file,
-                    &pr.0,
-                    &get_range(dr),
-                    *resolve,
-                    *collect,
-                    arena.clone(),
-                    global_symbols.clone(),
-                    symbol_references.clone(),
-                    files.clone(),
-                    diagnostics.clone(),
-                )
-                .await
-                .unwrap();
-            }
+            Backend::collect_symbols(
+                *file,
+                &pr.0,
+                &get_range(dr),
+                arena.clone(),
+                global_symbols.clone(),
+                files.clone(),
+            )
+            .await
+            .unwrap();
+
+            Backend::collect_references(
+                *file,
+                &pr.0,
+                arena.clone(),
+                global_symbols.clone(),
+                symbol_references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            .unwrap();
         }
 
         eprintln!("{:?}", diagnostics.lock().await);
@@ -1438,29 +1468,35 @@ mod tests {
             ),
         ];
 
-        for (resolve, collect) in [(false, true), (true, false)].iter() {
-            for (file, source) in sources.iter() {
-                let mut scanner = Scanner::new(*source);
-                scanner.scan().unwrap();
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
 
-                let dr = scanner.document_range();
-                let pr = Parser::ast(scanner.tokens).unwrap();
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
 
-                Backend::reindex(
-                    *file,
-                    &pr.0,
-                    &get_range(dr),
-                    *resolve,
-                    *collect,
-                    arena.clone(),
-                    global_symbols.clone(),
-                    symbol_references.clone(),
-                    files.clone(),
-                    diagnostics.clone(),
-                )
-                .await
-                .unwrap();
-            }
+            Backend::collect_symbols(
+                *file,
+                &pr.0,
+                &get_range(dr),
+                arena.clone(),
+                global_symbols.clone(),
+                files.clone(),
+            )
+            .await
+            .unwrap();
+
+            Backend::collect_references(
+                *file,
+                &pr.0,
+                arena.clone(),
+                global_symbols.clone(),
+                symbol_references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            .unwrap();
         }
 
         eprintln!("{:?}", diagnostics.lock().await);
@@ -1498,29 +1534,35 @@ mod tests {
             ),
         ];
 
-        for (resolve, collect) in [(false, true), (true, false)].iter() {
-            for (file, source) in sources.iter() {
-                let mut scanner = Scanner::new(*source);
-                scanner.scan().unwrap();
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
 
-                let dr = scanner.document_range();
-                let pr = Parser::ast(scanner.tokens).unwrap();
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
 
-                Backend::reindex(
-                    *file,
-                    &pr.0,
-                    &get_range(dr),
-                    *resolve,
-                    *collect,
-                    arena.clone(),
-                    global_symbols.clone(),
-                    symbol_references.clone(),
-                    files.clone(),
-                    diagnostics.clone(),
-                )
-                .await
-                .unwrap();
-            }
+            Backend::collect_symbols(
+                *file,
+                &pr.0,
+                &get_range(dr),
+                arena.clone(),
+                global_symbols.clone(),
+                files.clone(),
+            )
+            .await
+            .unwrap();
+
+            Backend::collect_references(
+                *file,
+                &pr.0,
+                arena.clone(),
+                global_symbols.clone(),
+                symbol_references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            .unwrap();
         }
 
         eprintln!("{:?}", diagnostics.lock().await);
@@ -1562,29 +1604,35 @@ mod tests {
             ),
         ];
 
-        for (resolve, collect) in [(false, true), (true, false)].iter() {
-            for (file, source) in sources.iter() {
-                let mut scanner = Scanner::new(*source);
-                scanner.scan().unwrap();
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
 
-                let dr = scanner.document_range();
-                let pr = Parser::ast(scanner.tokens).unwrap();
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
 
-                Backend::reindex(
-                    *file,
-                    &pr.0,
-                    &get_range(dr),
-                    *resolve,
-                    *collect,
-                    arena.clone(),
-                    global_symbols.clone(),
-                    symbol_references.clone(),
-                    files.clone(),
-                    diagnostics.clone(),
-                )
-                .await
-                .unwrap();
-            }
+            Backend::collect_symbols(
+                *file,
+                &pr.0,
+                &get_range(dr),
+                arena.clone(),
+                global_symbols.clone(),
+                files.clone(),
+            )
+            .await
+            .unwrap();
+
+            Backend::collect_references(
+                *file,
+                &pr.0,
+                arena.clone(),
+                global_symbols.clone(),
+                symbol_references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            .unwrap();
         }
 
         eprintln!("{:?}", diagnostics.lock().await);
@@ -1627,29 +1675,35 @@ mod tests {
             ),
         ];
 
-        for (resolve, collect) in [(false, true), (true, false)].iter() {
-            for (file, source) in sources.iter() {
-                let mut scanner = Scanner::new(*source);
-                scanner.scan().unwrap();
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
 
-                let dr = scanner.document_range();
-                let pr = Parser::ast(scanner.tokens).unwrap();
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
 
-                Backend::reindex(
-                    *file,
-                    &pr.0,
-                    &get_range(dr),
-                    *resolve,
-                    *collect,
-                    arena.clone(),
-                    global_symbols.clone(),
-                    symbol_references.clone(),
-                    files.clone(),
-                    diagnostics.clone(),
-                )
-                .await
-                .unwrap();
-            }
+            Backend::collect_symbols(
+                *file,
+                &pr.0,
+                &get_range(dr),
+                arena.clone(),
+                global_symbols.clone(),
+                files.clone(),
+            )
+            .await
+            .unwrap();
+
+            Backend::collect_references(
+                *file,
+                &pr.0,
+                arena.clone(),
+                global_symbols.clone(),
+                symbol_references.clone(),
+                files.clone(),
+                diagnostics.clone(),
+            )
+            .await
+            .unwrap();
         }
 
         eprintln!("{:?}", diagnostics.lock().await);
