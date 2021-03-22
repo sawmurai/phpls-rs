@@ -26,11 +26,11 @@ use tower_lsp::lsp_types::{
     DidSaveTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
     DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MarkedString, MessageType, Position, Range, ReferenceParams,
-    RenameParams, RenameProviderCapability, ServerCapabilities, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceCapability,
-    WorkspaceEdit, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
-    WorkspaceSymbolParams,
+    InitializedParams, Location, MarkedString, MarkupContent, MarkupKind, MessageType, Position,
+    Range, ReferenceParams, RenameParams, RenameProviderCapability, ServerCapabilities,
+    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
+    WorkspaceCapability, WorkspaceEdit, WorkspaceFolderCapability,
+    WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
 };
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
@@ -1046,9 +1046,10 @@ impl LanguageServer for Backend {
 
                     return Ok(Some(Hover {
                         range: Some(get_range(reference.range)),
-                        contents: HoverContents::Scalar(MarkedString::String(
-                            symbol.hover_text(references, &arena),
-                        )),
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: symbol.hover_text(references, reference.node, &arena),
+                        }),
                     }));
                 }
             }

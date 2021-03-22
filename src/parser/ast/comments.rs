@@ -1,6 +1,5 @@
 use super::super::node::Node;
 use super::super::token::{Token, TokenType};
-use super::super::variables;
 use super::super::Parser;
 use super::super::Result;
 

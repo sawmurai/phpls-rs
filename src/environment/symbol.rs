@@ -481,7 +481,12 @@ impl Symbol {
         })
     }
 
-    pub fn hover_text(&self, references: &[NameResolverReference], arena: &Arena<Self>) -> String {
+    pub fn hover_text(
+        &self,
+        references: &[NameResolverReference],
+        node: NodeId,
+        arena: &Arena<Self>,
+    ) -> String {
         let data_types = self
             .data_types
             .iter()
@@ -501,16 +506,31 @@ impl Symbol {
             .collect::<Vec<String>>()
             .join(" | ");
 
-        format!("{} {}", self.fqdn(), data_types)
-    }
-}
+        match self.kind {
+            PhpSymbolKind::Property => {
+                let parent = if let Some(parent_node_id) = arena[node].parent() {
+                    arena[parent_node_id].get()
+                } else {
+                    return "".to_owned();
+                };
 
-impl From<&Symbol> for Diagnostic {
-    fn from(reference: &Symbol) -> Diagnostic {
-        Diagnostic {
-            range: reference.range,
-            message: format!("{:#?}", reference),
-            ..Diagnostic::default()
+                format!("{}::${} : {}", parent.fqdn(), self.name, data_types)
+            }
+            PhpSymbolKind::Method => {
+                let parent = if let Some(parent_node_id) = arena[node].parent() {
+                    arena[parent_node_id].get()
+                } else {
+                    return "".to_owned();
+                };
+
+                format!(
+                    "{}::{}(<add args>) : {}",
+                    parent.fqdn(),
+                    self.name,
+                    data_types
+                )
+            }
+            _ => String::from(""),
         }
     }
 }
