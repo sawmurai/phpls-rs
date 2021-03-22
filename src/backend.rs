@@ -193,47 +193,59 @@ impl Backend {
             })
             .collect::<Vec<String>>();
 
-        //let mut joins = Vec::new();
+        let mut joins = Vec::new();
         for p in all_files {
+            let nuc = nuc.to_owned();
             let arena = self.arena.clone();
             let files = self.files.clone();
             let global_symbols = self.global_symbols.clone();
             let diagnostics = self.diagnostics.clone();
             let symbol_references = symbol_references.clone();
 
-            let content = match tokio::fs::read_to_string(&p).await {
-                Ok(content) => content,
-                Err(error) => {
-                    eprintln!("{}", error);
-                    continue;
-                }
-            };
-
-            // Full text search ....
-            if !content.contains(nuc) {
-                continue;
-            }
-
-            if let Ok((ast, _, _)) = Backend::source_to_ast(&content) {
-                let reindex_result = Backend::collect_references(
-                    &p,
-                    &ast,
-                    arena,
-                    global_symbols,
-                    symbol_references,
-                    files,
-                    diagnostics.clone(),
-                )
-                .await;
-                match reindex_result {
-                    Ok(()) => (),
-                    Err(err) => {
-                        eprintln!("{}", err);
+            joins.push(task::spawn(async move {
+                let content = match tokio::fs::read_to_string(&p).await {
+                    Ok(content) => content,
+                    Err(error) => {
+                        eprintln!("{}", error);
+                        return;
                     }
+                };
+
+                // Full text search ....
+                if !content.contains(&nuc) {
+                    return;
                 }
-            } else {
-                // TODO: Publish errors as diagnostics
-                eprintln!("Could not index {} due to syntax errors", p);
+
+                if let Ok((ast, _, _)) = Backend::source_to_ast(&content) {
+                    let reindex_result = Backend::collect_references(
+                        &p,
+                        &ast,
+                        arena,
+                        global_symbols,
+                        symbol_references,
+                        files,
+                        diagnostics,
+                    )
+                    .await;
+                    match reindex_result {
+                        Ok(()) => (),
+                        Err(err) => {
+                            eprintln!("{}", err);
+                        }
+                    }
+                } else {
+                    // TODO: Publish errors as diagnostics
+                    eprintln!("Could not index {} due to syntax errors", p);
+                }
+            }));
+        }
+
+        for j in joins {
+            match j.await {
+                Ok(()) => (),
+                Err(err) => {
+                    eprintln!("{}", err);
+                }
             }
         }
 
