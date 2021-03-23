@@ -1,6 +1,8 @@
 #![allow(clippy::must_use_candidate)]
 
 extern crate clap;
+extern crate crossbeam_channel as channel;
+extern crate ignore;
 
 use crate::backend::Backend;
 use clap::{App, Arg, SubCommand};

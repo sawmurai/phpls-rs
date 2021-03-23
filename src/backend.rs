@@ -13,11 +13,13 @@ use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
 use crate::suggester;
+use ignore::WalkBuilder;
 use indextree::{Arena, NodeId};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{collections::HashMap, ffi::OsString};
 use tokio::io::{self};
+use tokio::runtime::Handle;
 use tokio::sync::Mutex;
 use tokio::task;
 use tower_lsp::lsp_types::{
@@ -35,12 +37,17 @@ use tower_lsp::lsp_types::{
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
 
+extern crate crossbeam_channel as channel;
+extern crate ignore;
+extern crate walkdir;
+
 pub(crate) type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
 pub(crate) type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
 pub(crate) type NodeMapMutex = Arc<Mutex<HashMap<String, NodeId>>>;
 pub(crate) type DiagnosticsMutex = Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>;
 pub(crate) type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
 pub(crate) type InFlightFileMutex = Arc<Mutex<HashMap<String, String>>>;
+pub(crate) type ParseResult = (String, Vec<AstNode>, Range, Vec<ParserError>);
 
 /// Represents the backend of the language server.
 pub struct Backend {
@@ -216,17 +223,22 @@ impl Backend {
                     return;
                 }
 
+                let mut arena = arena.lock().await;
+                let mut files = files.lock().await;
+                let mut global_symbols = global_symbols.lock().await;
+                let mut diagnostics = diagnostics.lock().await;
+                let mut symbol_references = symbol_references.lock().await;
+
                 if let Ok((ast, _, _)) = Backend::source_to_ast(&content) {
                     let reindex_result = Backend::collect_references(
                         &p,
                         &ast,
-                        arena,
-                        global_symbols,
-                        symbol_references,
-                        files,
-                        diagnostics,
-                    )
-                    .await;
+                        &mut arena,
+                        &mut global_symbols,
+                        &mut symbol_references,
+                        &mut files,
+                        &mut diagnostics,
+                    );
                     match reindex_result {
                         Ok(()) => (),
                         Err(err) => {
@@ -253,69 +265,94 @@ impl Backend {
     }
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
-        // Index stubs
-        let mut file_paths = EnvFs::reindex_folder(&PathBuf::from(&self.stubs), &vec![])?;
+        let root_path = url.to_file_path().unwrap();
+        let (tx, rx) = channel::bounded::<ParseResult>(100);
 
-        let mut joins = Vec::new();
-        if let Ok(root_path) = url.to_file_path() {
-            file_paths.extend(EnvFs::reindex_folder(&root_path, &self.ignore_patterns)?);
+        let arena = self.arena.clone();
+        let global_symbols = self.global_symbols.clone();
+        let files = self.files.clone();
+        let diagnostics = self.diagnostics.clone();
 
-            for path in file_paths.clone() {
-                let content = match tokio::fs::read_to_string(&path).await {
-                    Ok(content) => content,
-                    Err(error) => {
-                        eprintln!("{}", error);
+        let handle = Handle::current();
+        let mt = std::thread::spawn(move || {
+            handle.spawn(async move {
+                for (p, ast, range, errors) in rx {
+                    let mut arena = arena.lock().await;
+                    let mut global_symbols = global_symbols.lock().await;
+                    let mut files = files.lock().await;
+                    let mut diagnostics = diagnostics.lock().await;
 
-                        continue;
+                    let reindex_result = Backend::collect_symbols(
+                        &p,
+                        &ast,
+                        &range,
+                        &mut arena,
+                        &mut global_symbols,
+                        &mut files,
+                    );
+
+                    match reindex_result {
+                        Ok(()) => (),
+                        Err(err) => {
+                            eprintln!("{}", err);
+                        }
                     }
-                };
 
-                let arena = self.arena.clone();
-                let global_symbols = self.global_symbols.clone();
-                let files = self.files.clone();
-                let diagnostics = self.diagnostics.clone();
+                    let diags = errors.iter().map(Diagnostic::from).collect();
+                    diagnostics.insert(p, diags);
+                }
+            });
+        });
 
-                joins.push(task::spawn(async move {
-                    let p = EnvFs::normalize_path(&path);
+        let walker = WalkBuilder::new(PathBuf::from(&self.stubs))
+            .add(PathBuf::from(&root_path))
+            .git_ignore(false)
+            .git_exclude(false)
+            .threads(6)
+            .build_parallel();
 
-                    if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-                        let reindex_result = Backend::collect_symbols(
-                            &p,
-                            &ast,
-                            &range,
-                            arena,
-                            global_symbols,
-                            files,
-                        )
-                        .await;
+        walker.run(|| {
+            let tx = tx.clone();
+            Box::new(move |result| {
+                use ignore::WalkState::{Continue, Skip};
 
-                        match reindex_result {
-                            Ok(()) => (),
-                            Err(err) => {
-                                eprintln!("{}", err);
-                            }
+                match result {
+                    Ok(dent) => {
+                        let ext = OsString::from("php");
+
+                        if dent.path().extension() != Some(&ext) {
+                            return Continue;
                         }
 
-                        let diags = errors.iter().map(Diagnostic::from).collect();
-                        diagnostics.lock().await.insert(p, diags);
-                    } else {
-                        // TODO: Publish errors as diagnostics
-                        eprintln!("Could not index {} due to syntax errors", p);
-                    }
-                }));
-            }
-        } else {
-            eprintln!("Error converting url to file path");
-        }
+                        let content = match std::fs::read_to_string(&dent.path()) {
+                            Ok(content) => content,
+                            Err(error) => {
+                                eprintln!("{}", error);
 
-        for j in joins {
-            match j.await {
-                Ok(()) => (),
-                Err(err) => {
-                    eprintln!("{}", err);
+                                return Continue;
+                            }
+                        };
+
+                        if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
+                            tx.send((
+                                environment::fs::normalize_path(&PathBuf::from(dent.path())),
+                                ast,
+                                range,
+                                errors,
+                            ))
+                            .unwrap();
+                        }
+                    }
+                    _ => return Skip,
                 }
-            }
-        }
+
+                Continue
+            })
+        });
+
+        drop(tx);
+
+        mt.join().unwrap();
 
         // This is in a block to release the locks asap
         {
@@ -367,15 +404,14 @@ impl Backend {
         }
     }
 
-    pub(crate) async fn collect_symbols(
+    pub(crate) fn collect_symbols(
         path: &str,
         ast: &[AstNode],
         range: &Range,
-        arena: ArenaMutex,
-        global_symbols: NodeMapMutex,
-        files: NodeMapMutex,
+        arena: &mut Arena<Symbol>,
+        global_symbols: &mut HashMap<String, NodeId>,
+        files: &mut HashMap<String, NodeId>,
     ) -> io::Result<()> {
-        let mut arena = arena.lock().await;
         let enclosing_file = arena.new_node(Symbol {
             kind: PhpSymbolKind::File,
             name: path.to_owned(),
@@ -387,13 +423,11 @@ impl Backend {
         let mut visitor = WorkspaceSymbolVisitor::new();
         let iter = ast.iter();
         for node in iter {
-            traverse(node, &mut visitor, &mut arena, enclosing_file);
+            traverse(node, &mut visitor, arena, enclosing_file);
         }
 
-        let mut global_symbols = global_symbols.lock().await;
         let mut current_namespace = String::new();
 
-        let mut files = files.lock().await;
         // Deregister old children
         if let Some(old_enclosing) = files.insert(path.to_owned(), enclosing_file) {
             for symbol_id in old_enclosing.children(&arena) {
@@ -410,7 +444,7 @@ impl Backend {
                 }
             }
 
-            old_enclosing.remove(&mut arena);
+            old_enclosing.remove(arena);
         }
 
         // and register new children
@@ -432,16 +466,15 @@ impl Backend {
         Ok(())
     }
 
-    pub(crate) async fn collect_references(
+    pub(crate) fn collect_references(
         path: &str,
         ast: &[AstNode],
-        arena: ArenaMutex,
-        global_symbols: NodeMapMutex,
-        symbol_references: ReferenceMapMutex,
-        files: NodeMapMutex,
-        diagnostics: DiagnosticsMutex,
+        arena: &mut Arena<Symbol>,
+        global_symbols: &HashMap<String, NodeId>,
+        symbol_references: &mut HashMap<String, Vec<Reference>>,
+        files: &mut HashMap<String, NodeId>,
+        diagnostics: &mut HashMap<String, Vec<Diagnostic>>,
     ) -> io::Result<()> {
-        let files = files.lock().await;
         let enclosing_file = if let Some(file) = files.get(path) {
             file.clone()
         } else {
@@ -450,27 +483,22 @@ impl Backend {
             return Ok(());
         };
 
-        let mut arena = arena.lock().await;
-        let global_symbols = global_symbols.lock().await;
         let mut resolver = NameResolver::new(&global_symbols, enclosing_file);
 
         let mut visitor = NameResolveVisitor::new(&mut resolver, enclosing_file);
         let iter = ast.iter();
         for node in iter {
             //eprintln!("[reindex] calling traverse()");
-            traverse(node, &mut visitor, &mut arena, enclosing_file);
+            traverse(node, &mut visitor, arena, enclosing_file);
             //eprintln!("[reindex] calling traverse() ended");
         }
 
-        let mut symbol_references = symbol_references.lock().await;
         visitor.references().drain().for_each(|(file, refs)| {
             symbol_references
                 .entry(arena[file].get().name.clone())
                 .or_insert_with(Vec::new)
                 .extend(refs);
         });
-
-        let mut diagnostics = diagnostics.lock().await;
 
         for notification in visitor.diagnostics().iter() {
             diagnostics
@@ -491,25 +519,23 @@ impl Backend {
         let file_path = uri.to_file_path().unwrap();
         let path = EnvFs::normalize_path(&file_path);
 
-        let arena = self.arena.clone();
-        let global_symbols = self.global_symbols.clone();
-        let files = self.files.clone();
-        let references = self.symbol_references.clone();
+        let mut arena = self.arena.lock().await;
+        let mut global_symbols = self.global_symbols.lock().await;
+        let mut files = self.files.lock().await;
+        let mut references = self.symbol_references.lock().await;
         let diagnostics = self.diagnostics.clone();
         let mut opened_files = self.opened_files.lock().await;
+        let mut diagnostics = diagnostics.lock().await;
 
         if let Ok((ast, range, errors)) = Backend::source_to_ast(&src) {
             let reindex_result = Backend::collect_symbols(
                 &path,
                 &ast,
                 &range,
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
-            )
-            .await;
-
-            let mut diagnostics = diagnostics.lock().await;
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
+            );
 
             let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
             diagnostics.clear();
@@ -529,14 +555,12 @@ impl Backend {
             match Backend::collect_references(
                 path,
                 &ast,
-                arena.clone(),
-                global_symbols.clone(),
-                references.clone(),
-                files.clone(),
-                diagnostics.clone(),
-            )
-            .await
-            {
+                &mut arena,
+                &mut global_symbols,
+                &mut references,
+                &mut files,
+                &mut diagnostics,
+            ) {
                 Err(err) => eprintln!("Error updating opened file after save of another: {}", err),
                 _ => (),
             }
@@ -868,6 +892,10 @@ impl LanguageServer for Backend {
         let mut diagnostics = self.diagnostics.lock().await;
         let opened_files = self.opened_files.lock().await;
 
+        let mut arena = self.arena.lock().await;
+        let mut global_symbols = self.global_symbols.lock().await;
+        let mut files = self.files.lock().await;
+
         for change in params.changes {
             let file_path = change.uri.to_file_path().unwrap();
             if self
@@ -892,11 +920,10 @@ impl LanguageServer for Backend {
                     &path,
                     &ast,
                     &range,
-                    self.arena.clone(),
-                    self.global_symbols.clone(),
-                    self.files.clone(),
-                )
-                .await;
+                    &mut arena,
+                    &mut global_symbols,
+                    &mut files,
+                );
 
                 let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
                 diagnostics.clear();
@@ -938,11 +965,11 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let file_path = params.text_document.uri.to_file_path().unwrap();
         let path = EnvFs::normalize_path(&file_path);
-        let arena = self.arena.clone();
-        let global_symbols = self.global_symbols.clone();
-        let files = self.files.clone();
-        let references = self.symbol_references.clone();
-        let diagnostics = self.diagnostics.clone();
+        let mut arena = self.arena.lock().await;
+        let mut global_symbols = self.global_symbols.lock().await;
+        let mut files = self.files.lock().await;
+        let mut references = self.symbol_references.lock().await;
+        let mut diagnostics = self.diagnostics.lock().await;
         let mut opened_files = self.opened_files.lock().await;
 
         if !opened_files.contains_key(&path) {
@@ -959,7 +986,7 @@ impl LanguageServer for Backend {
 
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
                 let diags = errors.iter().map(Diagnostic::from).collect();
-                diagnostics.lock().await.insert(path.to_owned(), diags);
+                diagnostics.insert(path.to_owned(), diags);
                 opened_files.insert(path.to_string(), (ast.to_owned(), range));
             } else {
                 self.client
@@ -989,14 +1016,12 @@ impl LanguageServer for Backend {
         if let Err(e) = Backend::collect_references(
             &path,
             ast,
-            arena,
-            global_symbols,
-            references,
-            files,
-            diagnostics,
-        )
-        .await
-        {
+            &mut arena,
+            &mut global_symbols,
+            &mut references,
+            &mut files,
+            &mut diagnostics,
+        ) {
             self.client
                 .log_message(MessageType::Error, format!("Failed to index {}", e))
                 .await;
@@ -1004,8 +1029,6 @@ impl LanguageServer for Backend {
             return;
         }
         eprintln!("[did_open] done resolving symbols");
-
-        let diagnostics = self.diagnostics.lock().await;
 
         if let Some(diagnostics) = diagnostics.get(&path) {
             self.client
