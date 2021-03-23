@@ -507,6 +507,9 @@ impl Symbol {
             .join(" | ");
 
         match self.kind {
+            PhpSymbolKind::Variable => {
+                format!("${} : {}", self.name, data_types,)
+            }
             PhpSymbolKind::Property => {
                 let parent = if let Some(parent_node_id) = arena[node].parent() {
                     arena[parent_node_id].get()

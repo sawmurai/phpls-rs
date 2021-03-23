@@ -928,14 +928,6 @@ impl LanguageServer for Backend {
         eprintln!("[did_change] end");
     }
 
-    async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        let uri = params.text_document.uri;
-        let content = tokio::fs::read_to_string(uri.to_file_path().unwrap())
-            .await
-            .unwrap();
-        //self.refresh_file(uri, &content).await;
-    }
-
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let p = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
         self.latest_version_of_file.lock().await.remove(&p);
@@ -1066,8 +1058,8 @@ impl LanguageServer for Backend {
         let arena = self.arena.lock().await;
         let files = self.files.lock().await;
         let global_symbols = self.global_symbols.lock().await;
-        let opened_files = self.opened_files.lock().await;
         let local_references = self.symbol_references.lock().await;
+        let opened_files = self.opened_files.lock().await;
 
         let pos = params.text_document_position.position;
 

@@ -157,6 +157,7 @@ pub(crate) fn anonymous_function_statement(
             cp,
             return_type,
             body: None,
+            doc_comment: doc_comment.clone(),
         });
     }
 
@@ -168,6 +169,7 @@ pub(crate) fn anonymous_function_statement(
         cp,
         return_type,
         body,
+        doc_comment: doc_comment.clone(),
     })
 }
 

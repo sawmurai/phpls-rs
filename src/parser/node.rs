@@ -445,6 +445,7 @@ pub enum Node {
         cp: Token,
         return_type: Option<Box<Node>>,
         body: Option<Box<Node>>,
+        doc_comment: Option<Box<Node>>,
     },
     NamedFunctionDefinitionStatement {
         token: Token,

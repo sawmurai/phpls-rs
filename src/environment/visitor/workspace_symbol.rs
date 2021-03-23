@@ -377,16 +377,23 @@ impl Visitor for WorkspaceSymbolVisitor {
             }
 
             AstNode::NamedFunctionDefinitionStatement { name, function, .. } => {
-                let return_type =
-                    if let AstNode::FunctionDefinitionStatement { return_type, .. } =
-                        function.as_ref()
-                    {
-                        return_type
-                    } else {
-                        eprintln!("Invalid function {:?}", function);
+                let return_type = if let AstNode::FunctionDefinitionStatement {
+                    doc_comment,
+                    return_type,
+                    ..
+                } = function.as_ref()
+                {
+                    if let Some(doc_comment) = doc_comment {
+                        if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
+                            // TODO: Get return types from doc comment
+                        }
+                    }
+                    return_type
+                } else {
+                    eprintln!("Invalid function {:?}", function);
 
-                        return NextAction::Abort;
-                    };
+                    return NextAction::Abort;
+                };
 
                 let data_types = if let Some(data_type) = return_type {
                     get_type_refs(data_type)
