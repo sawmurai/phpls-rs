@@ -374,8 +374,6 @@ mod tests {
     };
     use indextree::Arena;
     use parser::{scanner::Scanner, Parser};
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
     use tower_lsp::lsp_types::Position;
 
     macro_rules! variable {
@@ -517,11 +515,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_suggests_accessible_members_of_class_and_its_parents() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             (
@@ -555,30 +553,24 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        let files = files.lock().await;
-        let arena = arena.lock().await;
-        let global_symbols = global_symbols.lock().await;
-        let symbol_references = symbol_references.lock().await;
         let mut scanner = Scanner::new(&sources[4].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -626,11 +618,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_suggests_variables() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![("index.php", "<?php $cat = 'Marci'; $")];
 
@@ -645,29 +637,23 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
-
-        let files = files.lock().await;
-        let arena = arena.lock().await;
-        let global_symbols = global_symbols.lock().await;
         let mut scanner = Scanner::new(&sources[0].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -692,11 +678,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_suggests_global_symbols() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             (
@@ -717,29 +703,24 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        let files = files.lock().await;
-        let arena = arena.lock().await;
-        let global_symbols = global_symbols.lock().await;
         let mut scanner = Scanner::new(&sources[1].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -765,11 +746,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_suggests_members_of_this() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![(
             "animal.php",
@@ -787,29 +768,24 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        let files = files.lock().await;
-        let arena = arena.lock().await;
-        let global_symbols = global_symbols.lock().await;
         let mut scanner = Scanner::new(&sources[0].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -844,11 +820,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_suggests_class_after_new() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             ("animal.php", "<?php class Animal { } function x() {}"),
@@ -866,29 +842,23 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
-
-        let files = files.lock().await;
-        let arena = arena.lock().await;
-        let global_symbols = global_symbols.lock().await;
         let mut scanner = Scanner::new(&sources[1].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -897,7 +867,6 @@ mod tests {
             character: 14,
         };
 
-        let symbol_references = symbol_references.lock().await;
         let references = symbol_references.get("index.php").unwrap();
         let suc = files.get("index.php").unwrap();
         let file = arena[*suc].get();

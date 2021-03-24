@@ -997,16 +997,14 @@ mod tests {
     use indextree::Arena;
     use parser::{scanner::Scanner, Parser};
     use std::collections::HashMap;
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
 
     #[tokio::test]
     async fn test_references_direct_and_inherited_symbols() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             (
@@ -1037,29 +1035,25 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        assert!(diagnostics.lock().await.is_empty());
-        let symbol_references = symbol_references.lock().await;
-        let arena = arena.lock().await;
+        assert!(diagnostics.is_empty());
 
         assert_eq!(
             vec![
@@ -1125,11 +1119,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_references_function_parameters() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             (
@@ -1153,30 +1147,26 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        eprintln!("{:?}", diagnostics.lock().await);
-        assert!(diagnostics.lock().await.is_empty());
-        let symbol_references = symbol_references.lock().await;
-        let arena = arena.lock().await;
+        eprintln!("{:?}", diagnostics);
+        assert!(diagnostics.is_empty());
 
         assert_eq!(
             vec!["Living", "Living", "cat", "getPulse",],
@@ -1191,11 +1181,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_references_trait_members() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             (
@@ -1220,30 +1210,26 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        eprintln!("{:?}", diagnostics.lock().await);
-        assert!(diagnostics.lock().await.is_empty());
-        let symbol_references = symbol_references.lock().await;
-        let arena = arena.lock().await;
+        eprintln!("{:?}", diagnostics);
+        assert!(diagnostics.is_empty());
 
         assert_eq!(
             vec!["Cat", "Cat", "marci", "getName",],
@@ -1258,11 +1244,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolves_members_of_references_to_own_class_correctly() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             (
@@ -1294,31 +1280,26 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        eprintln!("{:?}", diagnostics.lock().await);
-        assert!(diagnostics.lock().await.is_empty());
-        let symbol_references = symbol_references.lock().await;
-        let arena = arena.lock().await;
-
+        eprintln!("{:?}", diagnostics);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             vec![
                 "Living",
@@ -1351,11 +1332,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolves_across_namespaces() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             ("living.php", "<?php namespace App1; class Living { }"),
@@ -1384,30 +1365,25 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
-
-        eprintln!("{:?}", diagnostics.lock().await);
-        assert!(diagnostics.lock().await.is_empty());
-        let symbol_references = symbol_references.lock().await;
-        let arena = arena.lock().await;
+        eprintln!("{:?}", diagnostics);
+        assert!(diagnostics.is_empty());
 
         assert_eq!(
             vec!["Living"],
@@ -1440,11 +1416,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolves_parent_method() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             ("living.php", "<?php namespace App1; class Living { public function __construct() {} }"),
@@ -1466,30 +1442,26 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        eprintln!("{:?}", diagnostics.lock().await);
-        assert!(diagnostics.lock().await.is_empty());
-        let symbol_references = symbol_references.lock().await;
-        let arena = arena.lock().await;
+        eprintln!("{:?}", diagnostics);
+        assert!(diagnostics.is_empty());
 
         assert_eq!(
             vec!["Living", "Living", "__construct"],
@@ -1504,11 +1476,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolves_members_of_interfaces_with_multiple_parents() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources =
             vec![
@@ -1520,7 +1492,6 @@ mod tests {
                 "<?php namespace App1; function x(If3 $object) { $object->m1(); $object->m2(); }",
             ),
         ];
-
         for (file, source) in sources.iter() {
             let mut scanner = Scanner::new(*source);
             scanner.scan().unwrap();
@@ -1532,30 +1503,26 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        eprintln!("{:?}", diagnostics.lock().await);
-        assert!(diagnostics.lock().await.is_empty());
-        let symbol_references = symbol_references.lock().await;
-        let arena = arena.lock().await;
+        eprintln!("{:?}", diagnostics);
+        assert!(diagnostics.is_empty());
 
         assert_eq!(
             vec!["If3", "object", "m1", "object", "m2",],
@@ -1570,11 +1537,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolves_type_from_doc_comment_of_property() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             (
@@ -1602,30 +1569,26 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        eprintln!("{:?}", diagnostics.lock().await);
-        assert!(diagnostics.lock().await.is_empty());
-        let symbol_references = symbol_references.lock().await;
-        let arena = arena.lock().await;
+        eprintln!("{:?}", diagnostics);
+        assert!(diagnostics.is_empty());
 
         assert_eq!(
             vec!["Test", "o", "inst", "test"],
@@ -1640,11 +1603,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolves_chained_method_calls() {
-        let arena = Arc::new(Mutex::new(Arena::new()));
-        let global_symbols = Arc::new(Mutex::new(HashMap::new()));
-        let files = Arc::new(Mutex::new(HashMap::new()));
-        let diagnostics = Arc::new(Mutex::new(HashMap::new()));
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let mut arena = Arena::new();
+        let mut global_symbols = HashMap::new();
+        let mut files = HashMap::new();
+        let mut diagnostics = HashMap::new();
+        let mut symbol_references = HashMap::new();
 
         let sources = vec![
             ("lp.php", "<?php namespace App1; class P {}"),
@@ -1673,31 +1636,26 @@ mod tests {
                 *file,
                 &pr.0,
                 &get_range(dr),
-                arena.clone(),
-                global_symbols.clone(),
-                files.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut files,
             )
-            .await
             .unwrap();
 
             Backend::collect_references(
                 *file,
                 &pr.0,
-                arena.clone(),
-                global_symbols.clone(),
-                symbol_references.clone(),
-                files.clone(),
-                diagnostics.clone(),
+                &mut arena,
+                &mut global_symbols,
+                &mut symbol_references,
+                &mut files,
+                &mut diagnostics,
             )
-            .await
             .unwrap();
         }
 
-        eprintln!("{:?}", diagnostics.lock().await);
-        assert!(diagnostics.lock().await.is_empty());
-        let symbol_references = symbol_references.lock().await;
-        let arena = arena.lock().await;
-
+        eprintln!("{:?}", diagnostics);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             vec!["Living", "Living", "inst", "me", "myself", "i", "my_parent"],
             symbol_references
