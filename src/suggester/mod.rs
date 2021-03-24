@@ -364,6 +364,7 @@ mod tests {
     use super::super::parser::token::*;
     use crate::{
         backend::Backend,
+        backend::BackendState,
         environment::{
             get_range,
             import::SymbolImport,
@@ -515,11 +516,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_suggests_accessible_members_of_class_and_its_parents() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             (
@@ -549,26 +546,8 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
         let mut scanner = Scanner::new(&sources[4].1);
@@ -578,20 +557,20 @@ mod tests {
             line: 0,
             character: 43,
         };
-        let references = symbol_references.get("index.php").unwrap();
-        let suc = files.get("index.php").unwrap();
+        let references = state.symbol_references.get("index.php").unwrap();
+        let suc = state.files.get("index.php").unwrap();
         let actual = super::get_suggestions_at(
             Some('>'),
             pos,
             *suc,
             &pr.0,
-            &arena,
-            &global_symbols,
+            &state.arena,
+            &state.global_symbols,
             references,
         );
 
-        assert_eq!("getPulse", arena[actual[0]].get().name);
-        assert_eq!("getName", arena[actual[1]].get().name);
+        assert_eq!("getPulse", state.arena[actual[0]].get().name);
+        assert_eq!("getName", state.arena[actual[1]].get().name);
 
         // Suggest interface method
         let mut scanner = Scanner::new(&sources[5].1);
@@ -601,28 +580,24 @@ mod tests {
             line: 0,
             character: 54,
         };
-        let references = symbol_references.get("index2.php").unwrap();
-        let suc = files.get("index2.php").unwrap();
+        let references = state.symbol_references.get("index2.php").unwrap();
+        let suc = state.files.get("index2.php").unwrap();
         let actual = super::get_suggestions_at(
             Some('>'),
             pos,
             *suc,
             &pr.0,
-            &arena,
-            &global_symbols,
+            &state.arena,
+            &state.global_symbols,
             references,
         );
 
-        assert_eq!("getName", arena[actual[0]].get().name);
+        assert_eq!("getName", state.arena[actual[0]].get().name);
     }
 
     #[tokio::test]
     async fn test_suggests_variables() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![("index.php", "<?php $cat = 'Marci'; $")];
 
@@ -633,27 +608,10 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
+
         let mut scanner = Scanner::new(&sources[0].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -662,27 +620,23 @@ mod tests {
             character: 22,
         };
         let references = Vec::new();
-        let suc = files.get("index.php").unwrap();
+        let suc = state.files.get("index.php").unwrap();
         let actual = super::get_suggestions_at(
             Some('$'),
             pos,
             *suc,
             &pr.0,
-            &arena,
-            &global_symbols,
+            &state.arena,
+            &state.global_symbols,
             &references,
         );
 
-        assert_eq!("cat", arena[actual[0]].get().name);
+        assert_eq!("cat", state.arena[actual[0]].get().name);
     }
 
     #[tokio::test]
     async fn test_suggests_global_symbols() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             (
@@ -699,26 +653,8 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
         let mut scanner = Scanner::new(&sources[1].1);
@@ -729,15 +665,22 @@ mod tests {
             character: 12,
         };
         let references = Vec::new();
-        let suc = files.get("index.php").unwrap();
-        let actual =
-            super::get_suggestions_at(None, pos, *suc, &pr.0, &arena, &global_symbols, &references);
+        let suc = state.files.get("index.php").unwrap();
+        let actual = super::get_suggestions_at(
+            None,
+            pos,
+            *suc,
+            &pr.0,
+            &state.arena,
+            &state.global_symbols,
+            &references,
+        );
 
         assert_eq!(2, actual.len());
 
         let actual = actual
             .iter()
-            .map(|n| &arena[*n].get().name)
+            .map(|n| &state.arena[*n].get().name)
             .collect::<Vec<&String>>();
 
         assert!(actual.contains(&&"array_a".to_string()));
@@ -746,11 +689,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_suggests_members_of_this() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![(
             "animal.php",
@@ -764,26 +703,8 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
         let mut scanner = Scanner::new(&sources[0].1);
@@ -795,15 +716,15 @@ mod tests {
         };
 
         let references = Vec::new();
-        let suc = files.get("animal.php").unwrap();
-        let file = arena[*suc].get();
+        let suc = state.files.get("animal.php").unwrap();
+        let file = state.arena[*suc].get();
         let actual = super::get_suggestions_at(
             Some('>'),
             pos,
-            file.symbol_at(&pos, *suc, &arena),
+            file.symbol_at(&pos, *suc, &state.arena),
             &pr.0,
-            &arena,
-            &global_symbols,
+            &state.arena,
+            &state.global_symbols,
             &references,
         );
 
@@ -811,7 +732,7 @@ mod tests {
 
         let actual = actual
             .iter()
-            .map(|n| &arena[*n].get().name)
+            .map(|n| &state.arena[*n].get().name)
             .collect::<Vec<&String>>();
 
         assert!(actual.contains(&&"getName".to_string()));
@@ -820,11 +741,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_suggests_class_after_new() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             ("animal.php", "<?php class Animal { } function x() {}"),
@@ -838,26 +755,8 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
         let mut scanner = Scanner::new(&sources[1].1);
         scanner.scan().unwrap();
@@ -867,16 +766,16 @@ mod tests {
             character: 14,
         };
 
-        let references = symbol_references.get("index.php").unwrap();
-        let suc = files.get("index.php").unwrap();
-        let file = arena[*suc].get();
+        let references = state.symbol_references.get("index.php").unwrap();
+        let suc = state.files.get("index.php").unwrap();
+        let file = state.arena[*suc].get();
         let actual = super::get_suggestions_at(
             Some(':'),
             pos,
-            file.symbol_at(&pos, *suc, &arena),
+            file.symbol_at(&pos, *suc, &state.arena),
             &pr.0,
-            &arena,
-            &global_symbols,
+            &state.arena,
+            &state.global_symbols,
             &references,
         );
 
@@ -884,7 +783,7 @@ mod tests {
 
         let actual = actual
             .iter()
-            .map(|n| &arena[*n].get().name)
+            .map(|n| &state.arena[*n].get().name)
             .collect::<Vec<&String>>();
 
         assert!(actual.contains(&&"class".to_string()));

@@ -25,14 +25,14 @@ use tokio::task;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
-    DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MarkedString, MarkupContent, MarkupKind, MessageType, Position,
-    Range, ReferenceParams, RenameParams, RenameProviderCapability, ServerCapabilities,
-    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
-    WorkspaceCapability, WorkspaceEdit, WorkspaceFolderCapability,
-    WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
+    DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
+    ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+    Location, MarkupContent, MarkupKind, MessageType, Position, Range, ReferenceParams,
+    RenameParams, RenameProviderCapability, ServerCapabilities, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceCapability,
+    WorkspaceEdit, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
+    WorkspaceSymbolParams,
 };
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
@@ -41,39 +41,39 @@ extern crate crossbeam_channel as channel;
 extern crate ignore;
 extern crate walkdir;
 
-pub(crate) type AstMutex = Arc<Mutex<HashMap<String, (Vec<AstNode>, Range)>>>;
-pub(crate) type ArenaMutex = Arc<Mutex<Arena<Symbol>>>;
-pub(crate) type NodeMapMutex = Arc<Mutex<HashMap<String, NodeId>>>;
-pub(crate) type DiagnosticsMutex = Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>;
 pub(crate) type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
-pub(crate) type InFlightFileMutex = Arc<Mutex<HashMap<String, String>>>;
 pub(crate) type ParseResult = (String, Vec<AstNode>, Range, Vec<ParserError>);
+
+#[derive(Default)]
+pub struct BackendState {
+    /// Storage arena for all symbols
+    pub arena: Arena<Symbol>,
+
+    /// NodeIds of entry points to files
+    pub files: HashMap<String, NodeId>,
+
+    /// FQDN to NodeId
+    pub global_symbols: HashMap<String, NodeId>,
+
+    /// Global list of all diagnostics
+    pub diagnostics: HashMap<String, Vec<Diagnostic>>,
+
+    /// References to symbols. Key is the filename
+    pub symbol_references: HashMap<String, Vec<Reference>>,
+
+    /// List of currently opened files and their AST
+    pub opened_files: HashMap<String, (Vec<AstNode>, Range)>,
+
+    /// Map of latest edits on files
+    pub latest_version_of_file: HashMap<String, String>,
+}
 
 /// Represents the backend of the language server.
 pub struct Backend {
     /// LSP client
     client: Client,
 
-    /// Storage arena for all symbols
-    pub arena: ArenaMutex,
-
-    /// NodeIds of entry points to files
-    pub files: NodeMapMutex,
-
-    /// FQDN to NodeId
-    pub global_symbols: NodeMapMutex,
-
-    /// Global list of all diagnostics
-    pub diagnostics: DiagnosticsMutex,
-
-    /// References to symbols. Key is the filename
-    pub symbol_references: ReferenceMapMutex,
-
-    /// List of currently opened files and their AST
-    pub opened_files: AstMutex,
-
-    /// Map of latest edits on files
-    pub latest_version_of_file: InFlightFileMutex,
+    state: Arc<Mutex<BackendState>>,
 
     /// Path to stubs
     stubs: String,
@@ -154,13 +154,7 @@ impl Backend {
     pub fn new(client: Client, stubs: String, ignore_patterns: Vec<String>) -> Self {
         Backend {
             client,
-            arena: Arc::new(Mutex::new(Arena::new())),
-            files: Arc::new(Mutex::new(HashMap::new())),
-            global_symbols: Arc::new(Mutex::new(HashMap::new())),
-            diagnostics: Arc::new(Mutex::new(HashMap::new())),
-            symbol_references: Arc::new(Mutex::new(HashMap::new())),
-            opened_files: Arc::new(Mutex::new(HashMap::new())),
-            latest_version_of_file: Arc::new(Mutex::new(HashMap::new())),
+            state: Arc::new(Mutex::new(BackendState::default())),
             stubs,
             ignore_patterns: ignore_patterns.iter().map(PathBuf::from).collect(),
         }
@@ -172,24 +166,27 @@ impl Backend {
         position: &Position,
         file: &str,
     ) -> Option<(NodeId, String)> {
-        let file = if let Some(node) = self.files.lock().await.get(file) {
+        let state = self.state.lock().await;
+
+        let file = if let Some(node) = state.files.get(file) {
             node.clone()
         } else {
             return None;
         };
 
-        let arena = self.arena.lock().await;
-        let suc = arena[file].get().symbol_at(&position, file, &arena);
+        let suc = state.arena[file]
+            .get()
+            .symbol_at(&position, file, &state.arena);
 
-        Some((suc, arena[suc].get().name.clone()))
+        Some((suc, state.arena[suc].get().name.clone()))
     }
 
     async fn references_of_symbol_under_cursor(&self, nuc: &str) -> Option<ReferenceMapMutex> {
-        let files = self.files.clone();
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
-        let all_files = files
+        let all_files = self
+            .state
             .lock()
             .await
+            .files
             .iter()
             .filter_map(|(k, _)| {
                 if k.contains("/vendor/") {
@@ -199,15 +196,13 @@ impl Backend {
                 }
             })
             .collect::<Vec<String>>();
+        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
 
         let mut joins = Vec::new();
         for p in all_files {
-            let nuc = nuc.to_owned();
-            let arena = self.arena.clone();
-            let files = self.files.clone();
-            let global_symbols = self.global_symbols.clone();
-            let diagnostics = self.diagnostics.clone();
+            let state = self.state.clone();
             let symbol_references = symbol_references.clone();
+            let nuc = nuc.to_owned();
 
             joins.push(task::spawn(async move {
                 let content = match tokio::fs::read_to_string(&p).await {
@@ -223,21 +218,15 @@ impl Backend {
                     return;
                 }
 
-                let mut arena = arena.lock().await;
-                let mut files = files.lock().await;
-                let mut global_symbols = global_symbols.lock().await;
-                let mut diagnostics = diagnostics.lock().await;
-                let mut symbol_references = symbol_references.lock().await;
+                let mut state = state.lock().await;
 
                 if let Ok((ast, _, _)) = Backend::source_to_ast(&content) {
+                    let mut symbol_references = symbol_references.lock().await;
                     let reindex_result = Backend::collect_references(
                         &p,
                         &ast,
-                        &mut arena,
-                        &mut global_symbols,
-                        &mut symbol_references,
-                        &mut files,
-                        &mut diagnostics,
+                        &mut state,
+                        Some(&mut symbol_references),
                     );
                     match reindex_result {
                         Ok(()) => (),
@@ -268,28 +257,15 @@ impl Backend {
         let root_path = url.to_file_path().unwrap();
         let (tx, rx) = channel::bounded::<ParseResult>(100);
 
-        let arena = self.arena.clone();
-        let global_symbols = self.global_symbols.clone();
-        let files = self.files.clone();
-        let diagnostics = self.diagnostics.clone();
+        let state = self.state.clone();
 
         let handle = Handle::current();
         let mt = std::thread::spawn(move || {
             handle.spawn(async move {
                 for (p, ast, range, errors) in rx {
-                    let mut arena = arena.lock().await;
-                    let mut global_symbols = global_symbols.lock().await;
-                    let mut files = files.lock().await;
-                    let mut diagnostics = diagnostics.lock().await;
+                    let mut state = state.lock().await;
 
-                    let reindex_result = Backend::collect_symbols(
-                        &p,
-                        &ast,
-                        &range,
-                        &mut arena,
-                        &mut global_symbols,
-                        &mut files,
-                    );
+                    let reindex_result = Backend::collect_symbols(&p, &ast, &range, &mut state);
 
                     match reindex_result {
                         Ok(()) => (),
@@ -299,7 +275,7 @@ impl Backend {
                     }
 
                     let diags = errors.iter().map(Diagnostic::from).collect();
-                    diagnostics.insert(p, diags);
+                    state.diagnostics.insert(p, diags);
                 }
             });
         });
@@ -356,15 +332,13 @@ impl Backend {
 
         // This is in a block to release the locks asap
         {
-            let arena = self.arena.lock().await;
-            let files = self.files.lock().await;
-
+            let mut state = self.state.lock().await;
             let mut global_table: HashMap<String, NodeId> = HashMap::new();
-            for (_file, node_id) in files.iter() {
+            for (_file, node_id) in state.files.iter() {
                 let mut current_namespace = String::new();
 
-                for symbol_id in node_id.children(&arena) {
-                    let symbol = arena[symbol_id].get();
+                for symbol_id in node_id.children(&state.arena) {
+                    let symbol = state.arena[symbol_id].get();
 
                     if symbol.kind == PhpSymbolKind::Namespace {
                         current_namespace = symbol.normalized_name();
@@ -377,7 +351,7 @@ impl Backend {
                 }
             }
 
-            *self.global_symbols.lock().await = global_table;
+            state.global_symbols = global_table;
         }
 
         eprintln!("Done doing the stuff");
@@ -408,11 +382,9 @@ impl Backend {
         path: &str,
         ast: &[AstNode],
         range: &Range,
-        arena: &mut Arena<Symbol>,
-        global_symbols: &mut HashMap<String, NodeId>,
-        files: &mut HashMap<String, NodeId>,
+        state: &mut BackendState,
     ) -> io::Result<()> {
-        let enclosing_file = arena.new_node(Symbol {
+        let enclosing_file = state.arena.new_node(Symbol {
             kind: PhpSymbolKind::File,
             name: path.to_owned(),
             range: *range,
@@ -423,20 +395,20 @@ impl Backend {
         let mut visitor = WorkspaceSymbolVisitor::new();
         let iter = ast.iter();
         for node in iter {
-            traverse(node, &mut visitor, arena, enclosing_file);
+            traverse(node, &mut visitor, &mut state.arena, enclosing_file);
         }
 
         let mut current_namespace = String::new();
 
         // Deregister old children
-        if let Some(old_enclosing) = files.insert(path.to_owned(), enclosing_file) {
-            for symbol_id in old_enclosing.children(&arena) {
-                let symbol = arena[symbol_id].get();
+        if let Some(old_enclosing) = state.files.insert(path.to_owned(), enclosing_file) {
+            for symbol_id in old_enclosing.children(&state.arena) {
+                let symbol = state.arena[symbol_id].get();
 
                 if symbol.kind == PhpSymbolKind::Namespace {
                     current_namespace = symbol.normalized_name();
                 } else if symbol.kind.register_global() {
-                    global_symbols.remove(&format!(
+                    state.global_symbols.remove(&format!(
                         "{}\\{}",
                         current_namespace,
                         symbol.normalized_name()
@@ -444,19 +416,19 @@ impl Backend {
                 }
             }
 
-            old_enclosing.remove(arena);
+            old_enclosing.remove(&mut state.arena);
         }
 
         // and register new children
         let mut current_namespace = String::new();
 
-        for symbol_id in enclosing_file.children(&arena) {
-            let symbol = arena[symbol_id].get();
+        for symbol_id in enclosing_file.children(&state.arena) {
+            let symbol = state.arena[symbol_id].get();
 
             if symbol.kind == PhpSymbolKind::Namespace {
                 current_namespace = symbol.normalized_name();
             } else if symbol.kind.register_global() {
-                global_symbols.insert(
+                state.global_symbols.insert(
                     format!("{}\\{}", current_namespace, symbol.normalized_name()),
                     symbol_id,
                 );
@@ -466,16 +438,17 @@ impl Backend {
         Ok(())
     }
 
+    /// Collect all references withing a given ast
+    /// Provide an optional fourth parameter to write the references into a separate
+    /// HashMap. This is used for example when filtering for specific references in
+    /// a smaller subset of references later on (find references for symbol under cursor)
     pub(crate) fn collect_references(
         path: &str,
         ast: &[AstNode],
-        arena: &mut Arena<Symbol>,
-        global_symbols: &HashMap<String, NodeId>,
-        symbol_references: &mut HashMap<String, Vec<Reference>>,
-        files: &mut HashMap<String, NodeId>,
-        diagnostics: &mut HashMap<String, Vec<Diagnostic>>,
+        state: &mut BackendState,
+        container: Option<&mut HashMap<String, Vec<Reference>>>,
     ) -> io::Result<()> {
-        let enclosing_file = if let Some(file) = files.get(path) {
+        let enclosing_file = if let Some(file) = state.files.get(path) {
             file.clone()
         } else {
             eprintln!("Dafuq! {}", path);
@@ -483,25 +456,19 @@ impl Backend {
             return Ok(());
         };
 
-        let mut resolver = NameResolver::new(&global_symbols, enclosing_file);
+        let mut resolver = NameResolver::new(&state.global_symbols, enclosing_file);
 
         let mut visitor = NameResolveVisitor::new(&mut resolver, enclosing_file);
         let iter = ast.iter();
         for node in iter {
             //eprintln!("[reindex] calling traverse()");
-            traverse(node, &mut visitor, arena, enclosing_file);
+            traverse(node, &mut visitor, &mut state.arena, enclosing_file);
             //eprintln!("[reindex] calling traverse() ended");
         }
 
-        visitor.references().drain().for_each(|(file, refs)| {
-            symbol_references
-                .entry(arena[file].get().name.clone())
-                .or_insert_with(Vec::new)
-                .extend(refs);
-        });
-
         for notification in visitor.diagnostics().iter() {
-            diagnostics
+            state
+                .diagnostics
                 .entry(notification.file.clone())
                 .or_insert_with(Vec::new)
                 .push(Diagnostic {
@@ -512,6 +479,23 @@ impl Backend {
                 })
         }
 
+        if let Some(container) = container {
+            visitor.references().drain().for_each(|(file, refs)| {
+                container
+                    .entry(state.arena[file.clone()].get().name.clone())
+                    .or_insert_with(Vec::new)
+                    .extend(refs.clone());
+            });
+        } else {
+            visitor.references().drain().for_each(|(file, refs)| {
+                state
+                    .symbol_references
+                    .entry(state.arena[file.clone()].get().name.clone())
+                    .or_insert_with(Vec::new)
+                    .extend(refs.clone());
+            });
+        }
+
         Ok(())
     }
 
@@ -519,29 +503,21 @@ impl Backend {
         let file_path = uri.to_file_path().unwrap();
         let path = EnvFs::normalize_path(&file_path);
 
-        let mut arena = self.arena.lock().await;
-        let mut global_symbols = self.global_symbols.lock().await;
-        let mut files = self.files.lock().await;
-        let mut references = self.symbol_references.lock().await;
-        let diagnostics = self.diagnostics.clone();
-        let mut opened_files = self.opened_files.lock().await;
-        let mut diagnostics = diagnostics.lock().await;
+        let mut state = self.state.lock().await;
 
         if let Ok((ast, range, errors)) = Backend::source_to_ast(&src) {
-            let reindex_result = Backend::collect_symbols(
-                &path,
-                &ast,
-                &range,
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            );
+            let reindex_result = Backend::collect_symbols(&path, &ast, &range, &mut state);
 
-            let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
+            let diagnostics = state
+                .diagnostics
+                .entry(path.to_string())
+                .or_insert_with(Vec::new);
             diagnostics.clear();
             diagnostics.extend(errors.iter().map(Diagnostic::from));
 
-            opened_files.insert(path.to_string(), (ast.to_owned(), range));
+            state
+                .opened_files
+                .insert(path.to_string(), (ast.to_owned(), range));
 
             if let Err(e) = reindex_result {
                 self.client.log_message(MessageType::Error, e).await;
@@ -551,22 +527,15 @@ impl Backend {
         }
 
         // Now reindex all the other currently opened files to update references
-        for (path, (ast, _)) in opened_files.iter() {
-            match Backend::collect_references(
-                path,
-                &ast,
-                &mut arena,
-                &mut global_symbols,
-                &mut references,
-                &mut files,
-                &mut diagnostics,
-            ) {
+        let tasks = state.opened_files.clone();
+        for (path, (ast, _)) in tasks {
+            match Backend::collect_references(&path, &ast, &mut state, None) {
                 Err(err) => eprintln!("Error updating opened file after save of another: {}", err),
                 _ => (),
             }
         }
 
-        if let Some(diagnostics) = self.diagnostics.lock().await.get(&path) {
+        if let Some(diagnostics) = state.diagnostics.get(&path) {
             self.client
                 .publish_diagnostics(uri, diagnostics.clone(), None)
                 .await;
@@ -639,9 +608,9 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _params: InitializedParams) {
-        let mut diagnostics = self.diagnostics.lock().await;
+        let mut state = self.state.lock().await;
 
-        for (file, diagnostics) in diagnostics.iter() {
+        for (file, diagnostics) in state.diagnostics.iter() {
             if
             /*file.contains("/vendor/")
             || file.contains("/phpstorm-stubs/")
@@ -659,7 +628,7 @@ impl LanguageServer for Backend {
                 .await;
         }
 
-        diagnostics.clear();
+        state.diagnostics.clear();
     }
 
     async fn symbol(
@@ -670,16 +639,15 @@ impl LanguageServer for Backend {
             return Ok(None);
         }
 
-        let arena = self.arena.lock().await;
-        let files = self.files.lock().await;
+        let state = self.state.lock().await;
 
         let query = params.query.to_lowercase();
 
         let mut symbols = Vec::new();
 
-        for (file_name, node) in files.iter() {
-            for symbol in node.descendants(&arena) {
-                let symbol = arena[symbol].get();
+        for (file_name, node) in state.files.iter() {
+            for symbol in node.descendants(&state.arena) {
+                let symbol = state.arena[symbol].get();
 
                 if symbol.normalized_name().starts_with(&query) {
                     if let Some(kind) = symbol.kind.to_symbol_kind() {
@@ -707,8 +675,8 @@ impl LanguageServer for Backend {
     ) -> Result<Option<DocumentSymbolResponse>> {
         let file_path = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
 
-        let arena = self.arena.lock().await;
-        let node_id = if let Some(node_id) = self.files.lock().await.get(&file_path) {
+        let state = self.state.lock().await;
+        let node_id = if let Some(node_id) = state.files.get(&file_path) {
             node_id.clone()
         } else {
             return Ok(None);
@@ -716,8 +684,8 @@ impl LanguageServer for Backend {
 
         Ok(Some(DocumentSymbolResponse::Nested(
             node_id
-                .children(&arena)
-                .map(|s| arena[s].get().to_doc_sym(&arena, &s))
+                .children(&state.arena)
+                .map(|s| state.arena[s].get().to_doc_sym(&state.arena, &s))
                 .filter(std::option::Option::is_some)
                 .map(std::option::Option::unwrap)
                 .collect(),
@@ -736,12 +704,13 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-        let arena = self.arena.lock().await;
 
-        if let Some(node_id) = self.files.lock().await.get(&file) {
+        let state = self.state.lock().await;
+
+        if let Some(node_id) = state.files.get(&file) {
             return Ok(environment::document_highlights(
                 &params.text_document_position_params.position,
-                &arena,
+                &state.arena,
                 node_id,
             ));
         }
@@ -823,7 +792,7 @@ impl LanguageServer for Backend {
                 return Ok(None);
             };
 
-        let symbol_range = self.arena.lock().await[suc].get().selection_range;
+        let symbol_range = self.state.lock().await.arena[suc].get().selection_range;
         let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
         changes.insert(
             Url::from_file_path(file).unwrap(),
@@ -869,16 +838,16 @@ impl LanguageServer for Backend {
     ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let file = EnvFs::normalize_path(&uri.to_file_path().unwrap());
-
-        let arena = self.arena.lock().await;
-        let local_references = self.symbol_references.lock().await;
+        let state = self.state.lock().await;
 
         let position = &params.text_document_position_params.position;
 
-        if let Some(references) = local_references.get(&file) {
+        if let Some(references) = state.symbol_references.get(&file) {
             for reference in references {
                 if in_range(position, &get_range(reference.range)) {
-                    if let Some(location) = environment::symbol_location(&arena, &reference.node) {
+                    if let Some(location) =
+                        environment::symbol_location(&state.arena, &reference.node)
+                    {
                         return Ok(Some(GotoDefinitionResponse::Scalar(location)));
                     }
                 }
@@ -889,12 +858,7 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        let mut diagnostics = self.diagnostics.lock().await;
-        let opened_files = self.opened_files.lock().await;
-
-        let mut arena = self.arena.lock().await;
-        let mut global_symbols = self.global_symbols.lock().await;
-        let mut files = self.files.lock().await;
+        let mut state = self.state.lock().await;
 
         for change in params.changes {
             let file_path = change.uri.to_file_path().unwrap();
@@ -909,23 +873,19 @@ impl LanguageServer for Backend {
             let path = EnvFs::normalize_path(&file_path);
 
             // If the file is currently opened we don't have to refresh
-            if opened_files.contains_key(&path) {
+            if state.opened_files.contains_key(&path) {
                 return;
             }
 
             let content = tokio::fs::read_to_string(file_path).await.unwrap();
 
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-                let reindex_result = Backend::collect_symbols(
-                    &path,
-                    &ast,
-                    &range,
-                    &mut arena,
-                    &mut global_symbols,
-                    &mut files,
-                );
+                let reindex_result = Backend::collect_symbols(&path, &ast, &range, &mut state);
 
-                let diagnostics = diagnostics.entry(path.to_string()).or_insert_with(Vec::new);
+                let diagnostics = state
+                    .diagnostics
+                    .entry(path.to_string())
+                    .or_insert_with(Vec::new);
                 diagnostics.clear();
                 diagnostics.extend(errors.iter().map(Diagnostic::from));
 
@@ -945,9 +905,10 @@ impl LanguageServer for Backend {
         let path = EnvFs::normalize_path(&file_path);
 
         if let Some(changes) = params.content_changes.first() {
-            self.latest_version_of_file
+            self.state
                 .lock()
                 .await
+                .latest_version_of_file
                 .insert(path, changes.text.clone());
 
             self.refresh_file(uri, &changes.text).await;
@@ -957,37 +918,34 @@ impl LanguageServer for Backend {
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let p = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
-        self.latest_version_of_file.lock().await.remove(&p);
-        self.opened_files.lock().await.remove(&p);
-        self.symbol_references.lock().await.remove(&p);
+        let mut state = self.state.lock().await;
+        state.latest_version_of_file.remove(&p);
+        state.opened_files.remove(&p);
+        state.symbol_references.remove(&p);
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let file_path = params.text_document.uri.to_file_path().unwrap();
         let path = EnvFs::normalize_path(&file_path);
-        let mut arena = self.arena.lock().await;
-        let mut global_symbols = self.global_symbols.lock().await;
-        let mut files = self.files.lock().await;
-        let mut references = self.symbol_references.lock().await;
-        let mut diagnostics = self.diagnostics.lock().await;
-        let mut opened_files = self.opened_files.lock().await;
+        let mut state = self.state.lock().await;
 
-        if !opened_files.contains_key(&path) {
+        if !state.opened_files.contains_key(&path) {
             eprintln!("[did_open] indexing file");
             self.client
                 .log_message(MessageType::Info, "Need to freshly index")
                 .await;
 
             let source = tokio::fs::read_to_string(file_path).await.unwrap();
-            self.latest_version_of_file
-                .lock()
-                .await
+            state
+                .latest_version_of_file
                 .insert(path.clone(), source.clone());
 
             if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
                 let diags = errors.iter().map(Diagnostic::from).collect();
-                diagnostics.insert(path.to_owned(), diags);
-                opened_files.insert(path.to_string(), (ast.to_owned(), range));
+                state.diagnostics.insert(path.to_owned(), diags);
+                state
+                    .opened_files
+                    .insert(path.to_string(), (ast.to_owned(), range));
             } else {
                 self.client
                     .log_message(MessageType::Error, "Error indexing")
@@ -999,11 +957,11 @@ impl LanguageServer for Backend {
 
         eprintln!("[did_open] file stored in opened files");
 
-        let (ast, range) = if let Some((ast, range)) = opened_files.get(&path) {
+        let (ast, range) = if let Some((ast, range)) = state.opened_files.get(&path) {
             self.client
                 .log_message(MessageType::Info, "Opened from cache")
                 .await;
-            (ast, range)
+            (ast.clone(), range)
         } else {
             self.client
                 .log_message(MessageType::Error, "Error storing reindexed")
@@ -1013,15 +971,7 @@ impl LanguageServer for Backend {
         };
 
         eprintln!("[did_open] start resolving symbols");
-        if let Err(e) = Backend::collect_references(
-            &path,
-            ast,
-            &mut arena,
-            &mut global_symbols,
-            &mut references,
-            &mut files,
-            &mut diagnostics,
-        ) {
+        if let Err(e) = Backend::collect_references(&path, &ast, &mut state, None) {
             self.client
                 .log_message(MessageType::Error, format!("Failed to index {}", e))
                 .await;
@@ -1030,7 +980,7 @@ impl LanguageServer for Backend {
         }
         eprintln!("[did_open] done resolving symbols");
 
-        if let Some(diagnostics) = diagnostics.get(&path) {
+        if let Some(diagnostics) = state.diagnostics.get(&path) {
             self.client
                 .publish_diagnostics(
                     params.text_document.uri,
@@ -1050,20 +1000,19 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-        let arena = self.arena.lock().await;
-        let local_references = self.symbol_references.lock().await;
+        let state = self.state.lock().await;
         let position = &params.text_document_position_params.position;
 
-        if let Some(references) = local_references.get(&file) {
+        if let Some(references) = state.symbol_references.get(&file) {
             for reference in references {
                 if in_range(position, &get_range(reference.range)) {
-                    let symbol = arena[reference.node].get();
+                    let symbol = state.arena[reference.node].get();
 
                     return Ok(Some(Hover {
                         range: Some(get_range(reference.range)),
                         contents: HoverContents::Markup(MarkupContent {
                             kind: MarkupKind::Markdown,
-                            value: symbol.hover_text(references, reference.node, &arena),
+                            value: symbol.hover_text(references, reference.node, &state.arena),
                         }),
                     }));
                 }
@@ -1078,11 +1027,7 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let arena = self.arena.lock().await;
-        let files = self.files.lock().await;
-        let global_symbols = self.global_symbols.lock().await;
-        let local_references = self.symbol_references.lock().await;
-        let opened_files = self.opened_files.lock().await;
+        let state = self.state.lock().await;
 
         let pos = params.text_document_position.position;
 
@@ -1105,34 +1050,36 @@ impl LanguageServer for Backend {
             None
         };
 
-        let file_ast = opened_files.get(&opened_file);
+        let file_ast = state.opened_files.get(&opened_file);
         if let Some((file_ast, _range)) = file_ast {
             let ast = file_ast;
 
-            let current_file_symbol = if let Some(current_file_symbol) = files.get(&opened_file) {
-                current_file_symbol
-            } else {
-                return Ok(None);
-            };
-            let current_file = arena[*current_file_symbol].get();
+            let current_file_symbol =
+                if let Some(current_file_symbol) = state.files.get(&opened_file) {
+                    current_file_symbol
+                } else {
+                    return Ok(None);
+                };
+            let current_file = state.arena[*current_file_symbol].get();
 
-            let symbol_under_cursor = current_file.symbol_at(&pos, *current_file_symbol, &arena);
+            let symbol_under_cursor =
+                current_file.symbol_at(&pos, *current_file_symbol, &state.arena);
 
-            if let Some(references) = local_references.get(&opened_file) {
+            if let Some(references) = state.symbol_references.get(&opened_file) {
                 let mut suggestions = suggester::get_suggestions_at(
                     trigger,
                     pos,
                     symbol_under_cursor,
                     ast,
-                    &arena,
-                    &global_symbols,
+                    &state.arena,
+                    &state.global_symbols,
                     references,
                 );
                 return Ok(Some(CompletionResponse::Array(
                     suggestions
                         .drain(..)
                         .map(|s| {
-                            let symbol = arena[s].get();
+                            let symbol = state.arena[s].get();
 
                             // If the symbol is a class we try to add a namespace as a text edit
                             if symbol.kind == PhpSymbolKind::Class {

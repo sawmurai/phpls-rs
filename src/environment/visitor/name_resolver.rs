@@ -993,18 +993,14 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{backend::Backend, environment::get_range, parser};
+    use crate::{backend::Backend, backend::BackendState, environment::get_range, parser};
     use indextree::Arena;
     use parser::{scanner::Scanner, Parser};
     use std::collections::HashMap;
 
     #[tokio::test]
     async fn test_references_direct_and_inherited_symbols() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             (
@@ -1031,29 +1027,11 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
-        assert!(diagnostics.is_empty());
+        assert!(state.diagnostics.is_empty());
 
         assert_eq!(
             vec![
@@ -1065,11 +1043,12 @@ mod tests {
                 "getPulse",
                 "Cat",
             ],
-            symbol_references
+            state
+                .symbol_references
                 .get("index.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
 
@@ -1086,11 +1065,12 @@ mod tests {
                 "test",
                 "getName",
             ],
-            symbol_references
+            state
+                .symbol_references
                 .get("index2.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
 
@@ -1108,22 +1088,19 @@ mod tests {
                 "Cat",
                 "ROFL"
             ],
-            symbol_references
+            state
+                .symbol_references
                 .get("index3.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
     }
 
     #[tokio::test]
     async fn test_references_function_parameters() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             (
@@ -1135,7 +1112,6 @@ mod tests {
                 "<?php use App\\Living; function animal_caller(Living $cat) { $cat->getPulse(); }",
             ),
         ];
-
         for (file, source) in sources.iter() {
             let mut scanner = Scanner::new(*source);
             scanner.scan().unwrap();
@@ -1143,49 +1119,28 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
-        eprintln!("{:?}", diagnostics);
-        assert!(diagnostics.is_empty());
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
 
         assert_eq!(
             vec!["Living", "Living", "cat", "getPulse",],
-            symbol_references
+            state
+                .symbol_references
                 .get("index.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
     }
 
     #[tokio::test]
     async fn test_references_trait_members() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             (
@@ -1206,49 +1161,28 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
-        eprintln!("{:?}", diagnostics);
-        assert!(diagnostics.is_empty());
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
 
         assert_eq!(
             vec!["Cat", "Cat", "marci", "getName",],
-            symbol_references
+            state
+                .symbol_references
                 .get("index.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
     }
 
     #[tokio::test]
     async fn test_resolves_members_of_references_to_own_class_correctly() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             (
@@ -1276,30 +1210,12 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
-        eprintln!("{:?}", diagnostics);
-        assert!(diagnostics.is_empty());
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
         assert_eq!(
             vec![
                 "Living",
@@ -1312,31 +1228,29 @@ mod tests {
                 "instance3",
                 "getOther",
             ],
-            symbol_references
+            state
+                .symbol_references
                 .get("living.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
         assert_eq!(
             vec!["Living", "Cat", "getName", "Cat", "getOther",],
-            symbol_references
+            state
+                .symbol_references
                 .get("cat.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
     }
 
     #[tokio::test]
     async fn test_resolves_across_namespaces() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             ("living.php", "<?php namespace App1; class Living { }"),
@@ -1361,66 +1275,47 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
-        eprintln!("{:?}", diagnostics);
-        assert!(diagnostics.is_empty());
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
 
         assert_eq!(
             vec!["Living"],
-            symbol_references
+            state
+                .symbol_references
                 .get("cat.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
         assert_eq!(
             vec!["Living"],
-            symbol_references
+            state
+                .symbol_references
                 .get("cat.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
         assert_eq!(
             vec!["Living", "Living"],
-            symbol_references
+            state
+                .symbol_references
                 .get("anothercat.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
     }
 
     #[tokio::test]
     async fn test_resolves_parent_method() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             ("living.php", "<?php namespace App1; class Living { public function __construct() {} }"),
@@ -1438,49 +1333,28 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
-        eprintln!("{:?}", diagnostics);
-        assert!(diagnostics.is_empty());
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
 
         assert_eq!(
             vec!["Living", "Living", "__construct"],
-            symbol_references
+            state
+                .symbol_references
                 .get("cat.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
     }
 
     #[tokio::test]
     async fn test_resolves_members_of_interfaces_with_multiple_parents() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources =
             vec![
@@ -1499,49 +1373,28 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
-        eprintln!("{:?}", diagnostics);
-        assert!(diagnostics.is_empty());
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
 
         assert_eq!(
             vec!["If3", "object", "m1", "object", "m2",],
-            symbol_references
+            state
+                .symbol_references
                 .get("index.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
     }
 
     #[tokio::test]
     async fn test_resolves_type_from_doc_comment_of_property() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             (
@@ -1557,7 +1410,6 @@ mod tests {
                 "<?php namespace App1; $o = new Test(); $o->inst->test();",
             ),
         ];
-
         for (file, source) in sources.iter() {
             let mut scanner = Scanner::new(*source);
             scanner.scan().unwrap();
@@ -1565,49 +1417,28 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
-        eprintln!("{:?}", diagnostics);
-        assert!(diagnostics.is_empty());
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
 
         assert_eq!(
             vec!["Test", "o", "inst", "test"],
-            symbol_references
+            state
+                .symbol_references
                 .get("index.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
     }
 
     #[tokio::test]
     async fn test_resolves_chained_method_calls() {
-        let mut arena = Arena::new();
-        let mut global_symbols = HashMap::new();
-        let mut files = HashMap::new();
-        let mut diagnostics = HashMap::new();
-        let mut symbol_references = HashMap::new();
+        let mut state = BackendState::default();
 
         let sources = vec![
             ("lp.php", "<?php namespace App1; class P {}"),
@@ -1632,37 +1463,20 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            Backend::collect_symbols(
-                *file,
-                &pr.0,
-                &get_range(dr),
-                &mut arena,
-                &mut global_symbols,
-                &mut files,
-            )
-            .unwrap();
-
-            Backend::collect_references(
-                *file,
-                &pr.0,
-                &mut arena,
-                &mut global_symbols,
-                &mut symbol_references,
-                &mut files,
-                &mut diagnostics,
-            )
-            .unwrap();
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
-        eprintln!("{:?}", diagnostics);
-        assert!(diagnostics.is_empty());
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
         assert_eq!(
             vec!["Living", "Living", "inst", "me", "myself", "i", "my_parent"],
-            symbol_references
+            state
+                .symbol_references
                 .get("index.php")
                 .unwrap()
                 .iter()
-                .map(|r| &arena[r.node].get().name)
+                .map(|r| &state.arena[r.node].get().name)
                 .collect::<Vec<&String>>()
         );
     }
