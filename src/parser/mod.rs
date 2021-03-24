@@ -100,7 +100,7 @@ impl Parser {
             };
 
             while !parser.doc_comments.is_empty() {
-                if let Some(doc_comment) = comments::consume_optional_doc_comment(&mut parser)? {
+                if let Some(doc_comment) = comments::consume_optional_doc_comment(&mut parser) {
                     if let Node::DocComment { var_docs, .. } = doc_comment.as_ref() {
                         for var_doc in var_docs {
                             statements.push(var_doc.clone());
@@ -158,7 +158,7 @@ impl Parser {
             };
 
             while !self.doc_comments.is_empty() {
-                if let Some(doc_comment) = comments::consume_optional_doc_comment(self)? {
+                if let Some(doc_comment) = comments::consume_optional_doc_comment(self) {
                     if let Node::DocComment { var_docs, .. } = doc_comment.as_ref() {
                         for var_doc in var_docs {
                             statements.push(var_doc.clone());
@@ -207,7 +207,7 @@ impl Parser {
             };
 
             while !self.doc_comments.is_empty() {
-                if let Some(doc_comment) = comments::consume_optional_doc_comment(self)? {
+                if let Some(doc_comment) = comments::consume_optional_doc_comment(self) {
                     if let Node::DocComment { var_docs, .. } = doc_comment.as_ref() {
                         for var_doc in var_docs {
                             statements.push(var_doc.clone());
@@ -272,7 +272,14 @@ impl Parser {
                     })
                 }
                 TokenType::AttributeStart => return attributes::attribute(self),
-                TokenType::Function => return functions::named_function(self, &None),
+                TokenType::Function => {
+                    let comment = comments::consume_optional_doc_comment(self);
+                    /*let comment = match comments::consume_optional_doc_comment(self) {
+                        Ok(comment) => comment,
+                        Err(e) => panic!("{:?}", e),
+                    };*/
+                    return functions::named_function(self, &comment);
+                }
                 TokenType::Namespace => return namespaces::namespace_statement(self),
                 TokenType::Use => {
                     let token = self.consume(TokenType::Use)?;

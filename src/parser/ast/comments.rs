@@ -352,16 +352,19 @@ impl DocBlockScanner {
 }
 
 /// Parse a doc comment
-pub(crate) fn consume_optional_doc_comment(parser: &mut Parser) -> Result<Option<Box<Node>>> {
+pub(crate) fn consume_optional_doc_comment(parser: &mut Parser) -> Option<Box<Node>> {
     if parser.doc_comments.is_empty() {
-        return Ok(None);
+        return None;
     }
 
     let comment = parser.doc_comments.pop().unwrap();
 
     let mut scanner = DocBlockScanner::new(comment);
 
-    scanner.scan()
+    match scanner.scan() {
+        Ok(comment) => comment,
+        _ => None,
+    }
 }
 
 pub(crate) fn param_comment_for(doc_comment: &Option<Box<Node>>, p_name: &Token) -> Option<Node> {

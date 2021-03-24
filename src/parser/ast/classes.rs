@@ -23,7 +23,7 @@ pub(crate) fn class_statement(
     is_abstract: Option<Token>,
     is_final: Option<Token>,
 ) -> ExpressionResult {
-    let doc_comment = comments::consume_optional_doc_comment(parser)?;
+    let doc_comment = comments::consume_optional_doc_comment(parser);
     let token = parser.consume(TokenType::Class)?;
     let name = parser.consume_identifier()?;
 
@@ -101,7 +101,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
             continue;
         }
 
-        let doc_comment = comments::consume_optional_doc_comment(parser)?;
+        let doc_comment = comments::consume_optional_doc_comment(parser);
 
         if parser
             .consume_or_ignore(TokenType::AttributeStart)
@@ -113,7 +113,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
         let doc_comment = if doc_comment.is_some() {
             doc_comment
         } else {
-            comments::consume_optional_doc_comment(parser)?
+            comments::consume_optional_doc_comment(parser)
         };
 
         let mut is_abstract = None;
@@ -241,7 +241,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
 
 /// Parses an interface definition
 pub(crate) fn interface(parser: &mut Parser) -> ExpressionResult {
-    let doc_comment = comments::consume_optional_doc_comment(parser)?;
+    let doc_comment = comments::consume_optional_doc_comment(parser);
     let token = parser.consume(TokenType::Interface)?;
     let name = parser.consume(TokenType::Identifier)?;
 
@@ -279,7 +279,7 @@ fn identifier_list(parser: &mut Parser) -> ExpressionListResult {
 
 /// Parses a trait
 pub(crate) fn trait_statement(parser: &mut Parser) -> ExpressionResult {
-    let doc_comment = comments::consume_optional_doc_comment(parser)?;
+    let doc_comment = comments::consume_optional_doc_comment(parser);
     Ok(Node::TraitStatement {
         token: parser.consume(TokenType::Trait)?,
         name: parser.consume(TokenType::Identifier)?,

@@ -533,6 +533,9 @@ impl Symbol {
                     data_types
                 )
             }
+            PhpSymbolKind::Function => {
+                format!("{}(<add args>) : {}", self.name, data_types)
+            }
             _ => String::from(""),
         }
     }

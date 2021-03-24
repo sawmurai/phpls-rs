@@ -366,25 +366,20 @@ impl Visitor for WorkspaceSymbolVisitor {
             }
 
             AstNode::NamedFunctionDefinitionStatement { name, function, .. } => {
-                let return_type = if let AstNode::FunctionDefinitionStatement {
+                let (return_type, doc_comment) = if let AstNode::FunctionDefinitionStatement {
                     doc_comment,
                     return_type,
                     ..
                 } = function.as_ref()
                 {
-                    if let Some(doc_comment) = doc_comment {
-                        if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
-                            // TODO: Get return types from doc comment
-                        }
-                    }
-                    return_type
+                    (return_type, doc_comment)
                 } else {
                     eprintln!("Invalid function {:?}", function);
 
                     return NextAction::Abort;
                 };
 
-                let data_types = if let Some(data_type) = return_type {
+                let mut data_types = if let Some(data_type) = return_type {
                     get_type_refs(data_type)
                         .iter()
                         .map(|tr| Reference::type_ref(tr.clone()))
@@ -392,6 +387,19 @@ impl Visitor for WorkspaceSymbolVisitor {
                 } else {
                     Vec::new()
                 };
+
+                if let Some(doc_comment) = doc_comment {
+                    if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
+                        for rt in return_type {
+                            data_types.extend(
+                                get_type_refs(rt)
+                                    .iter()
+                                    .map(|tr| Reference::type_ref(tr.clone()))
+                                    .collect::<Vec<Reference>>(),
+                            );
+                        }
+                    }
+                }
 
                 let child = arena.new_node(Symbol {
                     name: name.clone().label.unwrap(),
