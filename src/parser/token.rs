@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter, Result};
 
+use super::node::NodeRange;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
     Eof,
@@ -377,6 +379,21 @@ where
         .filter_map(|t| t.label.clone())
         .collect::<Vec<String>>()
         .join("\\")
+}
+
+pub fn range(tokens: &[Token]) -> NodeRange {
+    (
+        tokens.first().unwrap().range().0,
+        tokens.last().unwrap().range().1,
+    )
+}
+
+pub fn name(tokens: &[Token]) -> String {
+    tokens
+        .iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<String>>()
+        .join("")
 }
 
 impl Display for Token {

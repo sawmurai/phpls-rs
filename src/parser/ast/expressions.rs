@@ -441,9 +441,9 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         if next.is_identifier() {
             return Ok(Node::Literal(next));
         } else {
-            return Err(Error::UnexpectedTokenError { token: next })
+            return Err(Error::UnexpectedTokenError { token: next });
         }
     }
 
-    Err(Error::Eof { })
+    Err(Error::Eof {})
 }

@@ -442,15 +442,19 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             AstNode::MethodDefinitionStatement {
                 name, doc_comment, ..
             } => {
+                // Push scope for method arguments and body
+                self.resolver.push_scope();
+
                 // Is there a doc comment?
                 if let Some(doc_comment) = doc_comment {
                     if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
-                        for rt in return_type {
-                            if let Some(type_ref) = get_type_ref(rt) {
+                        return_type
+                            .iter()
+                            .filter_map(get_type_ref)
+                            .for_each(|type_ref| {
                                 self.resolver
                                     .resolve_type_ref(&type_ref, arena, &parent, true);
-                            }
-                        }
+                            });
                     }
                 }
 
@@ -465,9 +469,6 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         }
                     }
                 }
-
-                // Push scope for method arguments and body
-                self.resolver.push_scope();
 
                 NextAction::ProcessChildren(parent)
             }
@@ -488,7 +489,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 if let Some(types) = types {
                     for t in types {
                         if let Some(type_ref) = get_type_ref(t) {
-                            let type_ref_ref = SymbolReference::type_ref(type_ref);
+                            let type_ref_ref = SymbolReference::type_ref(type_ref.clone());
 
                             data_types.push(type_ref_ref);
                         }
@@ -541,19 +542,35 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 let mut data_types = Vec::new();
 
                 if let Some(doc_comment) = doc_comment {
-                    if let AstNode::DocCommentParam { types, .. } = doc_comment.as_ref() {
-                        if let Some(types) = types {
-                            for t in types {
-                                if let Some(type_ref) = get_type_ref(t) {
+                    if let AstNode::DocCommentParam { types, name, .. } = doc_comment.as_ref() {
+                        let parameter = if let Some(types) = types {
+                            let data_types = types
+                                .iter()
+                                .filter_map(get_type_ref)
+                                .filter_map(|type_ref| {
                                     if let Some(node) = self
                                         .resolver
                                         .resolve_type_ref(&type_ref, arena, &parent, true)
                                     {
-                                        data_types.push(SymbolReference::node(&type_ref, node));
+                                        Some((type_ref, node))
+                                    } else {
+                                        None
                                     }
-                                }
+                                })
+                                .map(|(type_ref, node)| SymbolReference::node(&type_ref, node))
+                                .collect();
+
+                            Symbol {
+                                data_types,
+                                ..Symbol::from(name)
                             }
-                        }
+                        } else {
+                            Symbol::from(name)
+                        };
+                        let child = arena.new_node(parameter);
+
+                        self.resolver.scope_container.append(child, arena);
+                        self.resolver.declare_local(self.file, name, child);
                     }
                 }
 
@@ -704,14 +721,10 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                     return None;
                 }
-                AstNode::Unary { expr, .. } => {
+                AstNode::Unary { expr, .. }
+                | AstNode::Clone { object: expr, .. }
+                | AstNode::New { class: expr, .. } => {
                     current_object = expr;
-                }
-                AstNode::Clone { object, .. } => {
-                    current_object = object;
-                }
-                AstNode::New { class, .. } => {
-                    current_object = class;
                 }
                 AstNode::Grouping(inside) => {
                     current_object = inside;
@@ -994,9 +1007,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 #[cfg(test)]
 mod tests {
     use crate::{backend::Backend, backend::BackendState, environment::get_range, parser};
-    use indextree::Arena;
     use parser::{scanner::Scanner, Parser};
-    use std::collections::HashMap;
 
     #[tokio::test]
     async fn test_references_direct_and_inherited_symbols() {

@@ -598,9 +598,21 @@ impl Node {
                     vec![check, false_arm]
                 }
             }
-            Node::Array { elements, .. }
-            | Node::OldArray { elements, .. }
-            | Node::List { elements, .. } => (*elements).iter().collect(),
+            Node::UnsetStatement { vars: expr, .. }
+            | Node::GlobalVariablesStatement { vars: expr, .. }
+            | Node::Array { elements: expr, .. }
+            | Node::OldArray { elements: expr, .. }
+            | Node::List { elements: expr, .. }
+            | Node::EchoStatement {
+                expressions: expr, ..
+            }
+            | Node::PrintStatement {
+                expressions: expr, ..
+            }
+            | Node::ConstStatement {
+                constants: expr, ..
+            }
+            | Node::Static { expr, .. } => (*expr).iter().collect(),
             Node::ArrayElement { key, value, .. } => {
                 if let Some(key) = key {
                     vec![key, value]
@@ -627,10 +639,13 @@ impl Node {
                     Vec::new()
                 }
             }
-            Node::New { class, .. } => vec![class],
-            Node::Clone { object, .. } => vec![object],
-            Node::Member { object, member, .. } => vec![object, member],
-            Node::StaticMember {
+            Node::Clone { object: class, .. } | Node::New { class, .. } => vec![class],
+            Node::Member {
+                object: class,
+                member,
+                ..
+            }
+            | Node::StaticMember {
                 object: class,
                 member,
                 ..
@@ -642,7 +657,6 @@ impl Node {
                     vec![array]
                 }
             }
-            Node::Static { expr, .. } => (*expr).iter().collect(),
             Node::ArrowFunction {
                 arguments, body, ..
             } => {
@@ -666,14 +680,6 @@ impl Node {
             Node::FileInclude { resource, .. } => vec![resource],
             Node::ExpressionStatement { expression } | Node::ThrowStatement { expression, .. } => {
                 vec![expression]
-            }
-            Node::EchoStatement { expressions, .. } | Node::PrintStatement { expressions, .. } => {
-                (*expressions).iter().collect()
-            }
-            Node::ConstStatement { constants, .. } => (*constants).iter().collect(),
-
-            Node::UnsetStatement { vars, .. } | Node::GlobalVariablesStatement { vars, .. } => {
-                (*vars).iter().collect()
             }
             Node::DieStatement { expr, .. } => {
                 if let Some(expr) = expr.as_ref() {
@@ -906,7 +912,7 @@ impl Node {
             Node::SwitchBranch { cases, body } => {
                 let mut children: Vec<&Node> = Vec::new();
                 children.extend(
-                    (cases)
+                    cases
                         .iter()
                         .filter(|c| c.is_some())
                         .map(|n| n.as_ref().unwrap())

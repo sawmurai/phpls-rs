@@ -171,12 +171,12 @@ pub fn get_suggestions_at(
         return symbol_under_cursor
             .children(arena)
             .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
-            .collect::<Vec<NodeId>>();
+            .collect();
     } else {
         return global_symbols
             .iter()
             .map(|(_key, value)| value.to_owned())
-            .collect::<Vec<NodeId>>();
+            .collect();
     };
 
     let mut suggestions = Vec::new();
@@ -190,7 +190,7 @@ pub fn get_suggestions_at(
                 return parent_scope
                     .children(arena)
                     .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
-                    .collect::<Vec<NodeId>>();
+                    .collect();
             }
         }
         AstNode::Missing(..) | AstNode::Literal(..) | AstNode::Member { .. } => {
@@ -239,94 +239,93 @@ pub fn get_suggestions_at(
                 };
 
                 for reference in references.iter().chain(built_in_references.iter()) {
-                    if in_range(&pos, &get_range(reference.range)) {
-                        // Data types of the parent reference. Go through all data types and collect the things
-                        // that are visibile from the current class
+                    if !in_range(&pos, &get_range(reference.range)) {
+                        continue;
+                    }
 
-                        let current_class = symbol_under_cursor.ancestors(&arena).find(|n| {
-                            let s = arena[*n].get();
+                    // Data types of the parent reference. Go through all data types and collect the things
+                    // that are visibile from the current class
 
-                            return s.kind == PhpSymbolKind::Class;
-                        });
+                    let current_class = symbol_under_cursor.ancestors(&arena).find(|n| {
+                        let s = arena[*n].get();
 
-                        // Collect a list of all accessible members of this class and its parents
-                        let mut accessible_members = Vec::new();
-                        if let Some(current_class) = current_class {
-                            accessible_members.extend(current_class.children(&arena));
+                        return s.kind == PhpSymbolKind::Class;
+                    });
 
-                            let mut resolver = NameResolver::new(&global_symbols, current_class);
+                    // Collect a list of all accessible members of this class and its parents
+                    let mut accessible_members = Vec::new();
+                    if let Some(current_class) = current_class {
+                        accessible_members.extend(current_class.children(&arena));
 
-                            accessible_members.extend(
-                                arena[current_class]
-                                    .get()
-                                    .get_inherited_symbols(&current_class, &mut resolver, &arena)
-                                    .iter()
-                                    .filter(|n| {
-                                        arena[**n].get().visibility >= Visibility::Protected
-                                    }),
-                            );
-                        }
+                        let mut resolver = NameResolver::new(&global_symbols, current_class);
 
-                        let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
+                        accessible_members.extend(
+                            arena[current_class]
+                                .get()
+                                .get_inherited_symbols(&current_class, &mut resolver, &arena)
+                                .iter()
+                                .filter(|n| arena[**n].get().visibility >= Visibility::Protected),
+                        );
+                    }
 
-                        let static_only = Some(':') == trigger;
-                        arena[reference.node]
-                            .get()
-                            .data_types
-                            .iter()
-                            .filter_map(|dt_reference| {
-                                if let Some(type_ref) = dt_reference.type_ref.as_ref() {
-                                    // TODO: resolve $this
-                                    if let Some(tr) = dt_reference.type_ref.as_ref() {
-                                        if let Some(first) = tr.first() {
-                                            if let Some(label) = first.label.as_ref() {
-                                                if label == "$this" {
-                                                    return arena[reference.node].parent();
-                                                }
+                    let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
+
+                    let static_only = Some(':') == trigger;
+                    arena[reference.node]
+                        .get()
+                        .data_types
+                        .iter()
+                        .filter_map(|dt_reference| {
+                            if let Some(type_ref) = dt_reference.type_ref.as_ref() {
+                                // TODO: resolve $this
+                                if let Some(tr) = dt_reference.type_ref.as_ref() {
+                                    if let Some(first) = tr.first() {
+                                        if let Some(label) = first.label.as_ref() {
+                                            if label == "$this" {
+                                                return arena[reference.node].parent();
                                             }
                                         }
                                     }
-                                    if let Some(referenced_node) = resolver.resolve_type_ref(
-                                        &type_ref,
-                                        arena,
-                                        &symbol_under_cursor,
-                                        false,
-                                    ) {
-                                        return Some(referenced_node);
-                                    }
-
-                                    return None;
                                 }
-                                return dt_reference.node;
-                            })
-                            .for_each(|node| {
-                                suggestions.extend(
-                                    members_of(node, &arena, &global_symbols)
-                                        .drain(..)
-                                        .filter(|n| {
-                                            let s = arena[*n].get();
+                                if let Some(referenced_node) = resolver.resolve_type_ref(
+                                    &type_ref,
+                                    arena,
+                                    &symbol_under_cursor,
+                                    false,
+                                ) {
+                                    return Some(referenced_node);
+                                }
 
-                                            eprintln!("Checking {:?}", s.name);
+                                return None;
+                            }
+                            return dt_reference.node;
+                        })
+                        .for_each(|node| {
+                            suggestions.extend(
+                                members_of(node, &arena, &global_symbols)
+                                    .drain(..)
+                                    .filter(|n| {
+                                        let s = arena[*n].get();
 
-                                            if static_only && !s.is_static
-                                                || no_magic_const
-                                                    && s.kind == PhpSymbolKind::MagicConst
-                                            {
-                                                return false;
-                                            }
+                                        eprintln!("Checking {:?}", s.name);
 
-                                            // Either the element is accessible from this scope anyway or its public ...
-                                            s.visibility >= Visibility::Public
-                                                || accessible_members.contains(&n)
+                                        if static_only && !s.is_static
+                                            || no_magic_const && s.kind == PhpSymbolKind::MagicConst
+                                        {
+                                            return false;
+                                        }
 
-                                            // ... or we ignore it
-                                        })
-                                        .collect::<Vec<NodeId>>(),
-                                );
-                            });
+                                        // Either the element is accessible from this scope anyway or its public ...
+                                        s.visibility >= Visibility::Public
+                                            || accessible_members.contains(&n)
 
-                        break;
-                    }
+                                        // ... or we ignore it
+                                    })
+                                    .collect::<Vec<NodeId>>(),
+                            );
+                        });
+
+                    break;
                 }
             } else {
                 eprintln!("got no parent!");

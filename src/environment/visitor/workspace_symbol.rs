@@ -6,8 +6,7 @@ use super::Visitor;
 use crate::environment::symbol::{PhpSymbolKind, Visibility};
 use crate::environment::{import::namespace_to_string, scope::Reference};
 use crate::parser::node::Node as AstNode;
-use crate::parser::token::Token;
-
+use crate::parser::token::{name as token_name, range as token_range, Token};
 use indextree::{Arena, NodeId};
 
 pub struct WorkspaceSymbolVisitor {
@@ -42,9 +41,9 @@ impl Visitor for WorkspaceSymbolVisitor {
                 };
 
                 if let Some(imports) = file_symbol.imports.as_mut() {
-                    imports.extend(collect_uses(node, &Vec::new()));
+                    imports.extend(collect_uses(node, &[]));
                 } else {
-                    file_symbol.imports = Some(collect_uses(node, &Vec::new()));
+                    file_symbol.imports = Some(collect_uses(node, &[]));
                 }
 
                 NextAction::Abort
@@ -56,28 +55,19 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let mut class_symbol = arena[parent].get_mut();
 
                 if let Some(imports) = class_symbol.imports.as_mut() {
-                    imports.extend(collect_uses(node, &Vec::new()));
+                    imports.extend(collect_uses(node, &[]));
                 } else {
-                    class_symbol.imports = Some(collect_uses(node, &Vec::new()));
+                    class_symbol.imports = Some(collect_uses(node, &[]));
                 }
 
                 NextAction::Abort
             }
             AstNode::Block { .. } => NextAction::ProcessChildren(parent),
             AstNode::NamespaceStatement { type_ref, .. } => {
-                let (name, selection_range) = match &**type_ref {
-                    AstNode::TypeRef(tokens) => (
-                        tokens
-                            .iter()
-                            .map(|n| n.to_string())
-                            .collect::<Vec<String>>()
-                            .join(""),
-                        // Range from first part of name until the last one
-                        get_range((
-                            tokens.first().unwrap().range().0,
-                            tokens.last().unwrap().range().1,
-                        )),
-                    ),
+                let (name, selection_range) = match type_ref.as_ref() {
+                    AstNode::TypeRef(tokens) => {
+                        (token_name(tokens), get_range(token_range(tokens)))
+                    }
                     _ => panic!("This should not happen"),
                 };
 
@@ -333,7 +323,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                     {
                         return_type
                     } else {
-                        // Err("Invalid function".to_owned());
                         return NextAction::Abort;
                     };
 
