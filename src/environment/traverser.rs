@@ -8,7 +8,7 @@ pub fn traverse<T>(node: &AstNode, visitor: &mut T, arena: &mut Arena<Symbol>, p
 where
     T: Visitor,
 {
-    visitor.before(node);
+    visitor.before(node, arena, parent);
 
     match visitor.visit(node, arena, parent) {
         NextAction::Abort => (),
@@ -23,5 +23,5 @@ where
         }
     }
 
-    visitor.after(node);
+    visitor.after(node, arena, parent);
 }

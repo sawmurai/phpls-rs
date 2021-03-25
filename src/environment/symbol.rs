@@ -38,6 +38,7 @@ pub enum PhpSymbolKind {
     // Custom types
     BuiltInType = 100,
     MagicConst = 101,
+    FunctionParameter = 102,
 
     // Capturing all unknown enums by this lib.
     Unknown = 255,
@@ -507,7 +508,7 @@ impl Symbol {
             .join(" | ");
 
         match self.kind {
-            PhpSymbolKind::Variable => {
+            PhpSymbolKind::Variable | PhpSymbolKind::FunctionParameter => {
                 format!("${} : {}", self.name, data_types,)
             }
             PhpSymbolKind::Property => {

@@ -25,6 +25,10 @@ impl Visitor for WorkspaceSymbolVisitor {
     /// Decides if a symbol is worth collecting
     fn visit(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) -> NextAction {
         match node {
+            // In case of a function definition we immediately go down since the function
+            // itself was already processed by either the MethodDefinition or the NamedFunctionDefinition
+            // All that is left now is to define the arguments
+            AstNode::FunctionDefinitionStatement { .. } => NextAction::ProcessChildren(parent),
             AstNode::UseFunctionStatement { .. } => NextAction::ProcessChildren(parent),
             AstNode::UseStatement { .. } => NextAction::ProcessChildren(parent),
             AstNode::UseTraitStatement { .. } => NextAction::ProcessChildren(parent),
@@ -282,18 +286,8 @@ impl Visitor for WorkspaceSymbolVisitor {
                 };
 
                 // Is there a doc comment?
-                if let Some(doc_comment) = doc_comment {
-                    if let AstNode::DocComment { var_docs, .. } = doc_comment.as_ref() {
-                        for rt in var_docs {
-                            data_types.extend(
-                                get_type_refs(rt)
-                                    .iter()
-                                    .map(|tr| Reference::type_ref(tr.clone()))
-                                    .collect::<Vec<Reference>>(),
-                            );
-                        }
-                    }
-                }
+
+                ref_from_doc!(doc_comment, data_types, var_docs);
 
                 let child = arena.new_node(Symbol {
                     name: name.clone().label.unwrap(),
@@ -335,19 +329,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     Vec::new()
                 };
 
-                // Is there a doc comment?
-                if let Some(doc_comment) = doc_comment {
-                    if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
-                        for rt in return_type {
-                            data_types.extend(
-                                get_type_refs(rt)
-                                    .iter()
-                                    .map(|tr| Reference::type_ref(tr.clone()))
-                                    .collect::<Vec<Reference>>(),
-                            );
-                        }
-                    }
-                }
+                ref_from_doc!(doc_comment, data_types, return_type);
 
                 let child = arena.new_node(Symbol {
                     name: name.clone().label.unwrap(),
@@ -388,22 +370,48 @@ impl Visitor for WorkspaceSymbolVisitor {
                     Vec::new()
                 };
 
-                if let Some(doc_comment) = doc_comment {
-                    if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
-                        for rt in return_type {
-                            data_types.extend(
-                                get_type_refs(rt)
-                                    .iter()
-                                    .map(|tr| Reference::type_ref(tr.clone()))
-                                    .collect::<Vec<Reference>>(),
-                            );
-                        }
-                    }
-                }
+                ref_from_doc!(doc_comment, data_types, return_type);
 
                 let child = arena.new_node(Symbol {
                     name: name.clone().label.unwrap(),
                     kind: PhpSymbolKind::Function,
+                    range: get_range(node.range()),
+                    selection_range: get_range(name.range()),
+                    data_types,
+                    ..Symbol::default()
+                });
+
+                parent.append(child, arena);
+
+                NextAction::ProcessChildren(child)
+            }
+            AstNode::FunctionArgument {
+                name,
+                argument_type,
+                doc_comment,
+                ..
+            } => {
+                let mut data_types = if let Some(data_type) = argument_type {
+                    get_type_refs(data_type)
+                        .iter()
+                        .map(|tr| Reference::type_ref(tr.clone()))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+
+                if let Some(param) = doc_comment {
+                    data_types.extend(
+                        get_type_refs(param)
+                            .iter()
+                            .map(|tr| Reference::type_ref(tr.clone()))
+                            .collect::<Vec<Reference>>(),
+                    )
+                }
+
+                let child = arena.new_node(Symbol {
+                    name: name.clone().label.unwrap(),
+                    kind: PhpSymbolKind::FunctionParameter,
                     range: get_range(node.range()),
                     selection_range: get_range(name.range()),
                     data_types,
@@ -436,7 +444,7 @@ impl Visitor for WorkspaceSymbolVisitor {
         }
     }
 
-    fn before(&mut self, node: &AstNode) {
+    fn before(&mut self, node: &AstNode, _arena: &mut Arena<Symbol>, _parent: NodeId) {
         match node {
             AstNode::NamespaceStatement { type_ref, .. } => {
                 if let AstNode::TypeRef(type_ref) = type_ref.as_ref() {
@@ -454,7 +462,7 @@ impl Visitor for WorkspaceSymbolVisitor {
         }
     }
 
-    fn after(&mut self, node: &AstNode) {
+    fn after(&mut self, node: &AstNode, _arena: &mut Arena<Symbol>, _parent: NodeId) {
         match node {
             AstNode::NamespaceBlock { .. } => {
                 self.namespace_stack.pop();

@@ -1,10 +1,10 @@
 use super::{super::PhpSymbolKind, Symbol};
 use super::{workspace_symbol::get_type_ref, Visitor};
 use super::{workspace_symbol::get_type_refs, NextAction};
-use crate::environment::symbol::Visibility;
 use crate::environment::{scope::Reference as SymbolReference, Notification};
 use crate::parser::node::{Node as AstNode, NodeRange};
 use crate::parser::token::{to_fqdn, Token, TokenType};
+use crate::{environment::symbol::Visibility, parser::token::name};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::DiagnosticSeverity;
@@ -89,6 +89,7 @@ impl<'a> NameResolver<'a> {
     /// Enter a new class
     pub fn enter_class(&mut self, node: NodeId) {
         self.current_class = Some(node);
+        self.scope_container = node;
     }
 
     /// Enter a new class
@@ -435,16 +436,13 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         .resolve_type_ref(&vec![name.clone()], arena, &parent, false)
                 {
                     self.resolver.enter_class(current_class);
+
+                    NextAction::ProcessChildren(current_class)
+                } else {
+                    NextAction::Abort
                 }
-
-                NextAction::ProcessChildren(parent)
             }
-            AstNode::MethodDefinitionStatement {
-                name, doc_comment, ..
-            } => {
-                // Push scope for method arguments and body
-                self.resolver.push_scope();
-
+            AstNode::MethodDefinitionStatement { doc_comment, .. } => {
                 // Is there a doc comment?
                 if let Some(doc_comment) = doc_comment {
                     if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
@@ -458,20 +456,15 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     }
                 }
 
-                let method_name = name.to_string();
-
-                if let Some(current_class) = self.resolver.current_class {
-                    for method in current_class.children(arena) {
-                        if arena[method].get().name == method_name {
-                            self.resolver.scope_container = method;
-
-                            break;
-                        }
-                    }
-                }
-
-                NextAction::ProcessChildren(parent)
+                // Hand over this method's scope as the parent scope
+                // of the variables within the methods body, including
+                // the arguments
+                NextAction::ProcessChildren(self.resolver.scope_container)
             }
+            AstNode::NamedFunctionDefinitionStatement { .. } => {
+                NextAction::ProcessChildren(self.resolver.scope_container)
+            }
+
             AstNode::Variable(token) => {
                 if let Some(node) = self.resolver.get_local(token) {
                     self.resolver.reference_local(self.file, token, &node);
@@ -533,63 +526,45 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 NextAction::ProcessChildren(parent)
             }
-            AstNode::FunctionArgument {
-                name,
-                argument_type,
-                doc_comment,
-                ..
-            } => {
-                let mut data_types = Vec::new();
+            AstNode::FunctionArgument { name, .. } => {
+                // Get the symbol of this argument. We can safely assume that unwrap won't fail
+                // because the argument will also have been visited by the WorkspaceSymbolVisitor
+                let current_argument =
+                    self.resolver
+                        .scope_container
+                        .children(arena)
+                        .find_map(|child| {
+                            let argument = arena[child].get();
 
-                if let Some(doc_comment) = doc_comment {
-                    if let AstNode::DocCommentParam { types, name, .. } = doc_comment.as_ref() {
-                        let parameter = if let Some(types) = types {
-                            let data_types = types
-                                .iter()
-                                .filter_map(get_type_ref)
-                                .filter_map(|type_ref| {
-                                    if let Some(node) = self
-                                        .resolver
-                                        .resolve_type_ref(&type_ref, arena, &parent, true)
-                                    {
-                                        Some((type_ref, node))
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .map(|(type_ref, node)| SymbolReference::node(&type_ref, node))
-                                .collect();
-
-                            Symbol {
-                                data_types,
-                                ..Symbol::from(name)
+                            if let Some(name) = name.label.as_ref() {
+                                if argument.name.eq(name) {
+                                    return Some(child);
+                                }
                             }
-                        } else {
-                            Symbol::from(name)
-                        };
-                        let child = arena.new_node(parameter);
 
-                        self.resolver.scope_container.append(child, arena);
-                        self.resolver.declare_local(self.file, name, child);
-                    }
+                            None
+                        });
+
+                if let Some(current_argument) = current_argument {
+                    let current_argument_symbol = arena[current_argument].get();
+                    let resolved_references = current_argument_symbol
+                        .data_types
+                        .iter()
+                        .filter_map(|reference| reference.type_ref.as_ref())
+                        .map(|tr| (tr, self.resolver.resolve_type_ref(tr, arena, &parent, true)))
+                        .map(|(tr, node)| {
+                            if let Some(node) = node {
+                                SymbolReference::node(tr, node)
+                            } else {
+                                SymbolReference::type_ref(tr.to_owned())
+                            }
+                        });
+
+                    arena[current_argument].get_mut().data_types = resolved_references.collect();
+
+                    self.resolver
+                        .declare_local(self.file, name, current_argument);
                 }
-
-                if let Some(argument_type) = argument_type {
-                    get_type_refs(argument_type).iter().for_each(|tr| {
-                        if let Some(node) = self.resolver.resolve_type_ref(tr, arena, &parent, true)
-                        {
-                            data_types.push(SymbolReference::node(tr, node));
-                        }
-                    });
-                }
-
-                let child = arena.new_node(Symbol {
-                    data_types,
-                    ..Symbol::from(name)
-                });
-
-                self.resolver.scope_container.append(child, arena);
-                self.resolver.declare_local(self.file, name, child);
 
                 NextAction::Abort
             }
@@ -643,15 +618,39 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
         }
     }
 
-    fn before(&mut self, _node: &AstNode) {}
-
-    fn after(&mut self, node: &AstNode) {
+    fn before(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) {
         match node {
-            AstNode::ClassStatement { .. } => {
-                self.resolver.leave_class();
+            AstNode::NamedFunctionDefinitionStatement { name, .. }
+            | AstNode::MethodDefinitionStatement { name, .. } => {
+                // Push scope for method arguments and body
+                self.resolver.push_scope();
+
+                let method_name = name.to_string();
+
+                // Find this method in the current scope
+                for method in self.resolver.scope_container.children(arena) {
+                    if arena[method].get().name == method_name {
+                        self.resolver.scope_container = method;
+
+                        return;
+                    }
+                }
             }
-            AstNode::TraitStatement { .. } | AstNode::MethodDefinitionStatement { .. } => {
+
+            _ => (),
+        }
+    }
+
+    fn after(&mut self, node: &AstNode, _arena: &mut Arena<Symbol>, parent: NodeId) {
+        match node {
+            AstNode::ClassStatement { .. } | AstNode::TraitStatement { .. } => {
+                self.resolver.leave_class();
+                self.resolver.scope_container = parent;
+            }
+            AstNode::MethodDefinitionStatement { .. }
+            | AstNode::NamedFunctionDefinitionStatement { .. } => {
                 self.resolver.pop_scope();
+                self.resolver.scope_container = parent;
             }
             _ => (),
         }
@@ -1404,7 +1403,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_resolves_type_from_doc_comment_of_property() {
+    async fn test_resolves_type_from_doc_comment() {
         let mut state = BackendState::default();
 
         let sources = vec![
@@ -1414,7 +1413,7 @@ mod tests {
             ),
             (
                 "c2.php",
-                "<?php namespace App1; class OtherTest { public function test() {} }",
+                "<?php namespace App1; class OtherTest { /** @param OtherTest $var */ public function test($var) {} }",
             ),
             (
                 "index.php",
@@ -1440,6 +1439,17 @@ mod tests {
             state
                 .symbol_references
                 .get("index.php")
+                .unwrap()
+                .iter()
+                .map(|r| &state.arena[r.node].get().name)
+                .collect::<Vec<&String>>()
+        );
+
+        assert_eq!(
+            vec!["OtherTest"],
+            state
+                .symbol_references
+                .get("c2.php")
                 .unwrap()
                 .iter()
                 .map(|r| &state.arena[r.node].get().name)
