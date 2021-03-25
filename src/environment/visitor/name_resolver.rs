@@ -526,7 +526,9 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 NextAction::ProcessChildren(parent)
             }
-            AstNode::FunctionArgument { name, .. } => {
+            AstNode::FunctionArgument {
+                name, doc_comment, ..
+            } => {
                 // Get the symbol of this argument. We can safely assume that unwrap won't fail
                 // because the argument will also have been visited by the WorkspaceSymbolVisitor
                 let current_argument =
@@ -564,6 +566,13 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                     self.resolver
                         .declare_local(self.file, name, current_argument);
+
+                    if let Some(doc_comment) = doc_comment {
+                        if let AstNode::DocCommentParam { name, .. } = doc_comment.as_ref() {
+                            self.resolver
+                                .reference_local(self.file, name, &current_argument);
+                        }
+                    }
                 }
 
                 NextAction::Abort
@@ -1446,7 +1455,7 @@ mod tests {
         );
 
         assert_eq!(
-            vec!["OtherTest"],
+            vec!["OtherTest", "var"],
             state
                 .symbol_references
                 .get("c2.php")
