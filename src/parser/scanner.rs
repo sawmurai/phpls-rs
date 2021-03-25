@@ -498,30 +498,7 @@ impl Scanner {
                         self.push_named_token(number_type, &number);
                     }
                 }
-                'a'..='z' | 'A'..='Z' | '_' | '\u{0080}'..='\u{00ff}' => {
-                    let mut name = String::new();
-                    name.push(c);
-                    name.push_str(&self.collect_identifer());
 
-                    if let Some(t) = self.map_keyword(&name) {
-                        self.push_token(t);
-                    } else if name == "from" {
-                        // Combine yield from to one token ...
-
-                        if let Some(Token {
-                            t: TokenType::Yield,
-                            ..
-                        }) = self.tokens.last()
-                        {
-                            self.tokens.pop();
-                            self.push_token(TokenType::YieldFrom);
-                        } else {
-                            self.push_named_token(TokenType::Identifier, &name);
-                        }
-                    } else {
-                        self.push_named_token(TokenType::Identifier, &name);
-                    }
-                }
                 '(' => {
                     self.push_token(TokenType::OpenParenthesis);
                 }
@@ -586,10 +563,35 @@ impl Scanner {
                     self.push_named_token(TokenType::EncapsedAndWhitespaceString, &string);
                 }
                 _ => {
-                    return Err(format!(
-                        "Unexpected char '{}' at line {} column {}",
-                        c, self.line, self.col
-                    ));
+                    if c.is_alphanumeric() || c == '_' {
+                        let mut name = String::new();
+                        name.push(c);
+                        name.push_str(&self.collect_identifer());
+
+                        if let Some(t) = self.map_keyword(&name) {
+                            self.push_token(t);
+                        } else if name == "from" {
+                            // Combine yield from to one token ...
+
+                            if let Some(Token {
+                                t: TokenType::Yield,
+                                ..
+                            }) = self.tokens.last()
+                            {
+                                self.tokens.pop();
+                                self.push_token(TokenType::YieldFrom);
+                            } else {
+                                self.push_named_token(TokenType::Identifier, &name);
+                            }
+                        } else {
+                            self.push_named_token(TokenType::Identifier, &name);
+                        }
+                    } else {
+                        return Err(format!(
+                            "Unexpected char '{}' at line {} column {}",
+                            c, self.line, self.col
+                        ));
+                    }
                 }
             }
         }
@@ -722,12 +724,7 @@ impl Scanner {
         let mut name = String::new();
 
         while let Some(&c) = self.peek() {
-            if ('a'..='z').contains(&c)
-                || ('A'..='Z').contains(&c)
-                || ('0'..='9').contains(&c)
-                || c == '_'
-                || c >= 0x80 as char
-            {
+            if c.is_alphanumeric() || c == '_' {
                 name.push(c);
             } else {
                 break;
@@ -1628,7 +1625,7 @@ for ($i = 0; $i < 100; $i++) {}",
 
     #[test]
     fn test_handles_unexpected_char() {
-        let mut scanner = Scanner::new("<?php \u{107}");
+        let mut scanner = Scanner::new("<?php \u{009C}");
 
         assert_eq!(true, scanner.scan().is_err())
     }

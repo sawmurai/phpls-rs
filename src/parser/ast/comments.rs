@@ -301,14 +301,7 @@ impl DocBlockScanner {
         let mut name = String::new();
 
         while let Some(&c) = self.peek() {
-            if ('a'..='z').contains(&c)
-                || ('A'..='Z').contains(&c)
-                || ('0'..='9').contains(&c)
-                || c == '_'
-                // Need to support $ as @return $this is possible
-                || c == '$' && allow_this
-                || c >= 0x80 as char
-            {
+            if c.is_alphanumeric() || c == '_' || c == '$' && allow_this {
                 name.push(c);
             } else {
                 break;
