@@ -1,3 +1,5 @@
+use crate::parser::token::ScriptStartType;
+
 use super::super::node::Node;
 use super::super::token::TokenType;
 use super::super::{ExpressionResult, Parser};
@@ -107,6 +109,23 @@ pub(crate) fn echo_statement(parser: &mut Parser) -> ExpressionResult {
     }
 
     parser.consume_end_of_statement()?;
+
+    Ok(Node::EchoStatement { token, expressions })
+}
+
+pub(crate) fn short_tag_echo_statement(parser: &mut Parser) -> ExpressionResult {
+    let token = parser.consume(TokenType::ScriptStart(ScriptStartType::Echo))?;
+    let mut expressions = Vec::new();
+
+    expressions.push(expressions::expression(parser)?);
+
+    while parser.consume_or_ignore(TokenType::Comma).is_some() {
+        expressions.push(expressions::expression(parser)?);
+    }
+
+    parser.consume_end_of_statement()?;
+
+    parser.consume_or_err(TokenType::ScriptEnd)?;
 
     Ok(Node::EchoStatement { token, expressions })
 }

@@ -3,6 +3,13 @@ use std::fmt::{Display, Formatter, Result};
 use super::node::NodeRange;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScriptStartType {
+    Regular,
+    Short,
+    Echo,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
     Eof,
 
@@ -77,11 +84,10 @@ pub enum TokenType {
     LogicXor,
     ConstNan,
     ConstInf,
-
     // Four chars
 
     // Five chars
-    ScriptStart,
+    ScriptStart(ScriptStartType),
 
     // Variable length
     Identifier,
@@ -472,7 +478,9 @@ impl Display for Token {
             TokenType::LogicXor => "xor".to_owned(),
             TokenType::ConstNan => "Nan".to_owned(),
             TokenType::ConstInf => "Inf".to_owned(),
-            TokenType::ScriptStart => "<?php".to_owned(),
+            TokenType::ScriptStart(ScriptStartType::Short) => "<?".to_owned(),
+            TokenType::ScriptStart(ScriptStartType::Regular) => "<?php".to_owned(),
+            TokenType::ScriptStart(ScriptStartType::Echo) => "<?=".to_owned(),
             TokenType::DecimalNumber
             | TokenType::ExponentialNumber
             | TokenType::LongNumber

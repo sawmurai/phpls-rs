@@ -3,6 +3,8 @@ use node::Node;
 use snafu::Snafu;
 use token::{Token, TokenType};
 
+use self::{ast::expressions::expression_statement, token::ScriptStartType};
+
 #[derive(Debug, Snafu, PartialEq)]
 pub enum Error {
     #[snafu(display("Unexpected token {:?}, expected on of [{:?}] on line {}, col {}", token.t, expected, token.line, token.col))]
@@ -45,6 +47,12 @@ pub mod scanner;
 
 /// The token type
 pub mod token;
+#[derive(Debug)]
+pub enum Context {
+    Out,
+    Script,
+    Echo,
+}
 
 /// Inspired by <https://craftinginterpreters.com/statements-and-state.html>
 ///
@@ -54,6 +62,7 @@ pub struct Parser {
     doc_comments: Vec<Token>,
     tokens: Vec<Token>,
     errors: Vec<Error>,
+    context: Context,
 }
 
 impl Parser {
@@ -78,11 +87,10 @@ impl Parser {
             doc_comments: Vec::new(),
             tokens,
             errors: Vec::new(),
+            context: Context::Out,
         };
 
         let mut statements: Vec<Node> = Vec::new();
-
-        parser.consume_or_err(TokenType::ScriptStart)?;
 
         while let Some(next) = parser.peek() {
             if next.t == TokenType::Eof {
@@ -121,7 +129,9 @@ impl Parser {
         while self.peek().is_some() {
             if self.next_token_one_of(&[
                 TokenType::Semicolon,
-                TokenType::ScriptStart,
+                TokenType::ScriptStart(ScriptStartType::Regular),
+                TokenType::ScriptStart(ScriptStartType::Echo),
+                TokenType::ScriptStart(ScriptStartType::Short),
                 TokenType::CloseCurly,
             ]) {
                 self.next();
@@ -237,10 +247,30 @@ impl Parser {
     /// echo "This is PHP ... again!";
     /// ```
     fn inline_html(&mut self) -> ExpressionResult {
-        Ok(Node::InlineHtml {
-            start: self.consume(TokenType::ScriptEnd)?,
-            end: self.consume_or_ignore(TokenType::ScriptStart),
-        })
+        let start = self.consume(TokenType::ScriptEnd)?;
+        if self.next_token_one_of(&[TokenType::ScriptStart(ScriptStartType::Echo)]) {
+            let expr = keywords::short_tag_echo_statement(self)?;
+
+            if self.next_token_one_of(&[
+                TokenType::ScriptStart(ScriptStartType::Regular),
+                TokenType::ScriptStart(ScriptStartType::Short),
+            ]) {
+                self.context = Context::Script;
+                self.next();
+            } else {
+                eprintln!("Out because {:?}", self.peek());
+                self.context = Context::Out;
+            }
+            return Ok(expr);
+        }
+
+        let end = self.consume_one_of_or_ignore(&[
+            TokenType::ScriptStart(ScriptStartType::Regular),
+            TokenType::ScriptStart(ScriptStartType::Short),
+        ]);
+
+        self.context = Context::Script;
+        Ok(Node::InlineHtml { start, end })
     }
 
     /// A helper for wrapping the switch between regular statement or alternative block
@@ -263,13 +293,50 @@ impl Parser {
     /// /** to here **/
     /// ```
     fn statement(&mut self) -> ExpressionResult {
+        // If we are currently not in PHP Land check if the next token starts the show
+        // otherwise error
+        match self.context {
+            Context::Out => {
+                if let Some(token) = self.peek() {
+                    match token.t {
+                        TokenType::ScriptStart(ScriptStartType::Regular) => {
+                            self.context = Context::Script;
+                            self.next();
+                        }
+                        TokenType::ScriptStart(ScriptStartType::Short) => {
+                            self.context = Context::Script;
+                            self.next();
+                        }
+                        TokenType::ScriptStart(ScriptStartType::Echo) => {
+                            // TODO: Integrate this part into inline_html pretty pls
+                            let expr = keywords::short_tag_echo_statement(self);
+
+                            if self.next_token_one_of(&[
+                                TokenType::ScriptStart(ScriptStartType::Regular),
+                                TokenType::ScriptStart(ScriptStartType::Short),
+                            ]) {
+                                self.context = Context::Script;
+                                self.next();
+                            }
+
+                            return expr;
+                        }
+                        _ => {
+                            return Err(Error::UnexpectedTokenError {
+                                token: token.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+            _ => (),
+        }
+
         if let Some(token) = self.peek() {
             match token.t {
-                TokenType::ScriptEnd => return self.inline_html(),
-                TokenType::ScriptStart => {
-                    return Err(Error::UnexpectedTokenError {
-                        token: token.clone(),
-                    })
+                // If we are currently in PHP land, check if the next token ends the show
+                TokenType::ScriptEnd => {
+                    return self.inline_html();
                 }
                 TokenType::AttributeStart => return attributes::attribute(self),
                 TokenType::Function => {

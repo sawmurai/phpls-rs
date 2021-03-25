@@ -403,11 +403,11 @@ fn trait_usage_alteration_group(
 mod tests {
     use super::*;
     use crate::formatter::{format, FormatterOptions};
-    use crate::parser::Parser;
     use crate::parser::{
         scanner::Scanner,
         token::{Token, TokenType},
     };
+    use crate::parser::{Context, Parser};
 
     #[test]
     fn test_parses_trait_that_uses_trait() {
@@ -435,6 +435,7 @@ mod tests {
             doc_comments: Vec::new(),
             errors: Vec::new(),
             tokens,
+            context: Context::Out,
         };
 
         trait_statement(&mut parser).unwrap();

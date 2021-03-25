@@ -86,7 +86,7 @@ pub(crate) fn array_pair(parser: &mut Parser) -> ExpressionResult {
 mod tests {
     use super::*;
     use crate::parser::token::{Token, TokenType};
-    use crate::parser::Parser;
+    use crate::parser::{Context, Parser};
 
     #[test]
     fn test_parses_an_array() {
@@ -103,6 +103,7 @@ mod tests {
             doc_comments: Vec::new(),
             errors: Vec::new(),
             tokens,
+            context: Context::Out,
         };
 
         let expected = Node::Array {

@@ -1,5 +1,5 @@
 use super::node::NodeRange;
-use super::token::{Token, TokenType};
+use super::token::{ScriptStartType, Token, TokenType};
 
 /// Enum to represent the current scanner context. Can either be within a code block (`InScript`),
 /// within a comment within a code block (`InComment`), or between code blocks (`OutScript`). An
@@ -203,7 +203,12 @@ impl Scanner {
                         match self.peek() {
                             Some(' ') | Some('\n') | Some('\t') | Some('\r') => {
                                 self.context = Context::InScript;
-                                self.push_token(TokenType::ScriptStart);
+                                self.push_token(TokenType::ScriptStart(ScriptStartType::Short));
+                            }
+                            Some('=') => {
+                                self.advance();
+                                self.context = Context::InScript;
+                                self.push_token(TokenType::ScriptStart(ScriptStartType::Echo));
                             }
                             Some('p') => {
                                 self.advance();
@@ -215,7 +220,9 @@ impl Scanner {
                                         self.advance();
 
                                         self.context = Context::InScript;
-                                        self.push_token(TokenType::ScriptStart);
+                                        self.push_token(TokenType::ScriptStart(
+                                            ScriptStartType::Regular,
+                                        ));
                                     }
                                 }
                             }
@@ -1011,7 +1018,10 @@ mod tests {
         let mut scanner = Scanner::new("<?php\n$a = 1 + 2;\n$a++;$b +\n1\n + 2\n;");
         scanner.scan().unwrap();
 
-        assert_eq!(scanner.tokens[0], Token::new(TokenType::ScriptStart, 0, 0));
+        assert_eq!(
+            scanner.tokens[0],
+            Token::new(TokenType::ScriptStart(ScriptStartType::Regular), 0, 0)
+        );
         assert_eq!(
             scanner.tokens[1],
             Token::named(TokenType::Variable, 1, 0, "a")
@@ -1064,7 +1074,10 @@ $object->{'\u{6771}\u{4eac}'} = 2020;
 
         scanner.scan().unwrap();
 
-        assert_eq!(scanner.tokens[0], Token::new(TokenType::ScriptStart, 0, 0));
+        assert_eq!(
+            scanner.tokens[0],
+            Token::new(TokenType::ScriptStart(ScriptStartType::Regular), 0, 0)
+        );
         assert_eq!(
             scanner.tokens[1],
             Token::named(TokenType::Variable, 1, 0, "object")
@@ -1552,7 +1565,7 @@ for ($i = 0; $i < 100; $i++) {}",
 
         scanner.scan().unwrap();
 
-        assert_eq!(token_list!(scanner.tokens), "<?php $a = 1 ; ");
+        assert_eq!(token_list!(scanner.tokens), "<? $a = 1 ; ");
     }
 
     #[test]
@@ -1637,5 +1650,14 @@ for ($i = 0; $i < 100; $i++) {}",
         scanner.scan().unwrap();
 
         assert_eq!(((0, 0), (2, 1)), scanner.document_range());
+    }
+
+    #[test]
+    fn test_scans_echo_short_tags() {
+        let mut scanner = Scanner::new("<?= $var; ?>");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(token_list!(scanner.tokens), "<?= $var ; ?>");
     }
 }
