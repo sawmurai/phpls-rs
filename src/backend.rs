@@ -404,8 +404,10 @@ impl Backend {
 
         let mut current_namespace = String::new();
 
-        // Deregister old children
+        // Deregister old children from the global symbol table and the references
         if let Some(old_enclosing) = state.files.insert(path.to_owned(), enclosing_file) {
+            // Since only the top level symbols are in the global_symbols its okay
+            // to shallowy travers the tree
             for symbol_id in old_enclosing.children(&state.arena) {
                 let symbol = state.arena[symbol_id].get();
 
@@ -420,7 +422,15 @@ impl Backend {
                 }
             }
 
-            old_enclosing.remove(&mut state.arena);
+            // But references are a different story
+            for symbol_id in old_enclosing.descendants(&state.arena) {
+                for (_file, references_of_file) in state.symbol_references.iter_mut() {
+                    eprintln!("Remove old reference");
+                    references_of_file.remove(&symbol_id);
+                }
+            }
+
+            old_enclosing.remove_subtree(&mut state.arena);
         }
 
         // and register new children
