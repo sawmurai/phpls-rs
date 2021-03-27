@@ -456,9 +456,7 @@ impl Symbol {
         let children = node
             .children(arena)
             .filter(|s| !arena[*s].get().kind.is_internal())
-            .map(|s| arena[s].get().to_doc_sym(arena, &s))
-            .filter(std::option::Option::is_some)
-            .map(std::option::Option::unwrap)
+            .filter_map(|s| arena[s].get().to_doc_sym(arena, &s))
             .collect::<Vec<DocumentSymbol>>();
 
         let children = if children.is_empty() {

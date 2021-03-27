@@ -224,10 +224,9 @@ pub fn get_suggestions_at(
                 // Find the reference for the parent, i.e. the $object in $object->|
                 if let AstNode::Member { object, .. } = parent {
                     no_magic_const = true;
-                    if let AstNode::Call { callee, .. } = &**object {
-                        if let AstNode::Member { member, .. } = &**callee {
+                    if let AstNode::Call { callee, .. } = object.as_ref() {
+                        if let AstNode::Member { member, .. } = callee.as_ref() {
                             range = member.range();
-                            eprintln!("new parent range {:?}", range);
                         }
                     } else if let AstNode::Variable(token) = object.as_ref() {
                         if Some(String::from("this")) == token.label {
@@ -319,8 +318,6 @@ pub fn get_suggestions_at(
                                     .filter(|n| {
                                         let s = arena[*n].get();
 
-                                        eprintln!("Checking {:?}", s.name);
-
                                         if static_only && !s.is_static
                                             || no_magic_const && s.kind == PhpSymbolKind::MagicConst
                                         {
@@ -339,8 +336,6 @@ pub fn get_suggestions_at(
 
                     break;
                 }
-            } else {
-                eprintln!("got no parent!");
             }
         }
         _ => {

@@ -756,8 +756,8 @@ impl Node {
                     children.extend((*arguments).iter().collect::<Vec<&Node>>());
                 }
 
-                if let Some(extends) = extends {
-                    children.push(&**extends);
+                if let Some(extends) = extends.as_ref() {
+                    children.push(extends);
                 }
 
                 if let Some(implements) = implements {
@@ -794,8 +794,8 @@ impl Node {
                     children.push(doc_comment);
                 }
 
-                if let Some(extends) = extends {
-                    children.push(&**extends);
+                if let Some(extends) = extends.as_ref() {
+                    children.push(extends);
                 }
 
                 if let Some(implements) = implements {
@@ -1481,7 +1481,7 @@ impl From<&Node> for String {
         match node {
             Node::ClassStatement {
                 token, name, body, ..
-            } => format!("{} {}{}", token, name, String::from(&**body)),
+            } => format!("{} {}{}", token, name, String::from(body.as_ref())),
             Node::Block { oc, cc, statements } => {
                 format!(
                     "{}{}{}",

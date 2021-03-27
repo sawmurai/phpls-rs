@@ -423,7 +423,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 NextAction::Abort
             }
             AstNode::DefineStatement { name, .. } => {
-                if let AstNode::Literal(token) = &**name {
+                if let AstNode::Literal(token) = name.as_ref() {
                     let simple_name = token.label.clone().unwrap();
 
                     let child = arena.new_node(Symbol {

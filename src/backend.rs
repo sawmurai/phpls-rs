@@ -692,9 +692,7 @@ impl LanguageServer for Backend {
         Ok(Some(DocumentSymbolResponse::Nested(
             node_id
                 .children(&state.arena)
-                .map(|s| state.arena[s].get().to_doc_sym(&state.arena, &s))
-                .filter(std::option::Option::is_some)
-                .map(std::option::Option::unwrap)
+                .filter_map(|s| state.arena[s].get().to_doc_sym(&state.arena, &s))
                 .collect(),
         )))
     }

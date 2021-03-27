@@ -754,7 +754,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     return None;
                 }
                 AstNode::ArrayElement { value, .. } => {
-                    self.resolve_member_type(&**value, arena);
+                    self.resolve_member_type(value.as_ref(), arena);
 
                     return None;
                 }
