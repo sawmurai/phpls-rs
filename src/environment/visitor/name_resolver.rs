@@ -400,26 +400,20 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
         match node {
             AstNode::UseStatement { .. } => NextAction::ProcessChildren(parent),
             AstNode::UseDeclaration { declaration, .. } => {
-                if let AstNode::TypeRef(type_ref) = declaration.as_ref() {
-                    let name = type_ref
-                        .iter()
-                        .map(|t| t.to_string())
-                        .collect::<Vec<String>>()
-                        .join("");
+                let name = declaration.name();
 
-                    if let Some(resolved) = self.resolver.resolve_fully_qualified(&name) {
-                        if !arena[resolved].get().fqdn_matches(&name) {
-                            self.resolver.diagnostic(
-                                arena[self.file].get().name.clone(),
-                                declaration.range(),
-                                String::from("Case mismatch between call and definition"),
-                                DiagnosticSeverity::Warning,
-                            );
-                        }
-
-                        self.resolver
-                            .reference(self.file, Reference::new(node.range(), resolved));
+                if let Some(resolved) = self.resolver.resolve_fully_qualified(&name) {
+                    if !arena[resolved].get().fqdn_matches(&name) {
+                        self.resolver.diagnostic(
+                            arena[self.file].get().name.clone(),
+                            declaration.range(),
+                            String::from("Case mismatch between call and definition"),
+                            DiagnosticSeverity::Warning,
+                        );
                     }
+
+                    self.resolver
+                        .reference(self.file, Reference::new(node.range(), resolved));
                 }
 
                 NextAction::Abort
@@ -1289,6 +1283,7 @@ mod tests {
         assert!(state.diagnostics.is_empty());
 
         assert_reference_names!(vec!["Living"], references!(state, "cat.php"));
+        assert_reference_names!(vec!["Living", "Living"], references!(state, "tiger.php"));
         assert_reference_names!(
             vec!["Living", "Living"],
             references!(state, "anothercat.php")
