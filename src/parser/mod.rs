@@ -1,9 +1,8 @@
+use self::token::ScriptStartType;
 use crate::parser::ast::*;
 use node::Node;
 use snafu::Snafu;
 use token::{Token, TokenType};
-
-use self::{ast::expressions::expression_statement, token::ScriptStartType};
 
 #[derive(Debug, Snafu, PartialEq)]
 pub enum Error {

@@ -1,10 +1,10 @@
 use super::{super::PhpSymbolKind, Symbol};
 use super::{workspace_symbol::get_type_ref, Visitor};
 use super::{workspace_symbol::get_type_refs, NextAction};
+use crate::environment::symbol::Visibility;
 use crate::environment::{scope::Reference as SymbolReference, Notification};
 use crate::parser::node::{Node as AstNode, NodeRange};
 use crate::parser::token::{to_fqdn, Token, TokenType};
-use crate::{environment::symbol::Visibility, parser::token::name};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::DiagnosticSeverity;
@@ -627,7 +627,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
         }
     }
 
-    fn before(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, parent: NodeId) {
+    fn before(&mut self, node: &AstNode, arena: &mut Arena<Symbol>, _parent: NodeId) {
         match node {
             AstNode::NamedFunctionDefinitionStatement { name, .. }
             | AstNode::MethodDefinitionStatement { name, .. } => {
