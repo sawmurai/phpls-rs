@@ -110,6 +110,7 @@ pub enum TokenType {
     DoubleCast,
     UnsetCast,
     Generator,
+    Resource,
 
     // Keywords
     Exit,
@@ -405,6 +406,7 @@ pub fn name(tokens: &[Token]) -> String {
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let dis = match self.t {
+            TokenType::Resource => "resource".to_owned(),
             TokenType::AttributeStart => "#[".to_owned(),
             TokenType::Class => "class".to_owned(),
             TokenType::Eof => "".to_owned(),

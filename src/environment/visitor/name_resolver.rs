@@ -125,6 +125,7 @@ impl<'a> NameResolver<'a> {
                 | TokenType::HexNumber
                 | TokenType::LongNumber
                 | TokenType::Generator
+                | TokenType::Resource
                 | TokenType::Void => return true,
                 _ => return false,
             }

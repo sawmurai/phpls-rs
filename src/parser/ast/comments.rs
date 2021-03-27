@@ -44,6 +44,7 @@ impl DocBlockScanner {
             "void" => TokenType::Void,
             "callable" => TokenType::Callable,
             "generator" => TokenType::Generator,
+            "resource" => TokenType::Resource,
             _ => TokenType::Identifier,
         }
     }
