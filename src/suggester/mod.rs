@@ -1,6 +1,9 @@
-use crate::environment::{
-    symbol::{PhpSymbolKind, Symbol, Visibility},
-    visitor::name_resolver::{NameResolver, Reference},
+use crate::{
+    backend::FileReferenceMap,
+    environment::{
+        symbol::{PhpSymbolKind, Symbol, Visibility},
+        visitor::name_resolver::NameResolver,
+    },
 };
 use crate::{environment::get_range, environment::in_range, parser::node::Node as AstNode};
 use indextree::{Arena, NodeId};
@@ -153,7 +156,7 @@ pub fn get_suggestions_at(
     ast: &Vec<AstNode>,
     arena: &Arena<Symbol>,
     global_symbols: &HashMap<String, NodeId>,
-    references: &Vec<Reference>,
+    references: &FileReferenceMap,
 ) -> Vec<NodeId> {
     let mut no_magic_const = false;
     if let Some('>') = trigger {
@@ -183,7 +186,7 @@ pub fn get_suggestions_at(
 
     let parent = ancestors.pop();
 
-    let mut built_in_references = Vec::new();
+    let mut built_in_references = FileReferenceMap::new();
     match node {
         AstNode::Variable(..) | AstNode::AliasedVariable { .. } => {
             if let Some(parent_scope) = arena[symbol_under_cursor].parent() {
@@ -203,7 +206,9 @@ pub fn get_suggestions_at(
                             if name.label == Some(String::from("this")) {
                                 if let Some(parent_class) = arena[symbol_under_cursor].parent() {
                                     built_in_references
-                                        .push(Reference::new(object.range(), parent_class));
+                                        .entry(parent_class)
+                                        .or_insert_with(Vec::new)
+                                        .push(object.range());
                                 }
                             }
                         }
@@ -227,7 +232,10 @@ pub fn get_suggestions_at(
                     } else if let AstNode::Variable(token) = object.as_ref() {
                         if Some(String::from("this")) == token.label {
                             if let Some(parent_class) = arena[symbol_under_cursor].parent() {
-                                built_in_references.push(Reference::new(range, parent_class));
+                                built_in_references
+                                    .entry(parent_class)
+                                    .or_insert_with(Vec::new)
+                                    .push(range);
                             }
                         }
                     }
@@ -238,8 +246,12 @@ pub fn get_suggestions_at(
                     character: range.0 .1 as u64,
                 };
 
-                for reference in references.iter().chain(built_in_references.iter()) {
-                    if !in_range(&pos, &get_range(reference.range)) {
+                for (node, ranges) in references.iter().chain(built_in_references.iter()) {
+                    if ranges
+                        .iter()
+                        .find(|r| in_range(&pos, &get_range(**r)))
+                        .is_none()
+                    {
                         continue;
                     }
 
@@ -254,6 +266,7 @@ pub fn get_suggestions_at(
 
                     // Collect a list of all accessible members of this class and its parents
                     let mut accessible_members = Vec::new();
+
                     if let Some(current_class) = current_class {
                         accessible_members.extend(current_class.children(&arena));
 
@@ -271,18 +284,17 @@ pub fn get_suggestions_at(
                     let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
 
                     let static_only = Some(':') == trigger;
-                    arena[reference.node]
+                    arena[*node]
                         .get()
                         .data_types
                         .iter()
                         .filter_map(|dt_reference| {
                             if let Some(type_ref) = dt_reference.type_ref.as_ref() {
-                                // TODO: resolve $this
                                 if let Some(tr) = dt_reference.type_ref.as_ref() {
                                     if let Some(first) = tr.first() {
                                         if let Some(label) = first.label.as_ref() {
                                             if label == "$this" {
-                                                return arena[reference.node].parent();
+                                                return arena[*node].parent();
                                             }
                                         }
                                     }
@@ -361,6 +373,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::super::parser::token::*;
+    use super::FileReferenceMap;
     use crate::{
         backend::Backend,
         backend::BackendState,
@@ -549,6 +562,8 @@ mod tests {
             Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
 
+        eprintln!("{:?}", state.symbol_references.get("index2.php"));
+
         let mut scanner = Scanner::new(&sources[4].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
@@ -618,7 +633,7 @@ mod tests {
             line: 0,
             character: 22,
         };
-        let references = Vec::new();
+        let references = FileReferenceMap::new();
         let suc = state.files.get("index.php").unwrap();
         let actual = super::get_suggestions_at(
             Some('$'),
@@ -663,7 +678,7 @@ mod tests {
             line: 0,
             character: 12,
         };
-        let references = Vec::new();
+        let references = FileReferenceMap::new();
         let suc = state.files.get("index.php").unwrap();
         let actual = super::get_suggestions_at(
             None,
@@ -714,7 +729,7 @@ mod tests {
             character: 71,
         };
 
-        let references = Vec::new();
+        let references = FileReferenceMap::new();
         let suc = state.files.get("animal.php").unwrap();
         let file = state.arena[*suc].get();
         let actual = super::get_suggestions_at(

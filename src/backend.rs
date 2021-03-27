@@ -8,6 +8,7 @@ use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolve
 use crate::environment::visitor::workspace_symbol::WorkspaceSymbolVisitor;
 use crate::environment::{self};
 use crate::parser::node::Node as AstNode;
+use crate::parser::node::NodeRange;
 use crate::parser::scanner::Scanner;
 use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
@@ -41,7 +42,9 @@ extern crate crossbeam_channel as channel;
 extern crate ignore;
 extern crate walkdir;
 
-pub(crate) type ReferenceMapMutex = Arc<Mutex<HashMap<String, Vec<Reference>>>>;
+pub(crate) type FileReferenceMap = HashMap<NodeId, Vec<NodeRange>>;
+pub(crate) type ReferenceMap = HashMap<String, FileReferenceMap>;
+pub(crate) type ReferenceMapMutex = Arc<Mutex<ReferenceMap>>;
 pub(crate) type ParseResult = (String, Vec<AstNode>, Range, Vec<ParserError>);
 
 #[derive(Default)]
@@ -58,8 +61,10 @@ pub struct BackendState {
     /// Global list of all diagnostics
     pub diagnostics: HashMap<String, Vec<Diagnostic>>,
 
-    /// References to symbols. Key is the filename
-    pub symbol_references: HashMap<String, Vec<Reference>>,
+    /// References to symbols implemented as a HashMap of HashMaps. The
+    /// other HashMap has the filename as key, the inner HashMap has the
+    /// NodeId of the symbols whose references are stored, as key
+    pub symbol_references: ReferenceMap,
 
     /// List of currently opened files and their AST
     pub opened_files: HashMap<String, (Vec<AstNode>, Range)>,
@@ -196,7 +201,7 @@ impl Backend {
                 }
             })
             .collect::<Vec<String>>();
-        let symbol_references = Arc::new(Mutex::new(HashMap::new()));
+        let symbol_references = Arc::new(Mutex::new(ReferenceMap::new()));
 
         let mut joins = Vec::new();
         for p in all_files {
@@ -446,7 +451,7 @@ impl Backend {
         path: &str,
         ast: &[AstNode],
         state: &mut BackendState,
-        container: Option<&mut HashMap<String, Vec<Reference>>>,
+        container: Option<&mut ReferenceMap>,
     ) -> io::Result<()> {
         let enclosing_file = if let Some(file) = state.files.get(path) {
             file.clone()
@@ -479,21 +484,24 @@ impl Backend {
                 })
         }
 
+        // Extract all references of the current file only
+        let mut map = HashMap::new();
+        visitor
+            .references()
+            .get(&enclosing_file)
+            .iter()
+            .for_each(|refs| {
+                refs.iter().for_each(|reference| {
+                    map.entry(reference.node)
+                        .or_insert_with(Vec::new)
+                        .push(reference.range);
+                });
+            });
+
         if let Some(container) = container {
-            visitor.references().drain().for_each(|(file, refs)| {
-                container
-                    .entry(state.arena[file.clone()].get().name.clone())
-                    .or_insert_with(Vec::new)
-                    .extend(refs.clone());
-            });
+            container.insert(path.to_owned(), map);
         } else {
-            visitor.references().drain().for_each(|(file, refs)| {
-                state
-                    .symbol_references
-                    .entry(state.arena[file.clone()].get().name.clone())
-                    .or_insert_with(Vec::new)
-                    .extend(refs.clone());
-            });
+            state.symbol_references.insert(path.to_owned(), map);
         }
 
         Ok(())
@@ -748,16 +756,17 @@ impl LanguageServer for Backend {
             .map(|(file, refs)| {
                 // Find all refs that point to our symbol, across all files
                 refs.iter()
-                    .filter_map(|one_ref| {
-                        if one_ref.node == suc {
-                            return Some(Location {
+                    .filter_map(|(node, ranges)| {
+                        if node == &suc {
+                            return Some(ranges.iter().map(|range| Location {
                                 uri: Url::from_file_path(file).unwrap(),
-                                range: get_range(one_ref.range),
-                            });
+                                range: get_range(*range),
+                            }));
                         }
 
                         return None;
                     })
+                    .flatten()
                     .collect()
             })
             .fold(Vec::new(), |cur, mut tot: Vec<Location>| {
@@ -808,16 +817,17 @@ impl LanguageServer for Backend {
             .for_each(|(file, refs)| {
                 let edits: Vec<TextEdit> = refs
                     .iter()
-                    .filter_map(|one_ref| {
-                        if one_ref.node == suc {
-                            return Some(TextEdit {
-                                range: get_range(one_ref.range),
+                    .filter_map(|(node, ranges)| {
+                        if node == &suc {
+                            return Some(ranges.iter().map(|range| TextEdit {
                                 new_text: params.new_name.clone(),
-                            });
+                                range: get_range(*range),
+                            }));
                         }
 
                         return None;
                     })
+                    .flatten()
                     .collect();
                 // Find all refs that point to our symbol, across all files
                 changes
@@ -843,11 +853,13 @@ impl LanguageServer for Backend {
         let position = &params.text_document_position_params.position;
 
         if let Some(references) = state.symbol_references.get(&file) {
-            for reference in references {
-                if in_range(position, &get_range(reference.range)) {
-                    if let Some(location) =
-                        environment::symbol_location(&state.arena, &reference.node)
-                    {
+            for (node, ranges) in references {
+                if ranges
+                    .iter()
+                    .find(|r| in_range(position, &get_range(**r)))
+                    .is_some()
+                {
+                    if let Some(location) = environment::symbol_location(&state.arena, node) {
                         return Ok(Some(GotoDefinitionResponse::Scalar(location)));
                     }
                 }
@@ -1004,15 +1016,15 @@ impl LanguageServer for Backend {
         let position = &params.text_document_position_params.position;
 
         if let Some(references) = state.symbol_references.get(&file) {
-            for reference in references {
-                if in_range(position, &get_range(reference.range)) {
-                    let symbol = state.arena[reference.node].get();
+            for (node, ranges) in references {
+                if let Some(range) = ranges.iter().find(|r| in_range(position, &get_range(**r))) {
+                    let symbol = state.arena[*node].get();
 
                     return Ok(Some(Hover {
-                        range: Some(get_range(reference.range)),
+                        range: Some(get_range(*range)),
                         contents: HoverContents::Markup(MarkupContent {
                             kind: MarkupKind::Markdown,
-                            value: symbol.hover_text(references, reference.node, &state.arena),
+                            value: symbol.hover_text(references, *node, &state.arena),
                         }),
                     }));
                 }

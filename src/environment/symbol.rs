@@ -1,13 +1,13 @@
 use super::{get_range, in_range, visitor::name_resolver::NameResolver};
 use crate::environment::import::SymbolImport;
 use crate::environment::scope::Reference;
-use crate::environment::visitor::name_resolver::Reference as NameResolverReference;
+use crate::parser::node::NodeRange;
 use crate::parser::token::{to_fqdn, Token, TokenType};
 use indextree::{Arena, NodeId};
-use std::{cmp::PartialOrd, fmt::Display};
+use std::{cmp::PartialOrd, collections::HashMap, fmt::Display};
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionItemTag, Diagnostic, DocumentSymbol, Position,
-    Range, SymbolKind,
+    CompletionItem, CompletionItemKind, CompletionItemTag, DocumentSymbol, Position, Range,
+    SymbolKind,
 };
 
 /// An extension if the LSP-type "SymbolKind"
@@ -484,7 +484,7 @@ impl Symbol {
 
     pub fn hover_text(
         &self,
-        references: &[NameResolverReference],
+        references: &HashMap<NodeId, Vec<NodeRange>>,
         node: NodeId,
         arena: &Arena<Self>,
     ) -> String {
@@ -492,9 +492,13 @@ impl Symbol {
             .data_types
             .iter()
             .filter_map(|dt| {
-                for reference in references {
-                    if in_range(&dt.range.start, &get_range(reference.range)) {
-                        return Some(arena[reference.node].get().fqdn());
+                for (node, ranges) in references {
+                    if ranges
+                        .iter()
+                        .find(|r| in_range(&dt.range.start, &get_range(**r)))
+                        .is_some()
+                    {
+                        return Some(arena[*node].get().fqdn());
                     }
                 }
 

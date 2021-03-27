@@ -1017,6 +1017,35 @@ mod tests {
     use crate::{backend::Backend, backend::BackendState, environment::get_range, parser};
     use parser::{scanner::Scanner, Parser};
 
+    macro_rules! references {
+        ($col:ident, $file:expr) => {
+            $col.symbol_references
+                .get($file)
+                .unwrap()
+                .iter()
+                .map(|(node, ranges)| {
+                    let mut refs = Vec::with_capacity(ranges.len());
+                    for _ in ranges {
+                        refs.push(&$col.arena[node.clone()].get().name);
+                    }
+
+                    refs
+                })
+                .flatten()
+                .collect::<Vec<&String>>()
+        };
+    }
+
+    macro_rules! assert_reference_names {
+        ($expected:expr, $actual:expr) => {
+            let mut left = $expected;
+            let mut right = $actual;
+            left.sort();
+            right.sort();
+            assert_eq!(left, right);
+        };
+    }
+
     #[tokio::test]
     async fn test_references_direct_and_inherited_symbols() {
         let mut state = BackendState::default();
@@ -1052,7 +1081,7 @@ mod tests {
 
         assert!(state.diagnostics.is_empty());
 
-        assert_eq!(
+        assert_reference_names!(
             vec![
                 "Cat",
                 "Cat",
@@ -1062,16 +1091,10 @@ mod tests {
                 "getPulse",
                 "Cat",
             ],
-            state
-                .symbol_references
-                .get("index.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "index.php")
         );
 
-        assert_eq!(
+        assert_reference_names!(
             vec![
                 "Cat",
                 "Cat",
@@ -1084,16 +1107,10 @@ mod tests {
                 "test",
                 "getName",
             ],
-            state
-                .symbol_references
-                .get("index2.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "index2.php")
         );
 
-        assert_eq!(
+        assert_reference_names!(
             vec![
                 "Cat",
                 "Cat",
@@ -1107,13 +1124,7 @@ mod tests {
                 "Cat",
                 "ROFL"
             ],
-            state
-                .symbol_references
-                .get("index3.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "index3.php")
         );
     }
 
@@ -1145,15 +1156,9 @@ mod tests {
         eprintln!("{:?}", state.diagnostics);
         assert!(state.diagnostics.is_empty());
 
-        assert_eq!(
+        assert_reference_names!(
             vec!["Living", "Living", "cat", "getPulse",],
-            state
-                .symbol_references
-                .get("index.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "index.php")
         );
     }
 
@@ -1187,15 +1192,9 @@ mod tests {
         eprintln!("{:?}", state.diagnostics);
         assert!(state.diagnostics.is_empty());
 
-        assert_eq!(
+        assert_reference_names!(
             vec!["Cat", "Cat", "marci", "getName",],
-            state
-                .symbol_references
-                .get("index.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "index.php")
         );
     }
 
@@ -1235,7 +1234,7 @@ mod tests {
 
         eprintln!("{:?}", state.diagnostics);
         assert!(state.diagnostics.is_empty());
-        assert_eq!(
+        assert_reference_names!(
             vec![
                 "Living",
                 "instance",
@@ -1247,23 +1246,11 @@ mod tests {
                 "instance3",
                 "getOther",
             ],
-            state
-                .symbol_references
-                .get("living.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "living.php")
         );
-        assert_eq!(
+        assert_reference_names!(
             vec!["Living", "Cat", "getName", "Cat", "getOther",],
-            state
-                .symbol_references
-                .get("cat.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "cat.php")
         );
     }
 
@@ -1300,35 +1287,10 @@ mod tests {
         eprintln!("{:?}", state.diagnostics);
         assert!(state.diagnostics.is_empty());
 
-        assert_eq!(
-            vec!["Living"],
-            state
-                .symbol_references
-                .get("cat.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
-        );
-        assert_eq!(
-            vec!["Living"],
-            state
-                .symbol_references
-                .get("cat.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
-        );
-        assert_eq!(
+        assert_reference_names!(vec!["Living"], references!(state, "cat.php"));
+        assert_reference_names!(
             vec!["Living", "Living"],
-            state
-                .symbol_references
-                .get("anothercat.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "anothercat.php")
         );
     }
 
@@ -1359,15 +1321,9 @@ mod tests {
         eprintln!("{:?}", state.diagnostics);
         assert!(state.diagnostics.is_empty());
 
-        assert_eq!(
+        assert_reference_names!(
             vec!["Living", "Living", "__construct"],
-            state
-                .symbol_references
-                .get("cat.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "cat.php")
         );
     }
 
@@ -1399,15 +1355,9 @@ mod tests {
         eprintln!("{:?}", state.diagnostics);
         assert!(state.diagnostics.is_empty());
 
-        assert_eq!(
+        assert_reference_names!(
             vec!["If3", "object", "m1", "object", "m2",],
-            state
-                .symbol_references
-                .get("index.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "index.php")
         );
     }
 
@@ -1443,27 +1393,12 @@ mod tests {
         eprintln!("{:?}", state.diagnostics);
         assert!(state.diagnostics.is_empty());
 
-        assert_eq!(
+        assert_reference_names!(
             vec!["Test", "o", "inst", "test"],
-            state
-                .symbol_references
-                .get("index.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "index.php")
         );
 
-        assert_eq!(
-            vec!["OtherTest", "var"],
-            state
-                .symbol_references
-                .get("c2.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
-        );
+        assert_reference_names!(vec!["OtherTest", "var"], references!(state, "c2.php"));
     }
 
     #[tokio::test]
@@ -1499,15 +1434,9 @@ mod tests {
 
         eprintln!("{:?}", state.diagnostics);
         assert!(state.diagnostics.is_empty());
-        assert_eq!(
+        assert_reference_names!(
             vec!["Living", "Living", "inst", "me", "myself", "i", "my_parent"],
-            state
-                .symbol_references
-                .get("index.php")
-                .unwrap()
-                .iter()
-                .map(|r| &state.arena[r.node].get().name)
-                .collect::<Vec<&String>>()
+            references!(state, "index.php")
         );
     }
 }
