@@ -248,22 +248,33 @@ impl Parser {
     /// ```
     fn inline_html(&mut self) -> ExpressionResult {
         let start = self.consume(TokenType::ScriptEnd)?;
+        // If the next token is a <?= we consider this a short-tag-echo-statement (nice name, huh?)
         if self.next_token_one_of(&[TokenType::ScriptStart(ScriptStartType::Echo)]) {
             let expr = keywords::short_tag_echo_statement(self)?;
 
+            // The previous call extracts everything including the closing ?> token. Now,
+            // if the next token is a regular opening tag (or a short opening tag) we already
+            // consume it to not be in a limbo state where the parser would be out of script-mode
+            // but, semantically, could still be withing a block for example. This is to handle
+            // cases like this:
+            // foreach ($elements as $e) { ?>
+            //    <?= echo $e; ?>
+            // <?php }   // <-- this
             if self.next_token_one_of(&[
                 TokenType::ScriptStart(ScriptStartType::Regular),
                 TokenType::ScriptStart(ScriptStartType::Short),
             ]) {
                 self.context = Context::Script;
                 self.next();
+            // Otherwise we remain in Out mode. The next token might be another <?=
             } else {
-                eprintln!("Out because {:?}", self.peek());
                 self.context = Context::Out;
             }
             return Ok(expr);
         }
 
+        // If this is just a regular inline html block we fast-forward to the end of it.
+        // TODO: Collect its content as well, so we can restore it on format
         let end = self.consume_one_of_or_ignore(&[
             TokenType::ScriptStart(ScriptStartType::Regular),
             TokenType::ScriptStart(ScriptStartType::Short),
@@ -299,11 +310,8 @@ impl Parser {
             Context::Out => {
                 if let Some(token) = self.peek() {
                     match token.t {
-                        TokenType::ScriptStart(ScriptStartType::Regular) => {
-                            self.context = Context::Script;
-                            self.next();
-                        }
-                        TokenType::ScriptStart(ScriptStartType::Short) => {
+                        TokenType::ScriptStart(ScriptStartType::Regular)
+                        | TokenType::ScriptStart(ScriptStartType::Short) => {
                             self.context = Context::Script;
                             self.next();
                         }
