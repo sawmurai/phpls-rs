@@ -301,7 +301,7 @@ impl Symbol {
             let s = arena[c].get();
 
             // Ignore namespaces as they span the entire document but do not contain symbols
-            if s.kind == PhpSymbolKind::Namespace {
+            if s.kind == PhpSymbolKind::Namespace || s.kind == PhpSymbolKind::MagicConst {
                 continue;
             }
 

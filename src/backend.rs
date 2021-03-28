@@ -77,6 +77,7 @@ pub struct Backend {
     /// LSP client
     client: Client,
 
+    /// The global state of the server
     state: Arc<Mutex<BackendState>>,
 
     /// Path to stubs
@@ -397,8 +398,7 @@ impl Backend {
         });
 
         let mut visitor = WorkspaceSymbolVisitor::new();
-        let iter = ast.iter();
-        for node in iter {
+        for node in ast {
             traverse(node, &mut visitor, &mut state.arena, enclosing_file);
         }
 
@@ -425,7 +425,6 @@ impl Backend {
             // But references are a different story
             for symbol_id in old_enclosing.descendants(&state.arena) {
                 for (_file, references_of_file) in state.symbol_references.iter_mut() {
-                    eprintln!("Remove old reference");
                     references_of_file.remove(&symbol_id);
                 }
             }
@@ -749,6 +748,8 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
+        eprintln!("Finding refs for {:?} {}", suc, nuc);
+
         let symbol_references =
             if let Some(symbol_references) = self.references_of_symbol_under_cursor(&nuc).await {
                 symbol_references
@@ -760,21 +761,21 @@ impl LanguageServer for Backend {
             .lock()
             .await
             .iter()
-            .map(|(file, refs)| {
+            .filter_map(|(file, refs)| {
                 // Find all refs that point to our symbol, across all files
-                refs.iter()
-                    .filter_map(|(node, ranges)| {
-                        if node == &suc {
-                            return Some(ranges.iter().map(|range| Location {
+                if let Some(ranges) = refs.get(&suc) {
+                    Some(
+                        ranges
+                            .iter()
+                            .map(|range| Location {
                                 uri: Url::from_file_path(file).unwrap(),
                                 range: get_range(*range),
-                            }));
-                        }
-
-                        return None;
-                    })
-                    .flatten()
-                    .collect()
+                            })
+                            .collect::<Vec<Location>>(),
+                    )
+                } else {
+                    None
+                }
             })
             .fold(Vec::new(), |cur, mut tot: Vec<Location>| {
                 tot.extend(cur);
@@ -1019,8 +1020,23 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-        let state = self.state.lock().await;
         let position = &params.text_document_position_params.position;
+
+        let symbol = self.symbol_under_cursor(position, &file).await;
+        let state = self.state.lock().await;
+        if let Some((node, _)) = symbol {
+            let symbol = state.arena[node].get();
+
+            if in_range(position, &symbol.selection_range) {
+                return Ok(Some(Hover {
+                    range: Some(symbol.range),
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: symbol.hover_text(&HashMap::new(), node, &state.arena),
+                    }),
+                }));
+            }
+        }
 
         if let Some(references) = state.symbol_references.get(&file) {
             for (node, ranges) in references {
