@@ -49,6 +49,7 @@ macro_rules! optional_ident {
     };
 }
 
+#[derive(Default)]
 pub struct FormatterOptions {
     pub max_line_length: usize,
     pub indent: usize,
@@ -337,7 +338,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
 /// * line - The current start line
 /// * col - The current column / indentation level
 /// * options - The formatter options
-fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions) -> String {
+pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions) -> String {
     match node {
         Node::UseDeclaration {
             declaration, alias, ..

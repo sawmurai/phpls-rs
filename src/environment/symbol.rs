@@ -1,10 +1,11 @@
 use super::{get_range, in_range, visitor::name_resolver::NameResolver};
+use crate::environment::fs::file_read_range;
 use crate::environment::import::SymbolImport;
 use crate::environment::scope::Reference;
-use crate::parser::node::NodeRange;
-use crate::parser::token::{to_fqdn, Token, TokenType};
+use crate::parser::node::Node as AstNode;
+use crate::parser::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
-use std::{cmp::PartialOrd, collections::HashMap, fmt::Display};
+use std::{cmp::PartialOrd, fmt::Display};
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemTag, DocumentSymbol, Position, Range,
     SymbolKind,
@@ -103,6 +104,23 @@ impl From<&Option<Token>> for Visibility {
     }
 }
 
+/// Struct representing a function parameter. Its a wrapper around the Symbols representing
+/// the parameters and adds some additional information
+#[derive(Clone, Debug)]
+pub struct FunctionParameter {
+    pub symbol: NodeId,
+    pub ast: AstNode,
+}
+
+impl FunctionParameter {
+    pub fn new(symbol: &NodeId, ast: &AstNode) -> Self {
+        Self {
+            symbol: symbol.to_owned(),
+            ast: ast.clone(),
+        }
+    }
+}
+
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
 #[derive(Clone, Debug)]
@@ -115,9 +133,11 @@ pub struct Symbol {
     pub selection_range: Range,
     pub deprecated: Option<bool>,
 
-    // Optional namespace this symbol is defined in
+    /// Optional namespace this symbol is defined in
     pub namespace: Option<String>,
 
+    /// If symbol is a file, this contains the namespace imports. If its a class
+    /// this contains the used traits
     pub imports: Option<Vec<SymbolImport>>,
 
     /// Parent symbol(s) (used for inheritance)
@@ -125,8 +145,12 @@ pub struct Symbol {
     /// as its supported in interfaces
     pub inherits_from: Option<Vec<Reference>>,
 
-    /// Ids of the symbols defining the possible types this symbol can have
+    /// Ids of the symbols defining the possible types this symbol can have. This includes
+    /// return types or implemented interfaces
     pub data_types: Vec<Reference>,
+
+    /// An optional set of parameters. This is mainly for methods and functions.
+    pub parameters: Vec<FunctionParameter>,
 
     /// True if this value was declared static
     pub is_static: bool,
@@ -148,6 +172,7 @@ impl Default for Symbol {
             data_types: Vec::new(),
             is_static: false,
             imports: None,
+            parameters: Vec::new(),
             visibility: Visibility::None,
         }
     }
@@ -480,66 +505,30 @@ impl Symbol {
         })
     }
 
-    pub fn hover_text(
-        &self,
-        references: &HashMap<NodeId, Vec<NodeRange>>,
-        node: NodeId,
-        arena: &Arena<Self>,
-    ) -> String {
-        let data_types = self
-            .data_types
-            .iter()
-            .filter_map(|dt| {
-                for (node, ranges) in references {
-                    if ranges
-                        .iter()
-                        .find(|r| in_range(&dt.range.start, &get_range(**r)))
-                        .is_some()
-                    {
-                        return Some(arena[*node].get().fqdn());
-                    }
-                }
+    pub fn hover_text(&self, node: NodeId, arena: &Arena<Self>) -> String {
+        if let Some(file) = node.ancestors(arena).find_map(|a| {
+            let ancestor = arena[a].get();
 
-                if let Some(token) = dt.type_ref.as_ref() {
-                    return Some(to_fqdn(token));
-                }
-
+            if ancestor.kind == PhpSymbolKind::File {
+                Some(ancestor)
+            } else {
                 None
-            })
-            .collect::<Vec<String>>()
-            .join(" | ");
+            }
+        }) {
+            let doc = file_read_range(&file.name, self.range.start.line, self.range.end.line);
 
-        match self.kind {
-            PhpSymbolKind::Variable | PhpSymbolKind::FunctionParameter => {
-                format!("${} : {}", self.name, data_types,)
-            }
-            PhpSymbolKind::Property => {
-                let parent = if let Some(parent_node_id) = arena[node].parent() {
-                    arena[parent_node_id].get()
-                } else {
-                    return "".to_owned();
-                };
-
-                format!("{}::${} : {}", parent.fqdn(), self.name, data_types)
-            }
-            PhpSymbolKind::Method => {
-                let parent = if let Some(parent_node_id) = arena[node].parent() {
-                    arena[parent_node_id].get()
-                } else {
-                    return "".to_owned();
-                };
-
-                format!(
-                    "{}::{}(<add args>) : {}",
-                    parent.fqdn(),
-                    self.name,
-                    data_types
-                )
-            }
-            PhpSymbolKind::Function => {
-                format!("{}(<add args>) : {}", self.name, data_types)
-            }
-            _ => String::from(""),
+            format!(
+                "
+# Documentation
+```php
+<?php
+{}
+```
+",
+                doc
+            )
+        } else {
+            self.name.clone()
         }
     }
 }

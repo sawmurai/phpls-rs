@@ -1,6 +1,8 @@
 use std::{fs, path::PathBuf};
 use tokio::io::{self};
 
+use crate::parser::node::NodeRange;
+
 pub(crate) fn reindex_folder(dir: &PathBuf, ignore: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
 
@@ -43,4 +45,18 @@ pub(crate) fn reindex_folder(dir: &PathBuf, ignore: &[PathBuf]) -> io::Result<Ve
 
 pub(crate) fn normalize_path(path: &PathBuf) -> String {
     path.to_str().unwrap().to_owned()
+}
+
+pub(crate) fn file_read_range(path: &str, start: u64, end: u64) -> String {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        _ => return String::from("Error reading source file"),
+    };
+
+    content
+        .lines()
+        .skip(start as usize)
+        .take((end - start + 1) as usize)
+        .map(|s| format!("{}\n", s))
+        .collect()
 }

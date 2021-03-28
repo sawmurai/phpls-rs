@@ -3,7 +3,7 @@ use super::super::import::collect_uses;
 use super::NextAction;
 use super::Symbol;
 use super::Visitor;
-use crate::environment::symbol::{PhpSymbolKind, Visibility};
+use crate::environment::symbol::{FunctionParameter, PhpSymbolKind, Visibility};
 use crate::environment::{import::namespace_to_string, scope::Reference};
 use crate::parser::node::Node as AstNode;
 use crate::parser::token::{name as token_name, range as token_range, Token};
@@ -285,8 +285,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                     Vec::new()
                 };
 
-                // Is there a doc comment?
-
                 ref_from_doc!(doc_comment, data_types, var_docs);
 
                 let child = arena.new_node(Symbol {
@@ -331,10 +329,16 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 ref_from_doc!(doc_comment, data_types, return_type);
 
+                let range = if let Some(doc_comment) = doc_comment {
+                    (doc_comment.range().0, node.range().1)
+                } else {
+                    node.range()
+                };
+
                 let child = arena.new_node(Symbol {
                     name: name.clone().label.unwrap(),
                     kind: PhpSymbolKind::Method,
-                    range: get_range(node.range()),
+                    range: get_range(range),
                     selection_range: get_range(name.range()),
                     data_types,
                     is_static: is_static.is_some(),
@@ -356,8 +360,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                 {
                     (return_type, doc_comment)
                 } else {
-                    eprintln!("Invalid function {:?}", function);
-
                     return NextAction::Abort;
                 };
 
@@ -372,10 +374,16 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 ref_from_doc!(doc_comment, data_types, return_type);
 
+                let range = if let Some(doc_comment) = doc_comment {
+                    (doc_comment.range().0, node.range().1)
+                } else {
+                    node.range()
+                };
+
                 let child = arena.new_node(Symbol {
                     name: name.clone().label.unwrap(),
                     kind: PhpSymbolKind::Function,
-                    range: get_range(node.range()),
+                    range: get_range(range),
                     selection_range: get_range(name.range()),
                     data_types,
                     ..Symbol::default()
@@ -419,6 +427,11 @@ impl Visitor for WorkspaceSymbolVisitor {
                 });
 
                 parent.append(child, arena);
+
+                arena[parent]
+                    .get_mut()
+                    .parameters
+                    .push(FunctionParameter::new(&child, node));
 
                 NextAction::Abort
             }

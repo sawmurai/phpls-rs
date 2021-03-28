@@ -1032,7 +1032,7 @@ impl LanguageServer for Backend {
                     range: Some(symbol.range),
                     contents: HoverContents::Markup(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: symbol.hover_text(&HashMap::new(), node, &state.arena),
+                        value: symbol.hover_text(node, &state.arena),
                     }),
                 }));
             }
@@ -1047,7 +1047,7 @@ impl LanguageServer for Backend {
                         range: Some(get_range(*range)),
                         contents: HoverContents::Markup(MarkupContent {
                             kind: MarkupKind::Markdown,
-                            value: symbol.hover_text(references, *node, &state.arena),
+                            value: symbol.hover_text(*node, &state.arena),
                         }),
                     }));
                 }
