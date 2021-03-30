@@ -1,7 +1,5 @@
 use std::{fs, path::PathBuf};
-use tokio::io::{self};
-
-use crate::parser::node::NodeRange;
+use tokio::io;
 
 pub(crate) fn reindex_folder(dir: &PathBuf, ignore: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();

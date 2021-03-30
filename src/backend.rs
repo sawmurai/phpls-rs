@@ -13,15 +13,15 @@ use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
 use crate::suggester;
-use ignore::WalkBuilder;
+use ignore::{types::TypesBuilder, WalkBuilder};
 use indextree::{Arena, NodeId};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{collections::HashMap, ffi::OsString};
-use tokio::io;
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
 use tokio::task;
+use tokio::{io, task::JoinHandle};
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -260,13 +260,13 @@ impl Backend {
 
     async fn init_workspace(&self, url: &Url) -> io::Result<()> {
         let root_path = url.to_file_path().unwrap();
-        let (tx, rx) = channel::bounded::<ParseResult>(100);
+        let (tx, rx) = channel::bounded::<ParseResult>(1000);
 
         let state = self.state.clone();
 
         let handle = Handle::current();
         let mt = std::thread::spawn(move || {
-            handle.spawn(async move {
+            return handle.spawn(async move {
                 for (p, ast, range, errors) in rx {
                     let mut state = state.lock().await;
 
@@ -285,46 +285,52 @@ impl Backend {
             });
         });
 
-        let walker = WalkBuilder::new(PathBuf::from(&self.stubs))
-            .add(PathBuf::from(&root_path))
-            .git_ignore(false)
-            .git_exclude(false)
+        let mut type_builder = TypesBuilder::new();
+        type_builder.add_def("php:*.php").unwrap();
+        let types = type_builder.select("php").build().unwrap();
+
+        let walker = WalkBuilder::new(PathBuf::from(&root_path))
+            .standard_filters(false)
+            .add(PathBuf::from(&self.stubs))
+            //  .git_ignore(false)
+            //  .git_exclude(false)
+            .types(types)
             .threads(6)
             .build_parallel();
 
         walker.run(|| {
             let tx = tx.clone();
             Box::new(move |result| {
-                use ignore::WalkState::{Continue, Skip};
+                use ignore::WalkState::Continue;
 
                 match result {
                     Ok(dent) => {
-                        let ext = OsString::from("php");
-
-                        if dent.path().extension() != Some(&ext) {
-                            return Continue;
-                        }
-
-                        let content = match std::fs::read_to_string(&dent.path()) {
+                        let path = dent.into_path();
+                        let content = match std::fs::read_to_string(&path) {
                             Ok(content) => content,
                             Err(error) => {
-                                eprintln!("{}", error);
+                                //eprintln!("Error reading file {}", error);
 
                                 return Continue;
                             }
                         };
 
                         if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-                            tx.send((
-                                environment::fs::normalize_path(&PathBuf::from(dent.path())),
+                            match tx.send((
+                                EnvFs::normalize_path(&PathBuf::from(path)),
                                 ast,
                                 range,
                                 errors,
-                            ))
-                            .unwrap();
+                            )) {
+                                Err(e) => eprintln!("{:?}", e),
+                                _ => (),
+                            };
                         }
                     }
-                    _ => return Skip,
+                    Err(e) => {
+                        eprintln!("Error indexing path {:?}", e);
+                        return Continue;
+                    }
                 }
 
                 Continue
@@ -333,11 +339,12 @@ impl Backend {
 
         drop(tx);
 
-        mt.join().unwrap();
+        mt.join().unwrap().await?;
 
         // This is in a block to release the locks asap
         {
             let mut state = self.state.lock().await;
+            eprintln!("Indexed {} files ", state.files.len());
             let mut global_table: HashMap<String, NodeId> = HashMap::new();
             for (_file, node_id) in state.files.iter() {
                 let mut current_namespace = String::new();
@@ -692,6 +699,7 @@ impl LanguageServer for Backend {
         let file_path = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
 
         let state = self.state.lock().await;
+
         let node_id = if let Some(node_id) = state.files.get(&file_path) {
             node_id.clone()
         } else {
