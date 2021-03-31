@@ -1118,8 +1118,13 @@ impl LanguageServer for Backend {
                     &state.global_symbols,
                     references,
                 );
-                return Ok(Some(CompletionResponse::Array(
+
+                let mut completions: Vec<CompletionItem> =
+                    suggestions.1.iter().map(|t| t.into()).collect();
+
+                completions.extend(
                     suggestions
+                        .0
                         .drain(..)
                         .map(|s| {
                             let symbol = state.arena[s].get();
@@ -1169,7 +1174,9 @@ impl LanguageServer for Backend {
                             symbol.into()
                         })
                         .collect::<Vec<CompletionItem>>(),
-                )));
+                );
+
+                return Ok(Some(CompletionResponse::Array(completions)));
             }
         }
 

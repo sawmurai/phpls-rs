@@ -4,6 +4,7 @@ use crate::{
         symbol::{PhpSymbolKind, Symbol, Visibility},
         visitor::name_resolver::NameResolver,
     },
+    parser::token::{Token, TokenType},
 };
 use crate::{environment::get_range, environment::in_range, parser::node::Node as AstNode};
 use indextree::{Arena, NodeId};
@@ -157,12 +158,13 @@ pub fn get_suggestions_at(
     arena: &Arena<Symbol>,
     global_symbols: &HashMap<String, NodeId>,
     references: &FileReferenceMap,
-) -> Vec<NodeId> {
+) -> (Vec<NodeId>, Vec<Token>) {
     let mut no_magic_const = false;
     if let Some('>') = trigger {
         pos.character -= 1;
     }
 
+    eprintln!("{:#?}", ast);
     let (node, mut ancestors) = if let Some((node, mut ancestors)) =
         ast.iter().filter_map(|n| find(n, &pos, Vec::new())).nth(0)
     {
@@ -171,15 +173,21 @@ pub fn get_suggestions_at(
         (node, ancestors)
     } else if let Some('$') = trigger {
         // Maybe the $ is the last char of the entire source
-        return symbol_under_cursor
-            .children(arena)
-            .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
-            .collect();
+        return (
+            symbol_under_cursor
+                .children(arena)
+                .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
+                .collect(),
+            vec![],
+        );
     } else {
-        return global_symbols
-            .iter()
-            .map(|(_key, value)| value.to_owned())
-            .collect();
+        return (
+            global_symbols
+                .iter()
+                .map(|(_key, value)| value.to_owned())
+                .collect(),
+            vec![],
+        );
     };
 
     let mut suggestions = Vec::new();
@@ -188,12 +196,28 @@ pub fn get_suggestions_at(
 
     let mut built_in_references = FileReferenceMap::new();
     match node {
+        AstNode::Block { .. } => match parent {
+            Some(AstNode::ClassStatement { .. }) => {
+                return (
+                    vec![],
+                    vec![
+                        Token::new(TokenType::Public, 0, 0),
+                        Token::new(TokenType::Private, 0, 0),
+                        Token::new(TokenType::Protected, 0, 0),
+                    ],
+                )
+            }
+            _ => (),
+        },
         AstNode::Variable(..) | AstNode::AliasedVariable { .. } => {
             if let Some(parent_scope) = arena[symbol_under_cursor].parent() {
-                return parent_scope
-                    .children(arena)
-                    .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
-                    .collect();
+                return (
+                    parent_scope
+                        .children(arena)
+                        .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
+                        .collect(),
+                    vec![],
+                );
             }
         }
         AstNode::Missing(..) | AstNode::Literal(..) | AstNode::Member { .. } => {
@@ -360,7 +384,7 @@ pub fn get_suggestions_at(
 
     suggestions.dedup_by(|a, b| arena[*a].get().name == arena[*b].get().name);
 
-    suggestions
+    (suggestions, vec![])
 }
 
 #[cfg(test)]
@@ -368,7 +392,6 @@ mod tests {
     use std::collections::HashMap;
 
     use super::super::parser::token::*;
-    use super::FileReferenceMap;
     use crate::{
         backend::Backend,
         backend::BackendState,
@@ -467,6 +490,53 @@ mod tests {
         }};
     }
 
+    fn suggestions(
+        sources: &[(&str, &str)],
+        file: usize,
+        line: u64,
+        character: u64,
+        tc: Option<char>,
+    ) -> Vec<String> {
+        let mut state = BackendState::default();
+
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
+        }
+        let mut scanner = Scanner::new(&sources[file].1);
+        scanner.scan().unwrap();
+        let pr = Parser::ast(scanner.tokens).unwrap();
+        let pos = Position { line, character };
+
+        let references = state.symbol_references.get(sources[file].0).unwrap();
+        let suc = state.files.get(sources[file].0).unwrap();
+        let file = state.arena[*suc].get();
+        let suggestions = super::get_suggestions_at(
+            tc,
+            pos,
+            file.symbol_at(&pos, *suc, &state.arena),
+            &pr.0,
+            &state.arena,
+            &state.global_symbols,
+            &references,
+        );
+
+        let mut actual = suggestions
+            .0
+            .iter()
+            .map(|n| state.arena[*n].get().name.to_string())
+            .collect::<Vec<String>>();
+        actual.extend(suggestions.1.iter().map(|t| t.to_string()));
+
+        actual
+    }
+
     #[test]
     fn test_collects_members_of_class_and_its_parents() {
         let mut arena = Arena::new();
@@ -523,8 +593,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_suggests_accessible_members_of_class_and_its_parents() {
-        let mut state = BackendState::default();
-
         let sources = vec![
             (
                 "living.php",
@@ -546,107 +614,24 @@ mod tests {
             ("index2.php", "<?php use App\\AniInter; function x(AniInter $y) {$y->}"),
         ];
 
-        for (file, source) in sources.iter() {
-            let mut scanner = Scanner::new(*source);
-            scanner.scan().unwrap();
+        let actual = suggestions(&sources, 4, 0, 43, Some('>'));
+        assert_eq!("getPulse", actual[0]);
+        assert_eq!("getName", actual[1]);
 
-            let dr = scanner.document_range();
-            let pr = Parser::ast(scanner.tokens).unwrap();
-
-            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
-            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
-        }
-
-        eprintln!("{:?}", state.symbol_references.get("index2.php"));
-
-        let mut scanner = Scanner::new(&sources[4].1);
-        scanner.scan().unwrap();
-        let pr = Parser::ast(scanner.tokens).unwrap();
-        let pos = Position {
-            line: 0,
-            character: 43,
-        };
-        let references = state.symbol_references.get("index.php").unwrap();
-        let suc = state.files.get("index.php").unwrap();
-        let actual = super::get_suggestions_at(
-            Some('>'),
-            pos,
-            *suc,
-            &pr.0,
-            &state.arena,
-            &state.global_symbols,
-            references,
-        );
-
-        assert_eq!("getPulse", state.arena[actual[0]].get().name);
-        assert_eq!("getName", state.arena[actual[1]].get().name);
-
-        // Suggest interface method
-        let mut scanner = Scanner::new(&sources[5].1);
-        scanner.scan().unwrap();
-        let pr = Parser::ast(scanner.tokens).unwrap();
-        let pos = Position {
-            line: 0,
-            character: 54,
-        };
-        let references = state.symbol_references.get("index2.php").unwrap();
-        let suc = state.files.get("index2.php").unwrap();
-        let actual = super::get_suggestions_at(
-            Some('>'),
-            pos,
-            *suc,
-            &pr.0,
-            &state.arena,
-            &state.global_symbols,
-            references,
-        );
-
-        assert_eq!("getName", state.arena[actual[0]].get().name);
+        let actual = suggestions(&sources, 5, 0, 54, Some('>'));
+        assert!(actual.contains(&&"getName".to_string()));
     }
 
     #[tokio::test]
     async fn test_suggests_variables() {
-        let mut state = BackendState::default();
-
         let sources = vec![("index.php", "<?php $cat = 'Marci'; $")];
 
-        for (file, source) in sources.iter() {
-            let mut scanner = Scanner::new(*source);
-            scanner.scan().unwrap();
-
-            let dr = scanner.document_range();
-            let pr = Parser::ast(scanner.tokens).unwrap();
-
-            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
-            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
-        }
-
-        let mut scanner = Scanner::new(&sources[0].1);
-        scanner.scan().unwrap();
-        let pr = Parser::ast(scanner.tokens).unwrap();
-        let pos = Position {
-            line: 0,
-            character: 22,
-        };
-        let references = FileReferenceMap::new();
-        let suc = state.files.get("index.php").unwrap();
-        let actual = super::get_suggestions_at(
-            Some('$'),
-            pos,
-            *suc,
-            &pr.0,
-            &state.arena,
-            &state.global_symbols,
-            &references,
-        );
-
-        assert_eq!("cat", state.arena[actual[0]].get().name);
+        let actual = suggestions(&sources, 0, 0, 22, Some('$'));
+        assert!(actual.contains(&&"cat".to_string()));
     }
 
     #[tokio::test]
     async fn test_suggests_global_symbols() {
-        let mut state = BackendState::default();
-
         let sources = vec![
             (
                 "stdlib.php",
@@ -655,94 +640,19 @@ mod tests {
             ("index.php", "<?php array_"),
         ];
 
-        for (file, source) in sources.iter() {
-            let mut scanner = Scanner::new(*source);
-            scanner.scan().unwrap();
-
-            let dr = scanner.document_range();
-            let pr = Parser::ast(scanner.tokens).unwrap();
-
-            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
-            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
-        }
-
-        let mut scanner = Scanner::new(&sources[1].1);
-        scanner.scan().unwrap();
-        let pr = Parser::ast(scanner.tokens).unwrap();
-        let pos = Position {
-            line: 0,
-            character: 12,
-        };
-        let references = FileReferenceMap::new();
-        let suc = state.files.get("index.php").unwrap();
-        let actual = super::get_suggestions_at(
-            None,
-            pos,
-            *suc,
-            &pr.0,
-            &state.arena,
-            &state.global_symbols,
-            &references,
-        );
-
-        assert_eq!(2, actual.len());
-
-        let actual = actual
-            .iter()
-            .map(|n| &state.arena[*n].get().name)
-            .collect::<Vec<&String>>();
-
+        let actual = suggestions(&sources, 1, 0, 12, None);
         assert!(actual.contains(&&"array_a".to_string()));
         assert!(actual.contains(&&"array_b".to_string()));
     }
 
     #[tokio::test]
     async fn test_suggests_members_of_this() {
-        let mut state = BackendState::default();
-
         let sources = vec![(
             "animal.php",
             "<?php class Animal { private $name; public function getName() { $this-> }}",
         )];
 
-        for (file, source) in sources.iter() {
-            let mut scanner = Scanner::new(*source);
-            scanner.scan().unwrap();
-
-            let dr = scanner.document_range();
-            let pr = Parser::ast(scanner.tokens).unwrap();
-
-            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
-            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
-        }
-
-        let mut scanner = Scanner::new(&sources[0].1);
-        scanner.scan().unwrap();
-        let pr = Parser::ast(scanner.tokens).unwrap();
-        let pos = Position {
-            line: 0,
-            character: 71,
-        };
-
-        let references = FileReferenceMap::new();
-        let suc = state.files.get("animal.php").unwrap();
-        let file = state.arena[*suc].get();
-        let actual = super::get_suggestions_at(
-            Some('>'),
-            pos,
-            file.symbol_at(&pos, *suc, &state.arena),
-            &pr.0,
-            &state.arena,
-            &state.global_symbols,
-            &references,
-        );
-
-        assert_eq!(2, actual.len());
-
-        let actual = actual
-            .iter()
-            .map(|n| &state.arena[*n].get().name)
-            .collect::<Vec<&String>>();
+        let actual = suggestions(&sources, 0, 0, 71, Some('>'));
 
         assert!(actual.contains(&&"getName".to_string()));
         assert!(actual.contains(&&"name".to_string()));
@@ -750,51 +660,36 @@ mod tests {
 
     #[tokio::test]
     async fn test_suggests_class_after_new() {
-        let mut state = BackendState::default();
-
         let sources = vec![
             ("animal.php", "<?php class Animal { } function x() {}"),
             ("index.php", "<?php Animal::"),
         ];
 
-        for (file, source) in sources.iter() {
-            let mut scanner = Scanner::new(*source);
-            scanner.scan().unwrap();
+        let actual = suggestions(&sources, 1, 0, 14, None);
 
-            let dr = scanner.document_range();
-            let pr = Parser::ast(scanner.tokens).unwrap();
-
-            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
-            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
-        }
-        let mut scanner = Scanner::new(&sources[1].1);
-        scanner.scan().unwrap();
-        let pr = Parser::ast(scanner.tokens).unwrap();
-        let pos = Position {
-            line: 0,
-            character: 14,
-        };
-
-        let references = state.symbol_references.get("index.php").unwrap();
-        let suc = state.files.get("index.php").unwrap();
-        let file = state.arena[*suc].get();
-        let actual = super::get_suggestions_at(
-            Some(':'),
-            pos,
-            file.symbol_at(&pos, *suc, &state.arena),
-            &pr.0,
-            &state.arena,
-            &state.global_symbols,
-            &references,
-        );
-
-        assert_eq!(1, actual.len());
-
-        let actual = actual
-            .iter()
-            .map(|n| &state.arena[*n].get().name)
-            .collect::<Vec<&String>>();
+        eprintln!("{:?}", actual);
 
         assert!(actual.contains(&&"class".to_string()));
+    }
+
+    #[test]
+    fn test_suggests_method_modifiers_in_class_body() {
+        let sources = [
+            ("animal.php", "<?php class Animal {  } "),
+            ("animal2.php", "<?php class Animal { p } "),
+        ];
+        let actual = suggestions(&sources, 0, 0, 21, None);
+
+        assert!(actual.contains(&"public".to_string()));
+        assert!(actual.contains(&"private".to_string()));
+        assert!(actual.contains(&"protected".to_string()));
+        assert_eq!(3, actual.len());
+
+        let actual = suggestions(&sources, 1, 0, 22, None);
+
+        assert!(actual.contains(&"public".to_string()));
+        assert!(actual.contains(&"private".to_string()));
+        assert!(actual.contains(&"protected".to_string()));
+        assert_eq!(3, actual.len());
     }
 }

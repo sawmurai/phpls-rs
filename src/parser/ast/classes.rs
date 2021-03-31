@@ -94,7 +94,7 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
     let oc = parser.consume(TokenType::OpenCurly)?;
     let mut statements = Vec::new();
 
-    while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
+    'class_loop: while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
         if parser.next_token_one_of(&[TokenType::Use]) {
             statements.push(use_trait_statement(parser)?);
 
@@ -202,6 +202,11 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
             };
 
             loop {
+                if !parser.next_token_one_of(&[TokenType::Variable]) {
+                    parser.error_fast_forward();
+
+                    break 'class_loop;
+                }
                 let name = parser.consume(TokenType::Variable)?;
 
                 // The next variable

@@ -133,8 +133,6 @@ impl Parser {
                 TokenType::ScriptStart(ScriptStartType::Short),
                 TokenType::CloseCurly,
             ]) {
-                self.next();
-
                 break;
             }
 
@@ -537,6 +535,7 @@ impl Parser {
                 return Ok(token);
             }
 
+            // TODO: Log error
             return Err(Error::WrongTokenError {
                 expected: vec![t],
                 token,

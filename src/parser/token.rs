@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter, Result};
 
+use tower_lsp::lsp_types::{request::Completion, CompletionItem, CompletionItemKind};
+
 use super::node::NodeRange;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -591,5 +593,15 @@ impl Display for Token {
         };
 
         write!(f, "{}", dis)
+    }
+}
+
+impl Into<CompletionItem> for &Token {
+    fn into(self) -> CompletionItem {
+        CompletionItem {
+            label: self.to_string(),
+            kind: Some(CompletionItemKind::Keyword),
+            ..CompletionItem::default()
+        }
     }
 }
