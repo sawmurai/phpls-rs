@@ -164,7 +164,6 @@ pub fn get_suggestions_at(
         pos.character -= 1;
     }
 
-    eprintln!("{:#?}", ast);
     let (node, mut ancestors) = if let Some((node, mut ancestors)) =
         ast.iter().filter_map(|n| find(n, &pos, Vec::new())).nth(0)
     {
