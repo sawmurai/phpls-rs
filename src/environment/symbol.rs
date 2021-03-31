@@ -4,11 +4,11 @@ use crate::environment::import::SymbolImport;
 use crate::environment::scope::Reference;
 use crate::parser::node::Node as AstNode;
 use crate::parser::token::{Token, TokenType};
-use indextree::{Arena, NodeId};
-use std::{cmp::PartialOrd, fmt::Display};
+use indextree::{Arena, Children, NodeId};
+use std::{cmp::PartialOrd, fmt::Display, iter::Map};
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionItemTag, DocumentSymbol, Position, Range,
-    SymbolKind,
+    CompletionItem, CompletionItemKind, CompletionItemTag, DocumentSymbol, InsertTextFormat,
+    Position, Range, SymbolKind,
 };
 
 /// An extension if the LSP-type "SymbolKind"
@@ -225,8 +225,9 @@ impl PhpSymbolKind {
     }
 }
 
-impl Into<CompletionItem> for &Symbol {
-    fn into(self) -> CompletionItem {
+/// Basically a 1:1 mapping that omits the data type
+impl Symbol {
+    pub fn completion_item(&self, node: NodeId, arena: &Arena<Symbol>) -> CompletionItem {
         let tags = if let Some(true) = self.deprecated {
             Some(vec![CompletionItemTag::Deprecated])
         } else {
@@ -272,7 +273,26 @@ impl Into<CompletionItem> for &Symbol {
                 label: self.name.clone(),
                 detail: Some(format!("{} {}()", self.visibility, self.name)),
                 kind: Some(CompletionItemKind::Method),
-                insert_text: Some(format!("{}()", self.name)),
+                insert_text: Some(format!(
+                    "{}({})",
+                    self.name,
+                    self.parameters_as_snippets(node, arena)
+                )),
+                insert_text_format: Some(InsertTextFormat::Snippet),
+                tags,
+                ..CompletionItem::default()
+            },
+
+            PhpSymbolKind::Function => CompletionItem {
+                label: self.name.clone(),
+                detail: Some(format!("{}()", self.name)),
+                kind: Some(CompletionItemKind::Function),
+                insert_text: Some(format!(
+                    "{}({})",
+                    self.name,
+                    self.parameters_as_snippets(node, arena)
+                )),
+                insert_text_format: Some(InsertTextFormat::Snippet),
                 tags,
                 ..CompletionItem::default()
             },
@@ -283,10 +303,22 @@ impl Into<CompletionItem> for &Symbol {
             },
         }
     }
-}
 
-/// Basically a 1:1 mapping that omits the data type
-impl Symbol {
+    fn parameters<'a>(&self, node: NodeId, arena: &'a Arena<Symbol>) -> Vec<&'a String> {
+        node.children(arena)
+            .map(|c| &arena[c].get().name)
+            .collect::<Vec<&String>>()
+    }
+
+    fn parameters_as_snippets(&self, node: NodeId, arena: &Arena<Symbol>) -> String {
+        self.parameters(node, arena)
+            .iter()
+            .enumerate()
+            .map(|(i, c)| format!("${{{}:\\${}}}", i + 1, c))
+            .collect::<Vec<String>>()
+            .join(", ")
+    }
+
     pub fn normalized_name(&self) -> String {
         self.name.to_lowercase()
     }

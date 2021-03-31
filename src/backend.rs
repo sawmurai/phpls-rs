@@ -1134,7 +1134,7 @@ impl LanguageServer for Backend {
                                 let ns = if let Some(ns) = symbol.namespace.as_ref() {
                                     ns
                                 } else {
-                                    return symbol.into();
+                                    return symbol.completion_item(s, &state.arena);
                                 };
 
                                 let fqdn = format!("{}\\{}", ns, symbol.name);
@@ -1146,7 +1146,7 @@ impl LanguageServer for Backend {
                                         .find(|import| import.full_name() == fqdn)
                                         .is_some()
                                     {
-                                        return symbol.into();
+                                        return symbol.completion_item(s, &state.arena);
                                     } else {
                                         // add use to the end of the imports
                                         if let Some(first_import) = imports.first() {
@@ -1167,11 +1167,11 @@ impl LanguageServer for Backend {
                                         range: get_range(((line, 0), (line, 0))),
                                         new_text: to_import,
                                     }]),
-                                    ..symbol.into()
+                                    ..symbol.completion_item(s, &state.arena)
                                 };
                             }
 
-                            symbol.into()
+                            symbol.completion_item(s, &state.arena)
                         })
                         .collect::<Vec<CompletionItem>>(),
                 );
