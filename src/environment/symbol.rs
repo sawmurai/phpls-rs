@@ -240,37 +240,39 @@ impl Symbol {
             ""
         };
 
+        let label = self.name().to_string();
+
         match self.kind {
             PhpSymbolKind::Interface => CompletionItem {
-                label: self.name.clone(),
+                label,
                 detail: Some(format!("interface {}\\{}", ns, self.name)),
                 kind: Some(CompletionItemKind::Interface),
                 tags,
                 ..CompletionItem::default()
             },
             PhpSymbolKind::Class => CompletionItem {
-                label: self.name.clone(),
+                label,
                 detail: Some(format!("class {}\\{}", ns, self.name)),
                 kind: Some(CompletionItemKind::Class),
                 tags,
                 ..CompletionItem::default()
             },
             PhpSymbolKind::Constant => CompletionItem {
-                label: self.name.clone(),
+                label,
                 detail: Some(format!("{} {}()", self.visibility, self.name)),
                 kind: Some(CompletionItemKind::Constant),
                 tags,
                 ..CompletionItem::default()
             },
             PhpSymbolKind::MagicConst => CompletionItem {
-                label: self.name.clone(),
+                label,
                 detail: None,
                 kind: Some(CompletionItemKind::Constant),
                 tags,
                 ..CompletionItem::default()
             },
             PhpSymbolKind::Method => CompletionItem {
-                label: self.name.clone(),
+                label,
                 detail: Some(format!("{} {}()", self.visibility, self.name)),
                 kind: Some(CompletionItemKind::Method),
                 insert_text: Some(format!(
@@ -284,7 +286,7 @@ impl Symbol {
             },
 
             PhpSymbolKind::Function => CompletionItem {
-                label: self.name.clone(),
+                label,
                 detail: Some(format!("{}()", self.name)),
                 kind: Some(CompletionItemKind::Function),
                 insert_text: Some(format!(
@@ -297,17 +299,17 @@ impl Symbol {
                 ..CompletionItem::default()
             },
             _ => CompletionItem {
-                label: self.name.clone(),
+                label,
                 tags,
                 ..CompletionItem::default()
             },
         }
     }
 
-    fn parameters<'a>(&self, node: NodeId, arena: &'a Arena<Symbol>) -> Vec<&'a String> {
+    fn parameters<'a>(&self, node: NodeId, arena: &'a Arena<Symbol>) -> Vec<&'a str> {
         node.children(arena)
-            .map(|c| &arena[c].get().name)
-            .collect::<Vec<&String>>()
+            .map(|c| arena[c].get().name())
+            .collect::<Vec<&str>>()
     }
 
     fn parameters_as_snippets(&self, node: NodeId, arena: &Arena<Symbol>) -> String {

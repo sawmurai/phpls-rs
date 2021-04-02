@@ -175,7 +175,7 @@ fn members_of_parents_of(
 /// * references: Collected references in the current document
 pub fn get_suggestions_at(
     trigger: Option<char>,
-    pos: Position,
+    mut pos: Position,
     symbol_under_cursor: NodeId,
     ast: &Vec<AstNode>,
     arena: &Arena<Symbol>,
@@ -282,7 +282,11 @@ pub fn get_suggestions_at(
                 _ => (),
             }
 
-            if let Some(parent) = parent {
+            if let Some(mut parent) = parent {
+                if let AstNode::ExpressionStatement { expression } = parent {
+                    parent = expression;
+                }
+
                 let mut range = parent.range();
 
                 // Find the reference for the parent, i.e. the $object in $object->|
@@ -292,6 +296,8 @@ pub fn get_suggestions_at(
                         if let AstNode::Member { member, .. } = callee.as_ref() {
                             range = member.range();
                         }
+                    } else if let AstNode::Member { member, .. } = object.as_ref() {
+                        range = member.range();
                     } else if let AstNode::Variable(token) = object.as_ref() {
                         if Some(String::from("this")) == token.label {
                             if let Some(parent_class) = arena[symbol_under_cursor].parent() {
@@ -662,6 +668,7 @@ mod tests {
             ),
             ("index.php", "<?php use App\\Cat; $cat = new Cat(); $cat->"),
             ("index2.php", "<?php use App\\AniInter; function x(AniInter $y) {$y->}"),
+            ("index3.php", "<?php use App\\Living; class T {  /** @var Living */private $thing; public function test() { $this->thing->    } }"),
         ];
 
         let actual = suggestions(&sources, 4, 0, 43, Some('>'));
@@ -670,6 +677,9 @@ mod tests {
 
         let actual = suggestions(&sources, 5, 0, 54, Some('>'));
         assert!(actual.contains(&&"getName".to_string()));
+
+        let actual = suggestions(&sources, 6, 0, 107, Some('>'));
+        assert!(actual.contains(&&"getPulse".to_string()));
     }
 
     #[tokio::test]

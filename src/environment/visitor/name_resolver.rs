@@ -236,7 +236,7 @@ impl<'a> NameResolver<'a> {
                     }
                 }
             } else if file_symbol.kind == PhpSymbolKind::Namespace {
-                current_namespace = file_symbol.name.as_ref();
+                current_namespace = file_symbol.name();
             }
 
             if let Some(parent) = arena[file].parent() {
@@ -259,7 +259,7 @@ impl<'a> NameResolver<'a> {
             }
 
             self.diagnostics.push(Notification::error(
-                file_symbol.name.clone(),
+                file_symbol.name().to_owned(),
                 String::from("Can only be used inside a class"),
                 range,
             ));
@@ -272,7 +272,7 @@ impl<'a> NameResolver<'a> {
                     .get_unique_parent(&current_class, self, arena);
             }
             self.diagnostics.push(Notification::error(
-                file_symbol.name.clone(),
+                file_symbol.name().to_owned(),
                 String::from("Parent can only be used inside a class"),
                 range,
             ));
@@ -283,7 +283,7 @@ impl<'a> NameResolver<'a> {
             if let Some(ns) = file.children(arena).find_map(|c| {
                 let s = arena[c].get();
                 if s.kind == PhpSymbolKind::Namespace {
-                    Some(s.name.as_ref())
+                    Some(s.name())
                 } else {
                     None
                 }
@@ -336,7 +336,7 @@ impl<'a> NameResolver<'a> {
 
             if !arena[*node].get().fqdn_matches(&name) {
                 self.diagnostics.push(Notification::warning(
-                    file_symbol.name.clone(),
+                    file_symbol.name().to_owned(),
                     String::from("Case mismatch between call and definition"),
                     range,
                 ));
@@ -344,7 +344,7 @@ impl<'a> NameResolver<'a> {
             return Some(*node);
         } else {
             self.diagnostics.push(Notification::error(
-                file_symbol.name.clone(),
+                file_symbol.name().to_owned(),
                 format!("Unresolvable type ({}) '{}'", fully_qualified, joined_name),
                 range,
             ));
@@ -355,7 +355,7 @@ impl<'a> NameResolver<'a> {
         if let Some(node) = node {
             if !arena[node].get().fqdn_matches(&joined_name) {
                 self.diagnostics.push(Notification::warning(
-                    file_symbol.name.clone(),
+                    file_symbol.name().to_owned(),
                     String::from("Case mismatch between call and definition"),
                     range,
                 ));
@@ -405,7 +405,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 if let Some(resolved) = self.resolver.resolve_fully_qualified(&name) {
                     if !arena[resolved].get().fqdn_matches(&name) {
                         self.resolver.diagnostic(
-                            arena[self.file].get().name.clone(),
+                            arena[self.file].get().name().to_owned(),
                             declaration.range(),
                             String::from("Case mismatch between call and definition"),
                             DiagnosticSeverity::Warning,
@@ -633,7 +633,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 // Find this method in the current scope
                 for method in self.resolver.scope_container.children(arena) {
-                    if arena[method].get().name == method_name {
+                    if arena[method].get().name() == method_name {
                         self.resolver.scope_container = method;
 
                         return;
@@ -870,8 +870,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
             .last()
             .unwrap()]
         .get()
-        .name
-        .clone();
+        .name();
 
         if let Some(mut root_node) = root_node {
             // $this (root_node) will have resolved to the definition of the class
@@ -904,7 +903,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             if s.visibility >= minimal_visibility {
                                 if s.name() != link_name {
                                     self.resolver.diagnostic(
-                                        file_name.clone(),
+                                        file_name.to_owned(),
                                         link.range(),
                                         String::from("Case mismatch between call and definition"),
                                         DiagnosticSeverity::Warning,
@@ -957,7 +956,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                             continue 'link_loop;
                                         } else {
                                             self.resolver.diagnostic(
-                                                file_name,
+                                                file_name.to_owned(),
                                                 link.range(),
                                                 String::from(
                                                     "Method returns an instance of its parent, but its class has no parent or the parent could not be resolved."
@@ -990,7 +989,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     }
                 } else {
                     self.resolver.diagnostic(
-                        file_name,
+                        file_name.to_owned(),
                         link.range(),
                         format!("Unresolvable symbol {}", link.name()),
                         DiagnosticSeverity::Error,

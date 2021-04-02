@@ -28,7 +28,7 @@ pub(crate) fn namespace_statement(parser: &mut Parser) -> ExpressionResult {
             token,
         })
     } else {
-        panic!("Read too far!");
+        Err(Error::Eof)
     }
 }
 

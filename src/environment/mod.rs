@@ -34,7 +34,7 @@ pub fn symbol_location(arena: &Arena<Symbol>, symbol_node: &NodeId) -> Option<Lo
 
         if symbol.kind == PhpSymbolKind::File {
             return Some(Location {
-                uri: Url::from_file_path(symbol.name.clone()).unwrap(),
+                uri: Url::from_file_path(symbol.name()).unwrap(),
                 range,
             });
         }

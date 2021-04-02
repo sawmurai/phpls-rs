@@ -677,7 +677,7 @@ impl LanguageServer for Backend {
                 if symbol.normalized_name().starts_with(&query) {
                     if let Some(kind) = symbol.kind.to_symbol_kind() {
                         symbols.push(SymbolInformation {
-                            name: symbol.name.clone(),
+                            name: symbol.name().to_owned(),
                             deprecated: symbol.deprecated,
                             tags: None,
                             kind,
@@ -1152,7 +1152,7 @@ impl LanguageServer for Backend {
                                     return symbol.completion_item(sn, &state.arena);
                                 };
 
-                                let fqdn = format!("{}\\{}", ns, symbol.name);
+                                let fqdn = format!("{}\\{}", ns, symbol.name());
                                 let to_import = format!("use {};\n", fqdn);
                                 // Check if the current file already has that import. if yes we are good
                                 let line = if let Some(imports) = current_file.imports.as_ref() {
