@@ -237,7 +237,6 @@ fn suggest_members_of_symbol(
     symbol_under_cursor: NodeId,
     references: &FileReferenceMap,
 ) -> Vec<Suggestion> {
-    let mut built_in_references = FileReferenceMap::new();
     let mut no_magic_const = false;
 
     let parent = if let Some(parent) = parent {
@@ -250,8 +249,8 @@ fn suggest_members_of_symbol(
     let mut parent_range = parent.range();
 
     // Find the reference for the parent, i.e. the $object in $object->|
-    // If a $this is encountered it gets added as a temporary reference to
-    // the current class
+    // If a $this is encountered it we already found the parent
+    let mut resolved_parent = None;
     if let AstNode::Member { object, .. } = parent {
         no_magic_const = true;
         if let AstNode::Call { callee, .. } = object.as_ref() {
@@ -262,12 +261,7 @@ fn suggest_members_of_symbol(
             parent_range = member.range();
         } else if let AstNode::Variable(token) = object.as_ref() {
             if Some(String::from("this")) == token.label {
-                if let Some(parent_class) = arena[symbol_under_cursor].parent() {
-                    built_in_references
-                        .entry(parent_class)
-                        .or_insert_with(Vec::new)
-                        .push(parent_range);
-                }
+                resolved_parent = arena[symbol_under_cursor].parent();
             }
         }
     }
@@ -279,15 +273,14 @@ fn suggest_members_of_symbol(
 
     // Check if there is a reference to the $object in $object->callee by going
     // through all references in the current file and finding a match on the parent position
-    let resolved_parent = if let Some((node, _)) = references
-        .iter()
-        .chain(built_in_references.iter())
-        .find(|(_, ranges)| {
-            ranges
-                .iter()
-                .find(|r| in_range(&pos, &get_range(**r)))
-                .is_some()
-        }) {
+    let resolved_parent = if let Some(resolved_parent) = resolved_parent.as_ref() {
+        resolved_parent
+    } else if let Some((node, _)) = references.iter().find(|(_, ranges)| {
+        ranges
+            .iter()
+            .find(|r| in_range(&pos, &get_range(**r)))
+            .is_some()
+    }) {
         node
     } else {
         return vec![];
