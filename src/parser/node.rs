@@ -1165,7 +1165,7 @@ impl Node {
                 if let Some(alias) = alias {
                     (start, alias.range().1)
                 } else {
-                    declaration.range()
+                    (start, declaration.range().1)
                 }
             }
             Node::UseConst {

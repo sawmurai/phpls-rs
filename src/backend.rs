@@ -15,16 +15,18 @@ use crate::parser::Parser;
 use crate::suggester;
 use ignore::{types::TypesBuilder, WalkBuilder};
 use indextree::{Arena, NodeId};
+use lsp_types::InsertReplaceEdit;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{collections::HashMap, ffi::OsString};
+use suggester::SuggestionContext;
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
 use tokio::task;
 use tokio::{io, task::JoinHandle};
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
-    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit,
+    Diagnostic, DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
     ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
     HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
@@ -486,7 +488,7 @@ impl Backend {
             //eprintln!("[reindex] calling traverse() ended");
         }
 
-        for notification in visitor.diagnostics().iter() {
+        for notification in visitor.diagnostics() {
             state
                 .diagnostics
                 .entry(notification.file.clone())
@@ -677,6 +679,7 @@ impl LanguageServer for Backend {
                         symbols.push(SymbolInformation {
                             name: symbol.name.clone(),
                             deprecated: symbol.deprecated,
+                            tags: None,
                             kind,
                             location: Location {
                                 uri: Url::from_file_path(&file_name).unwrap(),
@@ -1119,22 +1122,34 @@ impl LanguageServer for Backend {
                     references,
                 );
 
-                let mut completions: Vec<CompletionItem> =
-                    suggestions.1.iter().map(|t| t.into()).collect();
-
-                completions.extend(
+                return Ok(Some(CompletionResponse::Array(
                     suggestions
-                        .0
                         .drain(..)
-                        .map(|s| {
-                            let symbol = state.arena[s].get();
+                        .map(|sug| {
+                            if let Some(token) = sug.token {
+                                return token.into();
+                            }
 
-                            // If the symbol is a class we try to add a namespace as a text edit
+                            let sn = sug.node.unwrap();
+                            let symbol = state.arena[sn].get();
+
                             if symbol.kind == PhpSymbolKind::Class {
+                                if sug.context == SuggestionContext::Import {
+                                    return CompletionItem {
+                                        additional_text_edits: Some(vec![TextEdit {
+                                            range: get_range(sug.replace.unwrap()),
+                                            new_text: String::from(""),
+                                        }]),
+                                        label: symbol.fqdn(),
+                                        ..symbol.completion_item(sn, &state.arena)
+                                    };
+                                }
+
+                                // If the symbol is a class we try to add a namespace as a text edit
                                 let ns = if let Some(ns) = symbol.namespace.as_ref() {
                                     ns
                                 } else {
-                                    return symbol.completion_item(s, &state.arena);
+                                    return symbol.completion_item(sn, &state.arena);
                                 };
 
                                 let fqdn = format!("{}\\{}", ns, symbol.name);
@@ -1146,7 +1161,7 @@ impl LanguageServer for Backend {
                                         .find(|import| import.full_name() == fqdn)
                                         .is_some()
                                     {
-                                        return symbol.completion_item(s, &state.arena);
+                                        return symbol.completion_item(sn, &state.arena);
                                     } else {
                                         // add use to the end of the imports
                                         if let Some(first_import) = imports.first() {
@@ -1167,16 +1182,14 @@ impl LanguageServer for Backend {
                                         range: get_range(((line, 0), (line, 0))),
                                         new_text: to_import,
                                     }]),
-                                    ..symbol.completion_item(s, &state.arena)
+                                    ..symbol.completion_item(sn, &state.arena)
                                 };
                             }
 
-                            symbol.completion_item(s, &state.arena)
+                            symbol.completion_item(sn, &state.arena)
                         })
                         .collect::<Vec<CompletionItem>>(),
-                );
-
-                return Ok(Some(CompletionResponse::Array(completions)));
+                )));
             }
         }
 

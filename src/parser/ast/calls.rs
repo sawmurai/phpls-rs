@@ -480,7 +480,7 @@ $object->$dyn = 10;
         let formatted = format(&ast, 0, 0, &options);
 
         let expected = "\
-$object-><Missing>;
+$object->;
 "
         .to_owned();
 

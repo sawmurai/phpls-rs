@@ -531,7 +531,7 @@ impl Symbol {
             selection_range: self.selection_range,
             detail: self.detail(),
             deprecated: self.deprecated,
-
+            tags: None,
             // Needs to be added from outside of this
             children,
         })

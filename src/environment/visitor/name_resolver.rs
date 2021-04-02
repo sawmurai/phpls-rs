@@ -380,9 +380,9 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
         self.resolver.references()
     }
 
-    pub fn diagnostics(&self) -> &Vec<Notification> {
+    pub fn diagnostics(&self) -> std::slice::Iter<'_, Notification> {
         // TODO: Rather return an iterator?
-        &self.resolver.diagnostics
+        self.resolver.diagnostics.iter()
     }
 }
 

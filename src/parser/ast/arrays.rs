@@ -104,6 +104,7 @@ mod tests {
             errors: Vec::new(),
             tokens,
             context: Context::Out,
+            eof: (10, 10),
         };
 
         let expected = Node::Array {
