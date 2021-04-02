@@ -90,7 +90,7 @@ impl Visitor for WorkspaceSymbolVisitor {
             }
             AstNode::Const { name, .. } => {
                 let child = arena.new_node(Symbol {
-                    name: name.clone().label.unwrap(),
+                    name: name.to_string(),
                     kind: PhpSymbolKind::Constant,
                     range: get_range(node.range()),
                     selection_range: get_range(node.range()),
@@ -117,7 +117,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     None
                 };
                 let selection_range = get_range(name.range());
-                let s_name = name.clone().label.unwrap();
+                let s_name = name.to_string();
                 let range = get_range(node.range());
 
                 let namespace = if let Some(ns) = self.namespace_stack.last() {
@@ -165,7 +165,7 @@ impl Visitor for WorkspaceSymbolVisitor {
             }
             AstNode::TraitStatement { name, .. } => {
                 let selection_range = get_range(name.range());
-                let name = name.clone().label.unwrap();
+                let name = name.to_string();
                 let range = get_range(node.range());
 
                 let namespace = if let Some(ns) = self.namespace_stack.last() {
@@ -188,7 +188,7 @@ impl Visitor for WorkspaceSymbolVisitor {
             }
             AstNode::Interface { name, extends, .. } => {
                 let selection_range = get_range(name.range());
-                let name = name.clone().label.unwrap();
+                let name = name.to_string();
                 let range = get_range(node.range());
                 let inherits_from = if let Some(extends) = extends {
                     Some(
@@ -227,7 +227,7 @@ impl Visitor for WorkspaceSymbolVisitor {
             } => {
                 let range = get_range(node.range());
                 let child = arena.new_node(Symbol {
-                    name: name.clone().label.unwrap(),
+                    name: name.to_string(),
                     kind: PhpSymbolKind::Constant,
                     range,
                     selection_range: range,
@@ -288,7 +288,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 ref_from_doc!(doc_comment, data_types, var_docs);
 
                 let child = arena.new_node(Symbol {
-                    name: name.clone().label.unwrap(),
+                    name: name.to_string(),
                     kind: PhpSymbolKind::Property,
                     range,
                     selection_range: range,
@@ -336,7 +336,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 };
 
                 let child = arena.new_node(Symbol {
-                    name: name.clone().label.unwrap(),
+                    name: name.to_string(),
                     kind: PhpSymbolKind::Method,
                     range: get_range(range),
                     selection_range: get_range(name.range()),
@@ -381,7 +381,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 };
 
                 let child = arena.new_node(Symbol {
-                    name: name.clone().label.unwrap(),
+                    name: name.to_string(),
                     kind: PhpSymbolKind::Function,
                     range: get_range(range),
                     selection_range: get_range(name.range()),
@@ -418,7 +418,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 }
 
                 let child = arena.new_node(Symbol {
-                    name: name.clone().label.unwrap(),
+                    name: name.to_string(),
                     kind: PhpSymbolKind::FunctionParameter,
                     range: get_range(node.range()),
                     selection_range: get_range(name.range()),

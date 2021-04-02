@@ -534,7 +534,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                             let argument = arena[child].get();
 
                             if let Some(name) = name.label.as_ref() {
-                                if argument.name.eq(name) {
+                                if argument.name().eq(name) {
                                     return Some(child);
                                 }
                             }
@@ -902,7 +902,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                         if s.normalized_name() == link_name.to_lowercase() {
                             if s.visibility >= minimal_visibility {
-                                if s.name != link_name {
+                                if s.name() != link_name {
                                     self.resolver.diagnostic(
                                         file_name.clone(),
                                         link.range(),
@@ -1021,13 +1021,13 @@ mod tests {
                 .map(|(node, ranges)| {
                     let mut refs = Vec::with_capacity(ranges.len());
                     for _ in ranges {
-                        refs.push(&$col.arena[node.clone()].get().name);
+                        refs.push(format!("{}", $col.arena[node.clone()].get().name()));
                     }
 
                     refs
                 })
                 .flatten()
-                .collect::<Vec<&String>>()
+                .collect::<Vec<String>>()
         };
     }
 

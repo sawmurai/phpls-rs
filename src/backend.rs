@@ -148,7 +148,7 @@ impl From<&Token> for Symbol {
         };
 
         Symbol {
-            name: token.clone().label.unwrap_or_else(|| "Unknown".to_owned()),
+            name: token.to_string(),
             kind,
             range,
             selection_range: range,
@@ -185,7 +185,7 @@ impl Backend {
             .get()
             .symbol_at(&position, file, &state.arena);
 
-        Some((suc, state.arena[suc].get().name.clone()))
+        Some((suc, state.arena[suc].get().name().to_owned()))
     }
 
     async fn references_of_symbol_under_cursor(&self, nuc: &str) -> Option<ReferenceMapMutex> {

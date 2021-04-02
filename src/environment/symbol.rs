@@ -319,15 +319,23 @@ impl Symbol {
             .join(", ")
     }
 
+    pub fn name<'a>(&'a self) -> &'a str {
+        if self.name.starts_with("$") {
+            &self.name[1..]
+        } else {
+            &self.name
+        }
+    }
+
     pub fn normalized_name(&self) -> String {
-        self.name.to_lowercase()
+        self.name().to_lowercase()
     }
 
     pub fn fqdn(&self) -> String {
         if let Some(namespace) = self.namespace.as_ref() {
-            format!("{}\\{}", namespace, self.name)
+            format!("{}\\{}", namespace, self.name())
         } else {
-            format!("{}", self.name)
+            format!("{}", self.name())
         }
     }
 
