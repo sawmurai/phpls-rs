@@ -4,10 +4,7 @@ use crate::{
         symbol::{PhpSymbolKind, Symbol, Visibility},
         visitor::name_resolver::NameResolver,
     },
-    parser::{
-        node::NodeRange,
-        token::{Token, TokenType},
-    },
+    parser::{node::NodeRange, token::TokenType},
 };
 use crate::{environment::get_range, environment::in_range, parser::node::Node as AstNode};
 use indextree::{Arena, NodeId};
@@ -84,84 +81,6 @@ fn find<'a>(
     }
 
     None
-}
-
-/// Collect the members of a class
-///
-/// * referenced_node: The node representing the class whose members to collect
-/// * arena: A reference to the memory arena
-/// * global_symbols: The lookup table of globally registered symbols
-fn members_of(
-    referenced_node: NodeId,
-    arena: &Arena<Symbol>,
-    global_symbols: &HashMap<String, NodeId>,
-) -> Vec<NodeId> {
-    let mut suggestions = Vec::new();
-    let resolved_object_variable = arena[referenced_node].get();
-    //eprintln!(
-    //    "Found the reference: {} ({:?})",
-    //    resolved_object_variable.name, resolved_object_variable.kind
-    //);
-
-    // Direct children ($this, parent, self ...)
-    if resolved_object_variable.kind == PhpSymbolKind::Class
-        || resolved_object_variable.kind == PhpSymbolKind::Interface
-    {
-        suggestions
-            .extend(members_of_parents_of(referenced_node, &arena, &global_symbols).drain(..));
-
-        referenced_node.children(&arena).for_each(|child| {
-            suggestions.push(child);
-        });
-        //eprintln!("Reference is a class or interface, done");
-
-        return suggestions;
-    }
-
-    // Children of data types with nodes
-    resolved_object_variable
-        .data_types
-        .iter()
-        .filter_map(|dt| dt.node)
-        .for_each(|node: NodeId| {
-            //eprintln!("Reference has a node");
-            suggestions.extend(members_of(node, &arena, &global_symbols).drain(..));
-        });
-
-    // Children of data types that are merely type refs. Jump to the type ref and find its reference
-    resolved_object_variable
-        .data_types
-        .iter()
-        .filter_map(|dt| dt.type_ref.as_ref())
-        .for_each(|type_ref| {
-            //eprintln!("Reference has a type ref");
-
-            let mut resolver = NameResolver::new(&global_symbols, referenced_node);
-
-            if let Some(node) = resolver.resolve_type_ref(type_ref, &arena, &referenced_node, false)
-            {
-                suggestions.extend(members_of_parents_of(node, &arena, &global_symbols).drain(..));
-            }
-        });
-
-    suggestions
-}
-
-/// Collect the members of a classes ancestors
-///
-/// * referenced_node: The node representing the class whose members to collect
-/// * arena: A reference to the memory arena
-/// * global_symbols: The lookup table of globally registered symbols
-fn members_of_parents_of(
-    reference_node: NodeId,
-    arena: &Arena<Symbol>,
-    global_symbols: &HashMap<String, NodeId>,
-) -> Vec<NodeId> {
-    let mut resolver = NameResolver::new(&global_symbols, reference_node);
-
-    arena[reference_node]
-        .get()
-        .get_inherited_symbols(&reference_node, &mut resolver, arena)
 }
 
 /// Get imports that start with the prefix of
@@ -335,8 +254,11 @@ fn suggest_members_of_symbol(
             return dt_reference.node;
         })
         .for_each(|node| {
+            let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
             suggestions.extend(
-                members_of(node, &arena, &global_symbols)
+                arena[node]
+                    .get()
+                    .get_all_symbols(&node, &mut resolver, arena)
                     .drain(..)
                     .filter_map(|n| {
                         let s = arena[n].get();
@@ -454,106 +376,9 @@ pub fn get_suggestions_at(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use super::super::parser::token::*;
-    use crate::{
-        backend::Backend,
-        backend::BackendState,
-        environment::{
-            get_range,
-            import::SymbolImport,
-            scope::Reference,
-            symbol::{PhpSymbolKind, Symbol, Visibility},
-        },
-        parser,
-    };
-    use indextree::Arena;
+    use crate::{backend::Backend, backend::BackendState, environment::get_range, parser};
     use parser::{scanner::Scanner, Parser};
     use tower_lsp::lsp_types::Position;
-
-    macro_rules! variable {
-        ($arena:expr, $name:expr, $node: expr) => {{
-            let s = Symbol {
-                kind: PhpSymbolKind::Variable,
-                name: $name.to_string(),
-                data_types: vec![Reference::node(
-                    &[Token::named(TokenType::Variable, 0, 0, $name)],
-                    $node,
-                )],
-                ..Symbol::default()
-            };
-
-            $arena.new_node(s)
-        }};
-    }
-
-    macro_rules! child {
-        ($arena:expr, $type: expr, $name:expr, $vis:expr) => {{
-            let s = Symbol {
-                kind: PhpSymbolKind::Method,
-                name: $name.to_string(),
-                visibility: $vis,
-                ..Symbol::default()
-            };
-
-            $arena.new_node(s)
-        }};
-    }
-
-    macro_rules! class {
-        ($arena:expr, $name:expr, $parent:expr) => {
-            if $parent == "" {
-                let s = Symbol {
-                    kind: PhpSymbolKind::Class,
-                    name: $name.to_string(),
-                    inherits_from: None,
-                    ..Symbol::default()
-                };
-
-                $arena.new_node(s)
-            } else {
-                let s = Symbol {
-                    kind: PhpSymbolKind::Class,
-                    name: $name.to_string(),
-                    inherits_from: Some(vec![Reference::type_ref(vec![Token::named(
-                        TokenType::Identifier,
-                        0,
-                        0,
-                        $parent,
-                    )])]),
-                    ..Symbol::default()
-                };
-
-                $arena.new_node(s)
-            }
-        };
-    }
-
-    macro_rules! file {
-        ($arena: expr, $name:expr$(, $imports:expr)?) => {{
-            let _imports: Option<Vec<SymbolImport>> = None;
-            $(
-                let _imports = Some($imports
-                        .iter()
-                        .map(|i| SymbolImport {
-                            path: vec![Token::named(TokenType::Identifier, 0, 0, &i)],
-                            alias: None,
-                        })
-                        .collect::<Vec<SymbolImport>>());
-            )?
-
-            let s = Symbol {
-                kind: PhpSymbolKind::File,
-                name: $name.to_string(),
-                inherits_from: None,
-                imports: _imports,
-                ..Symbol::default()
-            };
-
-            $arena.new_node(s)
-        }};
-    }
 
     fn suggestions(
         sources: &[(&str, &str)],
@@ -604,60 +429,6 @@ mod tests {
             .collect::<Vec<String>>()
     }
 
-    #[test]
-    fn test_collects_members_of_class_and_its_parents() {
-        let mut arena = Arena::new();
-
-        let animal_file_node = file!(arena, "Animal.php");
-        let animal_node = class!(arena, "Animal", "");
-        let am1_node = child!(arena, PhpSymbolKind::Method, "getName", Visibility::Public);
-        animal_node.append(am1_node, &mut arena);
-
-        let am2_node = child!(
-            arena,
-            PhpSymbolKind::Method,
-            "getInternal",
-            Visibility::Private
-        );
-        animal_node.append(am2_node, &mut arena);
-
-        animal_file_node.append(animal_node, &mut arena);
-
-        let cat_file_node = file!(arena, "Cat.php", ["Animal"]);
-        let cat_node = class!(arena, "Cat", "Animal");
-        cat_file_node.append(cat_node, &mut arena);
-
-        let cm1_node = child!(
-            arena,
-            PhpSymbolKind::Method,
-            "getCatType",
-            Visibility::Public
-        );
-        cat_node.append(cm1_node, &mut arena);
-        let cm2_node = child!(
-            arena,
-            PhpSymbolKind::Method,
-            "getPrivateCatType",
-            Visibility::Private
-        );
-        cat_node.append(cm2_node, &mut arena);
-
-        let cat_instance_node = variable!(arena, "$cat", cat_node);
-        cat_file_node.append(cat_instance_node, &mut arena);
-
-        let mut global_symbols = HashMap::new();
-        global_symbols.insert("animal".to_string(), animal_node);
-        global_symbols.insert("cat".to_string(), cat_node);
-
-        let actual = super::members_of(cat_instance_node, &arena, &global_symbols);
-
-        assert_eq!(4, actual.len());
-        assert_eq!(am1_node, actual[0]);
-        assert_eq!(am2_node, actual[1]);
-        assert_eq!(cm1_node, actual[2]);
-        assert_eq!(cm2_node, actual[3]);
-    }
-
     #[tokio::test]
     async fn test_suggests_accessible_members_of_class_and_its_parents() {
         let sources = vec![
@@ -683,8 +454,8 @@ mod tests {
         ];
 
         let actual = suggestions(&sources, 4, 0, 43, Some('>'));
-        assert_eq!("getPulse", actual[0]);
-        assert_eq!("getName", actual[1]);
+        assert!(actual.contains(&&"getPulse".to_string()));
+        assert!(actual.contains(&&"getName".to_string()));
 
         let actual = suggestions(&sources, 5, 0, 53, Some('>'));
         assert!(actual.contains(&&"getName".to_string()));
