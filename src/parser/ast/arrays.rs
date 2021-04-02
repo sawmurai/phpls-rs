@@ -105,6 +105,7 @@ mod tests {
             tokens,
             context: Context::Out,
             eof: (10, 10),
+            end_of_prev_token: (0, 0),
         };
 
         let expected = Node::Array {

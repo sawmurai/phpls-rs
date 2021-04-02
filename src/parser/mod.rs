@@ -64,6 +64,9 @@ pub struct Parser {
     context: Context,
     // Line and col of end of file
     eof: (u32, u32),
+
+    // End of the previously read token
+    end_of_prev_token: (u32, u32),
 }
 
 impl Parser {
@@ -96,6 +99,7 @@ impl Parser {
             errors: Vec::new(),
             context: Context::Out,
             eof,
+            end_of_prev_token: (0, 0),
         };
 
         let mut statements: Vec<Node> = Vec::new();
@@ -456,6 +460,8 @@ impl Parser {
     /// Pop and return the next token, pushing doc comments on the comment stack
     fn next(&mut self) -> Option<Token> {
         while let Some(next) = self.tokens.pop() {
+            self.end_of_prev_token = next.range().1;
+
             match next.t {
                 TokenType::MultilineComment => {
                     self.doc_comments.push(next);
@@ -543,10 +549,10 @@ impl Parser {
             if token.t == t {
                 (self.next().unwrap(), false)
             } else {
-                (Token::missing(token.line, token.col), true)
+                (Token::missing(self.end_of_prev_token), true)
             }
         } else {
-            (Token::missing(self.eof.0, self.eof.1), true)
+            (Token::missing(self.eof), true)
         };
 
         if is_wrong_token {
@@ -565,10 +571,10 @@ impl Parser {
             if token.is_identifier() {
                 (self.next().unwrap(), false)
             } else {
-                (Token::missing(token.line, token.col), true)
+                (Token::missing(self.end_of_prev_token), true)
             }
         } else {
-            (Token::missing(self.eof.0, self.eof.1), true)
+            (Token::missing(self.eof), true)
         };
         if is_wrong_token {
             self.errors.push(Error::MissingIdentifier {
@@ -708,8 +714,8 @@ mod tests {
 
         let expected = Error::MissingIdentifier {
             token: Token {
-                col: 12,
-                line: 4,
+                col: 23,
+                line: 3,
                 t: TokenType::Missing,
                 label: None,
             },

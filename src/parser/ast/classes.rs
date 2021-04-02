@@ -442,6 +442,7 @@ mod tests {
             tokens,
             context: Context::Out,
             eof: (16, 1),
+            end_of_prev_token: (0, 0),
         };
 
         trait_statement(&mut parser).unwrap();

@@ -236,11 +236,11 @@ impl Token {
         }
     }
 
-    pub fn missing(line: u32, col: u32) -> Self {
+    pub fn missing(pos_of_prev: (u32, u32)) -> Self {
         Token {
             t: TokenType::Missing,
-            col,
-            line,
+            line: pos_of_prev.0,
+            col: pos_of_prev.1,
             label: None,
         }
     }
@@ -359,7 +359,7 @@ impl Token {
             return (label.len()) as u32;
         }
 
-        (self.to_string().len() + 1) as u32
+        self.to_string().len() as u32
     }
 
     pub fn is_on(&self, line: u32, col: u32) -> bool {

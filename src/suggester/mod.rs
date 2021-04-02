@@ -164,6 +164,233 @@ fn members_of_parents_of(
         .get_inherited_symbols(&reference_node, &mut resolver, arena)
 }
 
+/// Get imports that start with the prefix of
+fn suggest_imports_starting_with(
+    global_symbols: &HashMap<String, NodeId>,
+    declaration: &AstNode,
+) -> Vec<Suggestion> {
+    let prefix = declaration.normalized_name();
+    dbg!(&prefix);
+
+    return global_symbols
+        .iter()
+        .filter_map(|(key, value)| {
+            if key.starts_with(&prefix) {
+                dbg!(&key);
+                Some(Suggestion::node(
+                    *value,
+                    SuggestionContext::Import,
+                    Some(declaration.range()),
+                ))
+            } else {
+                None
+            }
+        })
+        .collect();
+}
+
+/// Get imports that start with the prefix of
+fn suggest_symbol_starting_with(
+    global_symbols: &HashMap<String, NodeId>,
+    arena: &Arena<Symbol>,
+    node: &AstNode,
+) -> Vec<Suggestion> {
+    let prefix = node.normalized_name();
+    return global_symbols
+        .iter()
+        .filter_map(|(_key, value)| {
+            if arena[*value].get().normalized_name().starts_with(&prefix) {
+                Some(Suggestion::node(
+                    *value,
+                    SuggestionContext::Unknown,
+                    Some(node.range()),
+                ))
+            } else {
+                None
+            }
+        })
+        .collect();
+}
+
+/// Suggest variables (and function parameters) in the scope
+fn suggest_variables_of_scope(scope: NodeId, arena: &Arena<Symbol>) -> Vec<Suggestion> {
+    return scope
+        .children(arena)
+        .filter_map(|node| {
+            let kind = arena[node].get().kind;
+            if kind == PhpSymbolKind::Variable || kind == PhpSymbolKind::FunctionParameter {
+                Some(Suggestion::node(node, SuggestionContext::Reference, None))
+            } else {
+                None
+            }
+        })
+        .collect();
+}
+
+/// Suggest members (node) of the symbol (parent)
+fn suggest_members_of_symbol(
+    trigger: Option<char>,
+    node: &AstNode,
+    parent: Option<&AstNode>,
+    arena: &Arena<Symbol>,
+    global_symbols: &HashMap<String, NodeId>,
+    symbol_under_cursor: NodeId,
+    references: &FileReferenceMap,
+) -> Vec<Suggestion> {
+    let mut built_in_references = FileReferenceMap::new();
+    let mut no_magic_const = false;
+
+    let parent = if let Some(parent) = parent {
+        parent
+    } else {
+        return vec![];
+    };
+
+    let prefix = node.name();
+    let mut parent_range = parent.range();
+
+    // Find the reference for the parent, i.e. the $object in $object->|
+    // If a $this is encountered it gets added as a temporary reference to
+    // the current class
+    if let AstNode::Member { object, .. } = parent {
+        no_magic_const = true;
+        if let AstNode::Call { callee, .. } = object.as_ref() {
+            if let AstNode::Member { member, .. } = callee.as_ref() {
+                parent_range = member.range();
+            }
+        } else if let AstNode::Member { member, .. } = object.as_ref() {
+            parent_range = member.range();
+        } else if let AstNode::Variable(token) = object.as_ref() {
+            if Some(String::from("this")) == token.label {
+                if let Some(parent_class) = arena[symbol_under_cursor].parent() {
+                    built_in_references
+                        .entry(parent_class)
+                        .or_insert_with(Vec::new)
+                        .push(parent_range);
+                }
+            }
+        }
+    }
+
+    let pos = Position {
+        line: parent_range.0 .0 as u64,
+        character: parent_range.0 .1 as u64,
+    };
+
+    // Check if there is a reference to the $object in $object->callee by going
+    // through all references in the current file and finding a match on the parent position
+    let resolved_parent = if let Some((node, _)) = references
+        .iter()
+        .chain(built_in_references.iter())
+        .find(|(_, ranges)| {
+            ranges
+                .iter()
+                .find(|r| in_range(&pos, &get_range(**r)))
+                .is_some()
+        }) {
+        node
+    } else {
+        return vec![];
+    };
+
+    // Data types of the parent reference. Go through all data types and collect the things
+    // that are visibile from the current class
+    let current_class = symbol_under_cursor.ancestors(&arena).find(|n| {
+        let s = arena[*n].get();
+
+        return s.kind == PhpSymbolKind::Class;
+    });
+
+    // Collect a list of all accessible members of this class and its parents
+    let mut accessible_members = Vec::new();
+    if let Some(current_class) = current_class {
+        accessible_members.extend(current_class.children(&arena));
+
+        let mut resolver = NameResolver::new(&global_symbols, current_class);
+
+        accessible_members.extend(
+            arena[current_class]
+                .get()
+                .get_inherited_symbols(&current_class, &mut resolver, &arena)
+                .iter()
+                .filter(|n| arena[**n].get().visibility >= Visibility::Protected),
+        );
+    }
+
+    let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
+
+    let mut suggestions: Vec<Suggestion> = Vec::new();
+    let static_only = Some(':') == trigger;
+    arena[*resolved_parent]
+        .get()
+        .data_types
+        .iter()
+        .filter_map(|dt_reference| {
+            if let Some(type_ref) = dt_reference.type_ref.as_ref() {
+                if let Some(tr) = dt_reference.type_ref.as_ref() {
+                    if let Some(first) = tr.first() {
+                        if let Some(label) = first.label.as_ref() {
+                            if label == "$this" {
+                                return arena[*resolved_parent].parent();
+                            }
+                        }
+                    }
+                }
+
+                return resolver.resolve_type_ref(&type_ref, arena, &symbol_under_cursor, false);
+            }
+            return dt_reference.node;
+        })
+        .for_each(|node| {
+            suggestions.extend(
+                members_of(node, &arena, &global_symbols)
+                    .drain(..)
+                    .filter_map(|n| {
+                        let s = arena[n].get();
+
+                        if !s.name().starts_with(&prefix) {
+                            return None;
+                        }
+
+                        if static_only && !s.is_static
+                            || no_magic_const && s.kind == PhpSymbolKind::MagicConst
+                        {
+                            return None;
+                        }
+
+                        // Either the element is accessible from this scope anyway or its public ...
+                        if s.visibility >= Visibility::Public || accessible_members.contains(&n) {
+                            Some(Suggestion::node(n, SuggestionContext::Call, None))
+                        } else {
+                            None
+                        }
+
+                        // ... or we ignore it
+                    })
+                    .collect::<Vec<Suggestion>>(),
+            );
+        });
+
+    return suggestions;
+}
+
+fn suggest_keywords(arena: &Arena<Symbol>, symbol_under_cursor: NodeId) -> Vec<Suggestion> {
+    match arena[symbol_under_cursor].get().kind {
+        PhpSymbolKind::File => {
+            return vec![
+                Suggestion::token(TokenType::Namespace, None),
+                Suggestion::token(TokenType::Use, None),
+                Suggestion::token(TokenType::Class, None),
+                Suggestion::token(TokenType::Function, None),
+                Suggestion::token(TokenType::Const, None),
+                Suggestion::token(TokenType::Trait, None),
+                Suggestion::token(TokenType::Interface, None),
+            ];
+        }
+        _ => vec![],
+    }
+}
+
 /// Get suggestions for a given position in the code
 ///
 /// * trigger: Optionally, a character that triggered the completion request
@@ -175,15 +402,13 @@ fn members_of_parents_of(
 /// * references: Collected references in the current document
 pub fn get_suggestions_at(
     trigger: Option<char>,
-    mut pos: Position,
+    pos: Position,
     symbol_under_cursor: NodeId,
     ast: &Vec<AstNode>,
     arena: &Arena<Symbol>,
     global_symbols: &HashMap<String, NodeId>,
     references: &FileReferenceMap,
 ) -> Vec<Suggestion> {
-    let mut no_magic_const = false;
-
     let (node, mut ancestors) = if let Some((node, mut ancestors)) =
         ast.iter().filter_map(|n| find(n, &pos, Vec::new())).nth(0)
     {
@@ -191,27 +416,12 @@ pub fn get_suggestions_at(
         ancestors.pop();
         (node, ancestors)
     } else if let Some('$') = trigger {
-        // Maybe the $ is the last char of the entire source
-        return symbol_under_cursor
-            .children(arena)
-            .filter_map(|node| {
-                if arena[node].get().kind == PhpSymbolKind::Variable {
-                    Some(Suggestion::node(node, SuggestionContext::Reference, None))
-                } else {
-                    None
-                }
-            })
-            .collect();
+        return suggest_variables_of_scope(symbol_under_cursor, arena);
     } else {
-        return global_symbols
-            .iter()
-            .map(|(_, node)| Suggestion::node(*node, SuggestionContext::Unknown, None))
-            .collect();
+        return suggest_keywords(arena, symbol_under_cursor);
     };
 
     let parent = ancestors.pop();
-
-    let mut built_in_references = FileReferenceMap::new();
 
     match node {
         AstNode::GroupedUse {
@@ -219,22 +429,7 @@ pub fn get_suggestions_at(
             ..
         }
         | AstNode::UseDeclaration { declaration, .. } => {
-            let prefix = declaration.normalized_name();
-
-            return global_symbols
-                .iter()
-                .filter_map(|(key, value)| {
-                    if key.starts_with(&prefix) {
-                        Some(Suggestion::node(
-                            *value,
-                            SuggestionContext::Import,
-                            Some(declaration.range()),
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            return suggest_imports_starting_with(global_symbols, declaration);
         }
         AstNode::Block { .. } => match parent {
             Some(AstNode::ClassStatement { .. }) => {
@@ -244,201 +439,24 @@ pub fn get_suggestions_at(
                     Suggestion::token(TokenType::Protected, None),
                 ];
             }
-            _ => (),
+            _ => vec![],
         },
         AstNode::Variable(..) | AstNode::AliasedVariable { .. } => {
-            if let Some(parent_scope) = arena[symbol_under_cursor].parent() {
-                return parent_scope
-                    .children(arena)
-                    .filter_map(|node| {
-                        if arena[node].get().kind == PhpSymbolKind::Variable {
-                            Some(Suggestion::node(node, SuggestionContext::Reference, None))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-            }
+            suggest_variables_of_scope(arena[symbol_under_cursor].parent().unwrap(), arena)
         }
         AstNode::Missing(..) | AstNode::Literal(..) | AstNode::Member { .. } => {
-            match node {
-                AstNode::Member { object, .. } => {
-                    match object.as_ref() {
-                        AstNode::Variable(name) => {
-                            // do something like
-                            // arena[scope_under_cursor].get().resolve(name).children()
-                            if name.label == Some(String::from("this")) {
-                                if let Some(parent_class) = arena[symbol_under_cursor].parent() {
-                                    built_in_references
-                                        .entry(parent_class)
-                                        .or_insert_with(Vec::new)
-                                        .push(object.range());
-                                }
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-                _ => (),
-            }
-
-            if let Some(mut parent) = parent {
-                if let AstNode::ExpressionStatement { expression } = parent {
-                    parent = expression;
-                }
-
-                let mut range = parent.range();
-
-                // Find the reference for the parent, i.e. the $object in $object->|
-                if let AstNode::Member { object, .. } = parent {
-                    no_magic_const = true;
-                    if let AstNode::Call { callee, .. } = object.as_ref() {
-                        if let AstNode::Member { member, .. } = callee.as_ref() {
-                            range = member.range();
-                        }
-                    } else if let AstNode::Member { member, .. } = object.as_ref() {
-                        range = member.range();
-                    } else if let AstNode::Variable(token) = object.as_ref() {
-                        if Some(String::from("this")) == token.label {
-                            if let Some(parent_class) = arena[symbol_under_cursor].parent() {
-                                built_in_references
-                                    .entry(parent_class)
-                                    .or_insert_with(Vec::new)
-                                    .push(range);
-                            }
-                        }
-                    }
-                }
-
-                let pos = Position {
-                    line: range.0 .0 as u64,
-                    character: range.0 .1 as u64,
-                };
-
-                for (node, ranges) in references.iter().chain(built_in_references.iter()) {
-                    if ranges
-                        .iter()
-                        .find(|r| in_range(&pos, &get_range(**r)))
-                        .is_none()
-                    {
-                        continue;
-                    }
-
-                    // Data types of the parent reference. Go through all data types and collect the things
-                    // that are visibile from the current class
-
-                    let current_class = symbol_under_cursor.ancestors(&arena).find(|n| {
-                        let s = arena[*n].get();
-
-                        return s.kind == PhpSymbolKind::Class;
-                    });
-
-                    // Collect a list of all accessible members of this class and its parents
-                    let mut accessible_members = Vec::new();
-
-                    if let Some(current_class) = current_class {
-                        accessible_members.extend(current_class.children(&arena));
-
-                        let mut resolver = NameResolver::new(&global_symbols, current_class);
-
-                        accessible_members.extend(
-                            arena[current_class]
-                                .get()
-                                .get_inherited_symbols(&current_class, &mut resolver, &arena)
-                                .iter()
-                                .filter(|n| arena[**n].get().visibility >= Visibility::Protected),
-                        );
-                    }
-
-                    let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
-
-                    let mut suggestions: Vec<Suggestion> = Vec::new();
-                    let static_only = Some(':') == trigger;
-                    arena[*node]
-                        .get()
-                        .data_types
-                        .iter()
-                        .filter_map(|dt_reference| {
-                            if let Some(type_ref) = dt_reference.type_ref.as_ref() {
-                                if let Some(tr) = dt_reference.type_ref.as_ref() {
-                                    if let Some(first) = tr.first() {
-                                        if let Some(label) = first.label.as_ref() {
-                                            if label == "$this" {
-                                                return arena[*node].parent();
-                                            }
-                                        }
-                                    }
-                                }
-                                if let Some(referenced_node) = resolver.resolve_type_ref(
-                                    &type_ref,
-                                    arena,
-                                    &symbol_under_cursor,
-                                    false,
-                                ) {
-                                    return Some(referenced_node);
-                                }
-
-                                return None;
-                            }
-                            return dt_reference.node;
-                        })
-                        .for_each(|node| {
-                            suggestions.extend(
-                                members_of(node, &arena, &global_symbols)
-                                    .drain(..)
-                                    .filter_map(|n| {
-                                        let s = arena[n].get();
-
-                                        if static_only && !s.is_static
-                                            || no_magic_const && s.kind == PhpSymbolKind::MagicConst
-                                        {
-                                            return None;
-                                        }
-
-                                        // Either the element is accessible from this scope anyway or its public ...
-                                        if s.visibility >= Visibility::Public
-                                            || accessible_members.contains(&n)
-                                        {
-                                            Some(Suggestion::node(n, SuggestionContext::Call, None))
-                                        } else {
-                                            None
-                                        }
-
-                                        // ... or we ignore it
-                                    })
-                                    .collect::<Vec<Suggestion>>(),
-                            );
-                        });
-
-                    return suggestions;
-                }
-            }
+            suggest_members_of_symbol(
+                trigger,
+                node,
+                parent,
+                arena,
+                global_symbols,
+                symbol_under_cursor,
+                references,
+            )
         }
-        _ => {
-            return global_symbols
-                .iter()
-                .filter_map(|(_key, value)| {
-                    if arena[*value]
-                        .get()
-                        .normalized_name()
-                        .starts_with(&node.normalized_name())
-                    {
-                        Some(Suggestion::node(
-                            *value,
-                            SuggestionContext::Unknown,
-                            Some(node.range()),
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-        }
+        _ => suggest_symbol_starting_with(global_symbols, arena, node),
     }
-
-    //suggestions.dedup_by(|a, b| arena[*a].get().name == arena[*b].get().name);
-
-    vec![]
 }
 
 #[cfg(test)]
@@ -660,25 +678,25 @@ mod tests {
             ),
             (
                 "aniinterface.php",
-                "<?php namespace App; interface AniInter { public function getName() { } }",
+                "<?php namespace App; interface AniInter { public function getName(); }",
             ),
             (
                 "cat.php",
                 "<?php namespace App; class Cat extends Animal implements AniInter { public function getName() { } }",
             ),
-            ("index.php", "<?php use App\\Cat; $cat = new Cat(); $cat->"),
-            ("index2.php", "<?php use App\\AniInter; function x(AniInter $y) {$y->}"),
-            ("index3.php", "<?php use App\\Living; class T {  /** @var Living */private $thing; public function test() { $this->thing->    } }"),
+            ("index.php", r"<?php use App\Cat; $cat = new Cat(); $cat->"),
+            ("index2.php", r"<?php use App\AniInter; function x(AniInter $y) {$y->}"),
+            ("index3.php", r"<?php use App\Living; class T {  /** @var Living */private $thing; public function test() { $this->thing->    } }"),
         ];
 
         let actual = suggestions(&sources, 4, 0, 43, Some('>'));
         assert_eq!("getPulse", actual[0]);
         assert_eq!("getName", actual[1]);
 
-        let actual = suggestions(&sources, 5, 0, 54, Some('>'));
+        let actual = suggestions(&sources, 5, 0, 53, Some('>'));
         assert!(actual.contains(&&"getName".to_string()));
 
-        let actual = suggestions(&sources, 6, 0, 107, Some('>'));
+        let actual = suggestions(&sources, 6, 0, 106, Some('>'));
         assert!(actual.contains(&&"getPulse".to_string()));
     }
 
@@ -714,8 +732,22 @@ mod tests {
 
         let actual = suggestions(&sources, 0, 0, 71, Some('>'));
 
+        assert_eq!(2, actual.len());
         assert!(actual.contains(&&"getName".to_string()));
         assert!(actual.contains(&&"name".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_suggests_members_of_this_starting_with() {
+        let sources = vec![(
+            "animal.php",
+            "<?php class Animal { private $name; public function getName() { $this->ge }}",
+        )];
+
+        let actual = suggestions(&sources, 0, 0, 73, Some('>'));
+
+        assert_eq!(1, actual.len());
+        assert!(actual.contains(&&"getName".to_string()));
     }
 
     #[tokio::test]
@@ -755,8 +787,8 @@ mod tests {
     async fn test_suggests_namespaces_after_use_on_file_level() {
         let sources = vec![
             ("index.php", "<?php use "),
-            ("index2.php", "<?php use App\\"),
-            ("index3.php", "<?php use App\\Living\\"),
+            ("index2.php", r"<?php use App\"),
+            ("index3.php", r"<?php use App\Living\"),
             (
                 "animal.php",
                 "<?php namespace App\\Living; class Animal { }",
@@ -769,11 +801,20 @@ mod tests {
         assert!(actual.contains(&&"App\\Living\\Animal".to_string()));
         assert!(actual.contains(&&"App\\Inanimate\\Car".to_string()));
 
-        let actual = suggestions(&sources, 1, 0, 15, Some('\\'));
+        let actual = suggestions(&sources, 1, 0, 14, Some('\\'));
         assert!(actual.contains(&&"App\\Living\\Animal".to_string()));
         assert!(actual.contains(&&"App\\Inanimate\\Car".to_string()));
 
-        let actual = suggestions(&sources, 2, 0, 23, Some('\\'));
+        let actual = suggestions(&sources, 2, 0, 21, Some('\\'));
         assert!(actual.contains(&&"App\\Living\\Animal".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_suggests_keywords_in_file() {
+        let sources = vec![("index.php", "<?php ")];
+
+        let actual = suggestions(&sources, 0, 0, 6, None);
+
+        assert!(actual.contains(&&"namespace".to_string()));
     }
 }
