@@ -566,6 +566,7 @@ dependencies = [
  "crossbeam-channel",
  "ignore",
  "indextree",
+ "lsp-types",
  "snafu",
  "spmc",
  "tokio",

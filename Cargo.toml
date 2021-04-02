@@ -9,7 +9,8 @@ edition = "2018"
 [dependencies]
 snafu = "0.6.6"
 spmc = "0.3.0"
-tower-lsp = "0.13.3"
+tower-lsp = { version = "0.13.3"  }
+lsp-types= { version = "0.81.0", features= ["proposed"]}
 tokio = { version = "0.2", features = ["full"] }
 indextree = "4.0"
 clap = "2.23.3"
