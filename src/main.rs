@@ -5,9 +5,9 @@ extern crate crossbeam_channel as channel;
 extern crate ignore;
 
 use crate::backend::Backend;
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg};
 use std::path::PathBuf;
-use tower_lsp::{Client, LspService, Server};
+use tower_lsp::{LspService, Server};
 
 pub mod backend;
 pub mod environment;

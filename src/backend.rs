@@ -15,18 +15,18 @@ use crate::parser::Parser;
 use crate::suggester;
 use ignore::{types::TypesBuilder, WalkBuilder};
 use indextree::{Arena, NodeId};
-use lsp_types::InsertReplaceEdit;
+use lsp_types::SymbolTag;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::{collections::HashMap, ffi::OsString};
 use suggester::SuggestionContext;
+use tokio::io;
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
 use tokio::task;
-use tokio::{io, task::JoinHandle};
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, CompletionTextEdit,
-    Diagnostic, DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
+    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
     ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
     HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
@@ -310,7 +310,7 @@ impl Backend {
                         let path = dent.into_path();
                         let content = match std::fs::read_to_string(&path) {
                             Ok(content) => content,
-                            Err(error) => {
+                            Err(_) => {
                                 //eprintln!("Error reading file {}", error);
 
                                 return Continue;
@@ -676,16 +676,21 @@ impl LanguageServer for Backend {
 
                 if symbol.normalized_name().starts_with(&query) {
                     if let Some(kind) = symbol.kind.to_symbol_kind() {
+                        let tags = if symbol.deprecated.is_some() {
+                            Some(vec![SymbolTag::Deprecated])
+                        } else {
+                            None
+                        };
                         symbols.push(SymbolInformation {
                             name: symbol.name().to_owned(),
-                            deprecated: symbol.deprecated,
-                            tags: None,
+                            tags,
                             kind,
                             location: Location {
                                 uri: Url::from_file_path(&file_name).unwrap(),
                                 range: symbol.range,
                             },
                             container_name: None,
+                            deprecated: None,
                         })
                     }
                 }
@@ -988,7 +993,7 @@ impl LanguageServer for Backend {
 
         eprintln!("[did_open] file stored in opened files");
 
-        let (ast, range) = if let Some((ast, range)) = state.opened_files.get(&path) {
+        let (ast, _) = if let Some((ast, range)) = state.opened_files.get(&path) {
             self.client
                 .log_message(MessageType::Info, "Opened from cache")
                 .await;

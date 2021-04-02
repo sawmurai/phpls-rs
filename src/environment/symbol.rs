@@ -4,8 +4,9 @@ use crate::environment::import::SymbolImport;
 use crate::environment::scope::Reference;
 use crate::parser::node::Node as AstNode;
 use crate::parser::token::{Token, TokenType};
-use indextree::{Arena, Children, NodeId};
-use std::{cmp::PartialOrd, fmt::Display, iter::Map};
+use indextree::{Arena, NodeId};
+use lsp_types::SymbolTag;
+use std::{cmp::PartialOrd, fmt::Display};
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemTag, DocumentSymbol, InsertTextFormat,
     Position, Range, SymbolKind,
@@ -540,8 +541,12 @@ impl Symbol {
             range: self.range,
             selection_range: self.selection_range,
             detail: self.detail(),
-            deprecated: self.deprecated,
-            tags: None,
+            deprecated: None,
+            tags: if self.deprecated.is_some() {
+                Some(vec![SymbolTag::Deprecated])
+            } else {
+                None
+            },
             // Needs to be added from outside of this
             children,
         })
