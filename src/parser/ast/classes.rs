@@ -441,6 +441,7 @@ mod tests {
             errors: Vec::new(),
             tokens,
             context: Context::Out,
+            eof: (16, 1),
         };
 
         trait_statement(&mut parser).unwrap();

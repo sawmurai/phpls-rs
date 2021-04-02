@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter, Result};
 
-use tower_lsp::lsp_types::{request::Completion, CompletionItem, CompletionItemKind};
+use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind};
 
 use super::node::NodeRange;
 
@@ -14,6 +14,9 @@ pub enum ScriptStartType {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenType {
     Eof,
+
+    // Special tokentype that is used when the expected tokentype was not found
+    Missing,
 
     // One char
     Plus,
@@ -233,6 +236,15 @@ impl Token {
         }
     }
 
+    pub fn missing(line: u32, col: u32) -> Self {
+        Token {
+            t: TokenType::Missing,
+            col,
+            line,
+            label: None,
+        }
+    }
+
     pub fn is_identifier(&self) -> bool {
         matches!(
             self.t,
@@ -347,7 +359,7 @@ impl Token {
             return (label.len()) as u32;
         }
 
-        self.to_string().len() as u32
+        (self.to_string().len() + 1) as u32
     }
 
     pub fn is_on(&self, line: u32, col: u32) -> bool {
@@ -405,9 +417,9 @@ pub fn name(tokens: &[Token]) -> String {
         .join("")
 }
 
-impl Display for Token {
+impl Display for TokenType {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let dis = match self.t {
+        let dis = match self {
             TokenType::Resource => "resource".to_owned(),
             TokenType::AttributeStart => "#[".to_owned(),
             TokenType::Class => "class".to_owned(),
@@ -421,9 +433,6 @@ impl Display for Token {
             TokenType::QuestionMark => "?".to_owned(),
             TokenType::ExclamationMark => "!".to_owned(),
             TokenType::Assignment => "=".to_owned(),
-            // Variables without a label are aliased variables like $$varname
-            TokenType::Variable => format!("${}", self.label.as_ref().unwrap_or(&String::from(""))),
-            TokenType::Identifier => self.label.as_ref().unwrap().to_string(),
             TokenType::OpenParenthesis => "(".to_owned(),
             TokenType::CloseParenthesis => ")".to_owned(),
             TokenType::OpenCurly => "{".to_owned(),
@@ -452,9 +461,6 @@ impl Display for Token {
             TokenType::MulAssign => "*=".to_owned(),
             TokenType::DivAssign => "/=".to_owned(),
             TokenType::LineComment => "//".to_owned(),
-            TokenType::MultilineComment => {
-                format!("/*{}*/", self.label.as_ref().unwrap_or(&String::from("")))
-            }
             TokenType::RightShift => ">>".to_owned(),
             TokenType::LeftShift => "<<".to_owned(),
             TokenType::ScriptEnd => "?>".to_owned(),
@@ -485,18 +491,6 @@ impl Display for Token {
             TokenType::ScriptStart(ScriptStartType::Short) => "<?".to_owned(),
             TokenType::ScriptStart(ScriptStartType::Regular) => "<?php".to_owned(),
             TokenType::ScriptStart(ScriptStartType::Echo) => "<?=".to_owned(),
-            TokenType::DecimalNumber
-            | TokenType::ExponentialNumber
-            | TokenType::LongNumber
-            | TokenType::HexNumber
-            | TokenType::BinaryNumber => self.label.as_ref().unwrap().to_string(),
-            TokenType::ConstantEncapsedString => format!("'{}'", self.label.as_ref().unwrap()),
-            TokenType::EncapsedAndWhitespaceString => {
-                format!("\"{}\"", self.label.as_ref().unwrap())
-            }
-            TokenType::ShellEscape => format!("`{}`", self.label.as_ref().unwrap()),
-            TokenType::HereDocStart => format!("<<<{}", self.label.as_ref().unwrap()),
-            TokenType::HereDocEnd => self.label.as_ref().unwrap().to_string(),
             TokenType::BoolCast => "(bool)".to_owned(),
             TokenType::BadCast => "".to_owned(),
             TokenType::IntCast => "(int)".to_owned(),
@@ -590,13 +584,48 @@ impl Display for Token {
             TokenType::Mixed => "mixed".to_owned(),
             TokenType::Parent => "parent".to_owned(),
             TokenType::Generator => "Generator".to_owned(),
+            TokenType::Missing => "".to_owned(),
+            TokenType::Variable => "$".to_owned(),
+            _ => unreachable!("Should have never been called with {:?}", self),
+        };
+
+        write!(f, "{}", dis)
+    }
+}
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        if self.label.is_none() {
+            write!(f, "{}", self.t)?;
+            return Ok(());
+        }
+
+        let dis = match self.t {
+            // Variables without a label are aliased variables like $$varname
+            TokenType::Variable => format!("${}", self.label.as_ref().unwrap_or(&String::from(""))),
+            TokenType::Identifier => self.label.as_ref().unwrap().to_string(),
+            TokenType::MultilineComment => {
+                format!("/*{}*/", self.label.as_ref().unwrap_or(&String::from("")))
+            }
+            TokenType::DecimalNumber
+            | TokenType::ExponentialNumber
+            | TokenType::LongNumber
+            | TokenType::HexNumber
+            | TokenType::BinaryNumber => self.label.as_ref().unwrap().to_string(),
+            TokenType::ConstantEncapsedString => format!("'{}'", self.label.as_ref().unwrap()),
+            TokenType::EncapsedAndWhitespaceString => {
+                format!("\"{}\"", self.label.as_ref().unwrap())
+            }
+            TokenType::ShellEscape => format!("`{}`", self.label.as_ref().unwrap()),
+            TokenType::HereDocStart => format!("<<<{}", self.label.as_ref().unwrap()),
+            TokenType::HereDocEnd => self.label.as_ref().unwrap().to_string(),
+            _ => unreachable!("Should have never been called with {:?}", self.col),
         };
 
         write!(f, "{}", dis)
     }
 }
 
-impl Into<CompletionItem> for &Token {
+impl Into<CompletionItem> for TokenType {
     fn into(self) -> CompletionItem {
         CompletionItem {
             label: self.to_string(),

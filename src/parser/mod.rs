@@ -62,6 +62,8 @@ pub struct Parser {
     tokens: Vec<Token>,
     errors: Vec<Error>,
     context: Context,
+    // Line and col of end of file
+    eof: (u32, u32),
 }
 
 impl Parser {
@@ -82,11 +84,18 @@ impl Parser {
 
         tokens.reverse();
 
+        let eof = if let Some(eof) = tokens.first() {
+            (eof.line, eof.col)
+        } else {
+            (0, 0)
+        };
+
         let mut parser = Parser {
             doc_comments: Vec::new(),
             tokens,
             errors: Vec::new(),
             context: Context::Out,
+            eof,
         };
 
         let mut statements: Vec<Node> = Vec::new();
@@ -530,41 +539,44 @@ impl Parser {
 
     /// Consume a token of type `t` or return an error
     fn consume(&mut self, t: TokenType) -> Result<Token> {
-        if let Some(token) = self.next() {
+        let (token, is_wrong_token) = if let Some(token) = self.peek() {
             if token.t == t {
-                return Ok(token);
+                (self.next().unwrap(), false)
+            } else {
+                (Token::missing(token.line, token.col), true)
             }
+        } else {
+            (Token::missing(self.eof.0, self.eof.1), true)
+        };
 
-            // TODO: Log error
-            return Err(Error::WrongTokenError {
+        if is_wrong_token {
+            self.errors.push(Error::WrongTokenError {
                 expected: vec![t],
-                token,
-            });
-        }
-
-        Err(Error::Eof)
-    }
-
-    /// Consume an identifier or return an error
-    fn consume_identifier(&mut self) -> Result<Token> {
-        if let Some(token) = self.peek() {
-            if token.is_identifier() {
-                let mut token = self.next().unwrap();
-
-                if token.label.is_none() {
-                    // Make sure to put the correct label into the ... label
-                    token.label = Some(format!("{}", token));
-                }
-                return Ok(token);
-            }
-
-            return Err(Error::WrongTokenError {
-                expected: vec![TokenType::Identifier],
                 token: token.clone(),
             });
         }
 
-        Err(Error::Eof)
+        return Ok(token);
+    }
+
+    /// Consume an identifier or return an error
+    fn consume_identifier(&mut self) -> Result<Token> {
+        let (token, is_wrong_token) = if let Some(token) = self.peek() {
+            if token.is_identifier() {
+                (self.next().unwrap(), false)
+            } else {
+                (Token::missing(token.line, token.col), true)
+            }
+        } else {
+            (Token::missing(self.eof.0, self.eof.1), true)
+        };
+        if is_wrong_token {
+            self.errors.push(Error::MissingIdentifier {
+                token: token.clone(),
+            });
+        }
+
+        return Ok(token);
     }
 
     /// Consume a potential member of a class / an object or return an error
@@ -696,9 +708,9 @@ mod tests {
 
         let expected = Error::MissingIdentifier {
             token: Token {
-                col: 21,
-                line: 3,
-                t: TokenType::ObjectOperator,
+                col: 12,
+                line: 4,
+                t: TokenType::Missing,
                 label: None,
             },
         };

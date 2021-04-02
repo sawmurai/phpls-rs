@@ -4,39 +4,62 @@ use crate::{
         symbol::{PhpSymbolKind, Symbol, Visibility},
         visitor::name_resolver::NameResolver,
     },
-    parser::token::{Token, TokenType},
+    parser::{
+        node::NodeRange,
+        token::{Token, TokenType},
+    },
 };
 use crate::{environment::get_range, environment::in_range, parser::node::Node as AstNode};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::Position;
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum SuggestionContext {
+    /// When suggesting a symbol in the use blocks
+    Import,
+
+    /// When refering to a symbol and the context is not known
+    Unknown,
+
+    /// When calling new
+    ConstructorCall,
+
+    /// When simply calling a function, method or property
+    Call,
+
+    /// When using a variable
+    Reference,
+
+    /// When the suggestion is just a keyword
+    Keyword,
+}
+
 #[derive(Debug)]
 pub struct Suggestion {
-    pub label: String,
-    pub description: String,
+    pub node: Option<NodeId>,
+    pub token: Option<TokenType>,
+    pub context: SuggestionContext,
+    pub replace: Option<NodeRange>,
 }
 
 impl Suggestion {
-    pub fn new(label: &str, description: &str) -> Self {
+    pub fn token(token: TokenType, replace: Option<NodeRange>) -> Self {
         Self {
-            label: label.to_owned(),
-            description: description.to_owned(),
+            token: Some(token),
+            node: None,
+            context: SuggestionContext::Keyword,
+            replace,
         }
     }
-}
 
-impl From<&Symbol> for Suggestion {
-    fn from(symbol: &Symbol) -> Self {
-        if symbol.kind == PhpSymbolKind::Variable {
-            let n = format!("${}", &symbol.name);
-            return Suggestion::new(&n, &symbol.detail().unwrap_or("[PHPLS]".to_string()));
+    pub fn node(node: NodeId, role: SuggestionContext, replace: Option<NodeRange>) -> Self {
+        Self {
+            token: None,
+            node: Some(node),
+            context: role,
+            replace,
         }
-
-        Suggestion::new(
-            &symbol.name,
-            &symbol.detail().unwrap_or("[PHPLS]".to_string()),
-        )
     }
 }
 
@@ -152,17 +175,14 @@ fn members_of_parents_of(
 /// * references: Collected references in the current document
 pub fn get_suggestions_at(
     trigger: Option<char>,
-    mut pos: Position,
+    pos: Position,
     symbol_under_cursor: NodeId,
     ast: &Vec<AstNode>,
     arena: &Arena<Symbol>,
     global_symbols: &HashMap<String, NodeId>,
     references: &FileReferenceMap,
-) -> (Vec<NodeId>, Vec<Token>) {
+) -> Vec<Suggestion> {
     let mut no_magic_const = false;
-    if let Some('>') = trigger {
-        pos.character -= 1;
-    }
 
     let (node, mut ancestors) = if let Some((node, mut ancestors)) =
         ast.iter().filter_map(|n| find(n, &pos, Vec::new())).nth(0)
@@ -172,51 +192,72 @@ pub fn get_suggestions_at(
         (node, ancestors)
     } else if let Some('$') = trigger {
         // Maybe the $ is the last char of the entire source
-        return (
-            symbol_under_cursor
-                .children(arena)
-                .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
-                .collect(),
-            vec![],
-        );
+        return symbol_under_cursor
+            .children(arena)
+            .filter_map(|node| {
+                if arena[node].get().kind == PhpSymbolKind::Variable {
+                    Some(Suggestion::node(node, SuggestionContext::Reference, None))
+                } else {
+                    None
+                }
+            })
+            .collect();
     } else {
-        return (
-            global_symbols
-                .iter()
-                .map(|(_key, value)| value.to_owned())
-                .collect(),
-            vec![],
-        );
+        return global_symbols
+            .iter()
+            .map(|(_, node)| Suggestion::node(*node, SuggestionContext::Unknown, None))
+            .collect();
     };
-
-    let mut suggestions = Vec::new();
 
     let parent = ancestors.pop();
 
     let mut built_in_references = FileReferenceMap::new();
+
     match node {
+        AstNode::GroupedUse {
+            parent: declaration,
+            ..
+        }
+        | AstNode::UseDeclaration { declaration, .. } => {
+            let prefix = declaration.normalized_name();
+
+            return global_symbols
+                .iter()
+                .filter_map(|(key, value)| {
+                    if key.starts_with(&prefix) {
+                        Some(Suggestion::node(
+                            *value,
+                            SuggestionContext::Import,
+                            Some(declaration.range()),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+        }
         AstNode::Block { .. } => match parent {
             Some(AstNode::ClassStatement { .. }) => {
-                return (
-                    vec![],
-                    vec![
-                        Token::new(TokenType::Public, 0, 0),
-                        Token::new(TokenType::Private, 0, 0),
-                        Token::new(TokenType::Protected, 0, 0),
-                    ],
-                )
+                return vec![
+                    Suggestion::token(TokenType::Public, None),
+                    Suggestion::token(TokenType::Private, None),
+                    Suggestion::token(TokenType::Protected, None),
+                ];
             }
             _ => (),
         },
         AstNode::Variable(..) | AstNode::AliasedVariable { .. } => {
             if let Some(parent_scope) = arena[symbol_under_cursor].parent() {
-                return (
-                    parent_scope
-                        .children(arena)
-                        .filter(|node| arena[*node].get().kind == PhpSymbolKind::Variable)
-                        .collect(),
-                    vec![],
-                );
+                return parent_scope
+                    .children(arena)
+                    .filter_map(|node| {
+                        if arena[node].get().kind == PhpSymbolKind::Variable {
+                            Some(Suggestion::node(node, SuggestionContext::Reference, None))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
             }
         }
         AstNode::Missing(..) | AstNode::Literal(..) | AstNode::Member { .. } => {
@@ -305,6 +346,7 @@ pub fn get_suggestions_at(
 
                     let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
 
+                    let mut suggestions: Vec<Suggestion> = Vec::new();
                     let static_only = Some(':') == trigger;
                     arena[*node]
                         .get()
@@ -338,52 +380,59 @@ pub fn get_suggestions_at(
                             suggestions.extend(
                                 members_of(node, &arena, &global_symbols)
                                     .drain(..)
-                                    .filter(|n| {
-                                        let s = arena[*n].get();
+                                    .filter_map(|n| {
+                                        let s = arena[n].get();
 
                                         if static_only && !s.is_static
                                             || no_magic_const && s.kind == PhpSymbolKind::MagicConst
                                         {
-                                            return false;
+                                            return None;
                                         }
 
                                         // Either the element is accessible from this scope anyway or its public ...
-                                        s.visibility >= Visibility::Public
+                                        if s.visibility >= Visibility::Public
                                             || accessible_members.contains(&n)
+                                        {
+                                            Some(Suggestion::node(n, SuggestionContext::Call, None))
+                                        } else {
+                                            None
+                                        }
 
                                         // ... or we ignore it
                                     })
-                                    .collect::<Vec<NodeId>>(),
+                                    .collect::<Vec<Suggestion>>(),
                             );
                         });
 
-                    break;
+                    return suggestions;
                 }
             }
         }
         _ => {
-            suggestions.extend(
-                global_symbols
-                    .iter()
-                    .filter_map(|(_key, value)| {
-                        if arena[*value]
-                            .get()
-                            .normalized_name()
-                            .starts_with(&node.normalized_name())
-                        {
-                            Some(value.to_owned())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<NodeId>>(),
-            );
+            return global_symbols
+                .iter()
+                .filter_map(|(_key, value)| {
+                    if arena[*value]
+                        .get()
+                        .normalized_name()
+                        .starts_with(&node.normalized_name())
+                    {
+                        Some(Suggestion::node(
+                            *value,
+                            SuggestionContext::Unknown,
+                            Some(node.range()),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
         }
     }
 
-    suggestions.dedup_by(|a, b| arena[*a].get().name == arena[*b].get().name);
+    //suggestions.dedup_by(|a, b| arena[*a].get().name == arena[*b].get().name);
 
-    (suggestions, vec![])
+    vec![]
 }
 
 #[cfg(test)]
@@ -516,7 +565,7 @@ mod tests {
         let references = state.symbol_references.get(sources[file].0).unwrap();
         let suc = state.files.get(sources[file].0).unwrap();
         let file = state.arena[*suc].get();
-        let suggestions = super::get_suggestions_at(
+        let mut suggestions = super::get_suggestions_at(
             tc,
             pos,
             file.symbol_at(&pos, *suc, &state.arena),
@@ -526,14 +575,16 @@ mod tests {
             &references,
         );
 
-        let mut actual = suggestions
-            .0
-            .iter()
-            .map(|n| state.arena[*n].get().name.to_string())
-            .collect::<Vec<String>>();
-        actual.extend(suggestions.1.iter().map(|t| t.to_string()));
-
-        actual
+        suggestions
+            .drain(..)
+            .map(|n| {
+                if let Some(node) = n.node {
+                    state.arena[node].get().fqdn()
+                } else {
+                    n.token.unwrap().to_string()
+                }
+            })
+            .collect::<Vec<String>>()
     }
 
     #[test]
@@ -666,8 +717,6 @@ mod tests {
 
         let actual = suggestions(&sources, 1, 0, 14, None);
 
-        eprintln!("{:?}", actual);
-
         assert!(actual.contains(&&"class".to_string()));
     }
 
@@ -690,5 +739,31 @@ mod tests {
         assert!(actual.contains(&"private".to_string()));
         assert!(actual.contains(&"protected".to_string()));
         assert_eq!(3, actual.len());
+    }
+
+    #[tokio::test]
+    async fn test_suggests_namespaces_after_use_on_file_level() {
+        let sources = vec![
+            ("index.php", "<?php use "),
+            ("index2.php", "<?php use App\\"),
+            ("index3.php", "<?php use App\\Living\\"),
+            (
+                "animal.php",
+                "<?php namespace App\\Living; class Animal { }",
+            ),
+            ("car.php", "<?php namespace App\\Inanimate; class Car { }"),
+        ];
+
+        let actual = suggestions(&sources, 0, 0, 9, Some(' '));
+
+        assert!(actual.contains(&&"App\\Living\\Animal".to_string()));
+        assert!(actual.contains(&&"App\\Inanimate\\Car".to_string()));
+
+        let actual = suggestions(&sources, 1, 0, 15, Some('\\'));
+        assert!(actual.contains(&&"App\\Living\\Animal".to_string()));
+        assert!(actual.contains(&&"App\\Inanimate\\Car".to_string()));
+
+        let actual = suggestions(&sources, 2, 0, 23, Some('\\'));
+        assert!(actual.contains(&&"App\\Living\\Animal".to_string()));
     }
 }
