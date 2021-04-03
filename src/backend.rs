@@ -1138,7 +1138,9 @@ impl LanguageServer for Backend {
                             let sn = sug.node.unwrap();
                             let symbol = state.arena[sn].get();
 
-                            if symbol.kind == PhpSymbolKind::Class {
+                            if symbol.kind == PhpSymbolKind::Class
+                                || symbol.kind == PhpSymbolKind::Trait
+                            {
                                 if sug.context == SuggestionContext::Import {
                                     return CompletionItem {
                                         additional_text_edits: Some(vec![TextEdit {

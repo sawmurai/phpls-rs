@@ -16,6 +16,9 @@ pub enum SuggestionContext {
     /// When suggesting a symbol in the use blocks
     Import,
 
+    /// When using a trait
+    TraitUsage,
+
     /// When refering to a symbol and the context is not known
     Unknown,
 
@@ -89,17 +92,46 @@ fn suggest_imports_starting_with(
     declaration: &AstNode,
 ) -> Vec<Suggestion> {
     let prefix = declaration.normalized_name();
-    dbg!(&prefix);
 
     return global_symbols
         .iter()
         .filter_map(|(key, value)| {
             if key.starts_with(&prefix) {
-                dbg!(&key);
                 Some(Suggestion::node(
                     *value,
                     SuggestionContext::Import,
                     Some(declaration.range()),
+                ))
+            } else {
+                None
+            }
+        })
+        .collect();
+}
+
+/// Get traits that start with the prefix of
+fn suggest_traits_starting_with(
+    global_symbols: &HashMap<String, NodeId>,
+    declaration: &AstNode,
+    arena: &Arena<Symbol>,
+    node: &AstNode,
+) -> Vec<Suggestion> {
+    let prefix = declaration.normalized_name();
+
+    return global_symbols
+        .iter()
+        .filter_map(|(_, value)| {
+            let symbol = arena[*value].get();
+
+            if symbol.kind != PhpSymbolKind::Trait {
+                return None;
+            }
+
+            if symbol.normalized_name().starts_with(&prefix) {
+                Some(Suggestion::node(
+                    *value,
+                    SuggestionContext::TraitUsage,
+                    Some(node.range()),
                 ))
             } else {
                 None
@@ -338,7 +370,12 @@ pub fn get_suggestions_at(
 
     let parent = ancestors.pop();
 
+    dbg!(node, parent);
+
     match node {
+        AstNode::UseTrait { type_ref, .. } => {
+            return suggest_traits_starting_with(global_symbols, type_ref, arena, node);
+        }
         AstNode::GroupedUse {
             parent: declaration,
             ..
@@ -580,5 +617,19 @@ mod tests {
         let actual = suggestions(&sources, 0, 0, 6, None);
 
         assert!(actual.contains(&&"namespace".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_suggests_trait_after_use_in_class() {
+        let sources = vec![
+            ("index.php", "<?php class Test { use T}"),
+            ("test.php", "<?php trait TheTrait {}"),
+            ("test2.php", "<?php class TheClass {}"),
+        ];
+
+        let actual = suggestions(&sources, 0, 0, 24, None);
+
+        assert_eq!(1, actual.len());
+        assert!(actual.contains(&&"TheTrait".to_string()));
     }
 }

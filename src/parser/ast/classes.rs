@@ -319,8 +319,8 @@ fn trait_usages(parser: &mut Parser) -> ExpressionListResult {
             return Ok(usages);
         }
 
-        if parser.consume_or_ignore(TokenType::Comma).is_some() {
-            continue;
+        if !parser.consume_or_ignore(TokenType::Comma).is_some() {
+            break;
         }
     }
 

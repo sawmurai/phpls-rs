@@ -565,11 +565,11 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
         Node::FunctionArgument {
             argument_type,
             default_value,
-            has_default,
             name,
             spread,
             reference,
-            doc_comment,
+            doc_comment: _,
+            ..
         } => {
             let mut parts = Vec::new();
             parts.push(optional_ident!("", " ", argument_type, line, col, options));

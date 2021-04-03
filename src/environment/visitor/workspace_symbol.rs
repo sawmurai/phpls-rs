@@ -177,7 +177,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let child = arena.new_node(Symbol {
                     namespace,
                     name,
-                    kind: PhpSymbolKind::Class,
+                    kind: PhpSymbolKind::Trait,
                     range,
                     selection_range,
                     ..Symbol::default()

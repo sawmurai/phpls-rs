@@ -41,6 +41,7 @@ pub enum PhpSymbolKind {
     BuiltInType = 100,
     MagicConst = 101,
     FunctionParameter = 102,
+    Trait = 103,
 
     // Capturing all unknown enums by this lib.
     Unknown = 255,
@@ -184,7 +185,7 @@ impl PhpSymbolKind {
         let kind = match self {
             PhpSymbolKind::File => SymbolKind::File,
             PhpSymbolKind::Namespace => SymbolKind::Namespace,
-            PhpSymbolKind::Class => SymbolKind::Class,
+            PhpSymbolKind::Class | PhpSymbolKind::Trait => SymbolKind::Class,
             PhpSymbolKind::Method => SymbolKind::Method,
             PhpSymbolKind::Property => SymbolKind::Property,
             PhpSymbolKind::Field => SymbolKind::Field,
@@ -219,6 +220,7 @@ impl PhpSymbolKind {
         matches!(
             self,
             PhpSymbolKind::Class
+                | PhpSymbolKind::Trait
                 | PhpSymbolKind::Interface
                 | PhpSymbolKind::Function
                 | PhpSymbolKind::Constant
@@ -254,6 +256,13 @@ impl Symbol {
             PhpSymbolKind::Class => CompletionItem {
                 label,
                 detail: Some(format!("class {}\\{}", ns, self.name)),
+                kind: Some(CompletionItemKind::Class),
+                tags,
+                ..CompletionItem::default()
+            },
+            PhpSymbolKind::Trait => CompletionItem {
+                label,
+                detail: Some(format!("trait {}\\{}", ns, self.name)),
                 kind: Some(CompletionItemKind::Class),
                 tags,
                 ..CompletionItem::default()
