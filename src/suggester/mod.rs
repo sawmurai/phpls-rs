@@ -370,8 +370,6 @@ pub fn get_suggestions_at(
 
     let parent = ancestors.pop();
 
-    dbg!(node, parent);
-
     match node {
         AstNode::UseTrait { type_ref, .. } => {
             return suggest_traits_starting_with(global_symbols, type_ref, arena, node);

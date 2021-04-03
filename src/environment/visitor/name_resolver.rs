@@ -24,11 +24,13 @@ impl Reference {
     }
 }
 
+type UniqueNodeRange = (NodeId, NodeRange);
+
 pub struct NameResolver<'a> {
     global_scope: &'a HashMap<String, NodeId>,
 
     /// Contains locally defined variables and functions
-    pub local_scopes: Vec<HashMap<String, NodeId>>,
+    local_scopes: Vec<HashMap<String, NodeId>>,
 
     /// Contains a stack of references to $this
     current_class: Option<NodeId>,
@@ -38,9 +40,11 @@ pub struct NameResolver<'a> {
     scope_container: NodeId,
 
     /// Collect document references for multiple files identified by their node id
-    pub document_references: HashMap<NodeId, Vec<Reference>>,
+    document_references: HashMap<NodeId, Vec<Reference>>,
 
     diagnostics: Vec<Notification>,
+
+    cache: HashMap<UniqueNodeRange, Option<NodeId>>,
 }
 
 impl<'a> NameResolver<'a> {
@@ -52,6 +56,7 @@ impl<'a> NameResolver<'a> {
             document_references: HashMap::new(),
             scope_container,
             diagnostics: Vec::new(),
+            cache: HashMap::new(),
         }
     }
 
@@ -220,31 +225,8 @@ impl<'a> NameResolver<'a> {
             return None;
         }
 
-        let mut file = *context_anchor;
-
-        let mut current_namespace = "";
-        let mut current_available_imports = HashMap::new();
-        let mut file_symbol;
-
-        loop {
-            file_symbol = arena[file].get();
-
-            if file_symbol.kind == PhpSymbolKind::File {
-                if let Some(imports) = file_symbol.imports.as_ref() {
-                    for import in imports {
-                        current_available_imports.insert(import.name(), import.full_name());
-                    }
-                }
-            } else if file_symbol.kind == PhpSymbolKind::Namespace {
-                current_namespace = file_symbol.name();
-            }
-
-            if let Some(parent) = arena[file].parent() {
-                file = parent;
-            } else {
-                break;
-            }
-        }
+        let file = context_anchor.ancestors(arena).last().unwrap();
+        let file_symbol = arena[file].get();
 
         // Maybe do the following only if the name starts with a backslash?
         let name = tokens.first().unwrap().label.clone().unwrap();
@@ -253,8 +235,15 @@ impl<'a> NameResolver<'a> {
             tokens.last().unwrap().end(),
         );
 
+        let cache_key = (file, range);
+        if let Some(cached) = self.cache.get(&cache_key) {
+            return *cached;
+        }
+
         if name == "self" || name == "static" {
             if self.current_class.is_some() {
+                self.cache.insert(cache_key, self.current_class);
+
                 return self.current_class;
             }
 
@@ -263,39 +252,68 @@ impl<'a> NameResolver<'a> {
                 String::from("Can only be used inside a class"),
                 range,
             ));
+
+            self.cache.insert(cache_key, None);
+            return None;
         }
 
         if name == "parent" {
             if let Some(current_class) = self.current_class {
-                return arena[current_class]
-                    .get()
-                    .get_unique_parent(&current_class, self, arena);
+                let parent_class =
+                    arena[current_class]
+                        .get()
+                        .get_unique_parent(&current_class, self, arena);
+
+                self.cache.insert(cache_key, parent_class);
+                return parent_class;
             }
             self.diagnostics.push(Notification::error(
                 file_symbol.name().to_owned(),
                 String::from("Parent can only be used inside a class"),
                 range,
             ));
+
+            self.cache.insert(cache_key, None);
+            return None;
         }
 
-        // Class was not inside a namespace block, so go and fetch the ns of the file
-        if current_namespace.is_empty() {
-            if let Some(ns) = file.children(arena).find_map(|c| {
-                let s = arena[c].get();
-                if s.kind == PhpSymbolKind::Namespace {
-                    Some(s.name())
-                } else {
-                    None
-                }
-            }) {
-                current_namespace = ns;
+        let mut current_available_imports = HashMap::new();
+        if let Some(imports) = file_symbol.imports.as_ref() {
+            for import in imports {
+                current_available_imports.insert(import.name().to_lowercase(), import.full_name());
             }
         }
+
+        // First attempt: Try to find the first parent namespace block
+        let current_namespace = if let Some(ns) = context_anchor.ancestors(arena).find_map(|a| {
+            let s = arena[a].get();
+
+            if s.kind == PhpSymbolKind::Namespace {
+                Some(s.name())
+            } else {
+                None
+            }
+        }) {
+            ns
+        // Alternative: Find the global namespace of the file
+        } else if let Some(ns) = file.children(arena).find_map(|c| {
+            let s = arena[c].get();
+            if s.kind == PhpSymbolKind::Namespace {
+                Some(s.name())
+            } else {
+                None
+            }
+        }) {
+            ns
+        // Well, must be the global namespace then
+        } else {
+            ""
+        };
 
         // Simple, if fully qualified do not tamper with the name
         let joined_name = if fully_qualified {
             to_fqdn(&tokens)
-        } else if let Some(import) = current_available_imports.get(&name) {
+        } else if let Some(import) = current_available_imports.get(&name.to_lowercase()) {
             // If not fully qualified, check imports
             if tokens.len() > 1 {
                 let end = to_fqdn(tokens.iter().skip(1));
@@ -312,28 +330,17 @@ impl<'a> NameResolver<'a> {
             to_fqdn(&tokens)
         };
 
+        // Ensure case-insensitivity
         let normalized_joined_name = joined_name.to_lowercase();
 
         let node = if let Some(node) = self.global_scope.get(&normalized_joined_name) {
-            if register_ref {
-                self.reference(file, Reference::new(range, *node));
-            }
-
             Some(*node)
         } else if let Some(node) = self
             .global_scope
             .get(&format!("\\{}", normalized_joined_name))
         {
-            if register_ref {
-                self.reference(file, Reference::new(range, *node));
-            }
-
             Some(*node)
         } else if let Some(node) = self.global_scope.get(&format!("\\{}", name.to_lowercase())) {
-            if register_ref {
-                self.reference(file, Reference::new(range, *node));
-            }
-
             if !arena[*node].get().fqdn_matches(&name) {
                 self.diagnostics.push(Notification::warning(
                     file_symbol.name().to_owned(),
@@ -341,7 +348,7 @@ impl<'a> NameResolver<'a> {
                     range,
                 ));
             }
-            return Some(*node);
+            Some(*node)
         } else {
             self.diagnostics.push(Notification::error(
                 file_symbol.name().to_owned(),
@@ -349,10 +356,14 @@ impl<'a> NameResolver<'a> {
                 range,
             ));
 
-            return None;
+            None
         };
 
         if let Some(node) = node {
+            if register_ref {
+                self.reference(file, Reference::new(range, node));
+            }
+
             if !arena[node].get().fqdn_matches(&joined_name) {
                 self.diagnostics.push(Notification::warning(
                     file_symbol.name().to_owned(),
@@ -361,6 +372,8 @@ impl<'a> NameResolver<'a> {
                 ));
             }
         }
+
+        self.cache.insert(cache_key, node);
 
         node
     }
