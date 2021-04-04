@@ -262,7 +262,7 @@ impl<'a> NameResolver<'a> {
                 let parent_class =
                     arena[current_class]
                         .get()
-                        .get_unique_parent(&current_class, self, arena);
+                        .get_unique_parent(current_class, self, arena);
 
                 self.cache.insert(cache_key, parent_class);
                 return parent_class;
@@ -830,7 +830,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         if let Some(current_class) = self.resolver.current_class {
                             break (
                                 arena[current_class].get().get_unique_parent(
-                                    &current_class,
+                                    current_class,
                                     self.resolver,
                                     arena,
                                 ),
@@ -905,39 +905,29 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     link.name()
                 };
 
-                let child = arena[root_node]
+                if let Some(child) = arena[root_node]
                     .get()
-                    .get_all_symbols(&root_node, self.resolver, arena)
-                    .iter()
-                    .find_map(|node| {
-                        let s = arena[*node].get();
+                    .get_all_symbols(root_node, self.resolver, arena)
+                    .get(&link_name.to_lowercase())
+                {
+                    let child_symbol = arena[child.symbol].get();
 
-                        if s.normalized_name() == link_name.to_lowercase() {
-                            if s.visibility >= minimal_visibility {
-                                if s.name() != link_name {
-                                    self.resolver.diagnostic(
-                                        file_name.to_owned(),
-                                        link.range(),
-                                        String::from("Case mismatch between call and definition"),
-                                        DiagnosticSeverity::Warning,
-                                    );
-                                }
-
-                                return Some(*node);
-                            }
+                    if child.visibility >= minimal_visibility {
+                        if child.alias != link_name {
+                            self.resolver.diagnostic(
+                                file_name.to_owned(),
+                                link.range(),
+                                String::from("Case mismatch between call and definition"),
+                                DiagnosticSeverity::Warning,
+                            );
                         }
-
-                        return None;
-                    });
-
-                if let Some(child) = child {
-                    // Check all children of the current class
-                    let child_symbol = arena[child].get();
+                    }
 
                     match link.as_ref() {
                         AstNode::Variable(token) | AstNode::Literal(token) => {
                             // Register reference here
-                            self.resolver.reference_local(self.file, &token, &child);
+                            self.resolver
+                                .reference_local(self.file, &token, &child.symbol);
                         }
                         _ => (),
                     }
@@ -962,7 +952,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                     if TokenType::Parent == first_type {
                                         if let Some(root_parent) = arena[root_node]
                                             .get()
-                                            .get_unique_parent(&root_node, self.resolver, arena)
+                                            .get_unique_parent(root_node, self.resolver, arena)
                                         {
                                             root_node = root_parent;
 
@@ -997,7 +987,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             return None;
                         }
                         _ => {
-                            root_node = child;
+                            root_node = child.symbol;
                         }
                     }
                 } else {

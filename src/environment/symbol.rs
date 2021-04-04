@@ -1,4 +1,9 @@
-use super::{get_range, in_range, visitor::name_resolver::NameResolver};
+use super::{
+    get_range,
+    import::TraitUseAlteration,
+    in_range,
+    visitor::{self, name_resolver::NameResolver},
+};
 use crate::environment::fs::file_read_range;
 use crate::environment::import::SymbolImport;
 use crate::environment::scope::Reference;
@@ -6,7 +11,7 @@ use crate::parser::node::Node as AstNode;
 use crate::parser::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
 use lsp_types::SymbolTag;
-use std::{cmp::PartialOrd, fmt::Display};
+use std::{cmp::PartialOrd, collections::HashMap, fmt::Display};
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemTag, DocumentSymbol, InsertTextFormat,
     Position, Range, SymbolKind,
@@ -46,7 +51,7 @@ pub enum PhpSymbolKind {
     // Capturing all unknown enums by this lib.
     Unknown = 255,
 }
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Copy)]
 pub enum Visibility {
     None,
     Public,
@@ -123,6 +128,27 @@ impl FunctionParameter {
     }
 }
 
+/// Struct to store the alias to a symbol, for instance the alias to a
+/// method name. This should also the only use case for now, methods that
+/// are equipped with an alias during inclusion via traits. The alias could
+/// also be the original name.
+#[derive(Copy, Clone)]
+pub struct SymbolAlias<'a> {
+    pub symbol: NodeId,
+    pub alias: &'a str,
+    pub visibility: Visibility,
+}
+
+impl<'a> SymbolAlias<'a> {
+    pub fn new<'b>(symbol: NodeId, alias: &'a str, visibility: Visibility) -> Self {
+        SymbolAlias {
+            symbol,
+            alias,
+            visibility,
+        }
+    }
+}
+
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
 #[derive(Clone, Debug)]
@@ -141,6 +167,9 @@ pub struct Symbol {
     /// If symbol is a file, this contains the namespace imports. If its a class
     /// this contains the used traits
     pub imports: Option<Vec<SymbolImport>>,
+
+    /// Contains all the use x insteadof y or as a public b trait import rules
+    pub import_resolutions: Option<Vec<TraitUseAlteration>>,
 
     /// Parent symbol(s) (used for inheritance)
     /// While multi inheritance is not supported in PHP class, we still collect all parents
@@ -174,6 +203,7 @@ impl Default for Symbol {
             data_types: Vec::new(),
             is_static: false,
             imports: None,
+            import_resolutions: None,
             parameters: Vec::new(),
             visibility: Visibility::None,
         }
@@ -391,49 +421,247 @@ impl Symbol {
     }
 
     /// Collect all inherited symbols of all parents (interfaces have more than one parent)
-    pub fn get_inherited_symbols(
-        &self,
-        my_node_id: &NodeId,
-        resolver: &mut NameResolver,
-        arena: &Arena<Self>,
-    ) -> Vec<NodeId> {
+    pub fn get_inherited_symbols<'a, 'b>(
+        &'a self,
+        my_node_id: NodeId,
+        resolver: &'b mut NameResolver,
+        arena: &'a Arena<Self>,
+    ) -> HashMap<String, SymbolAlias> {
         self.get_parent_nodes(my_node_id, resolver, arena)
             .iter()
-            .map(|parent| {
+            .map(|(_, parent)| {
                 arena[*parent]
                     .get()
-                    .get_all_symbols(parent, resolver, arena)
+                    .get_all_symbols(*parent, resolver, arena)
             })
-            .fold(Vec::new(), |cur, mut tot| {
+            .fold(HashMap::new(), |cur, mut tot| {
                 tot.extend(cur);
                 tot
             })
     }
 
-    /// Collect all available symbols, including used through traits and symbols of parents
-    pub fn get_all_symbols(
-        &self,
-        my_node_id: &NodeId,
-        resolver: &mut NameResolver,
-        arena: &Arena<Self>,
-    ) -> Vec<NodeId> {
-        // Get this symbols children
-        let mut children = my_node_id.children(arena).collect::<Vec<NodeId>>();
-
+    // Resolve children of all imports
+    pub fn get_imports<'a, 'b>(
+        &'a self,
+        my_node_id: NodeId,
+        resolver: &'b mut NameResolver,
+        arena: &'a Arena<Self>,
+    ) -> HashMap<String, SymbolAlias> {
+        let mut all_children = HashMap::new();
         // Go through all used traits and get the children of all traits
         if let Some(imports) = self.imports.as_ref() {
             for import in imports.iter() {
                 if let Some(used_trait) =
                     resolver.resolve_type_ref(&import.path, arena, &my_node_id, true)
                 {
-                    children.extend(arena[used_trait].get().get_all_symbols(
-                        &used_trait,
-                        resolver,
-                        arena,
-                    ));
+                    // Get HashMap<String, Vec<NodeId>> where nodeids are all symbols with the same name (i.e. conflicting)
+                    arena[used_trait]
+                        .get()
+                        .get_all_symbols(used_trait, resolver, arena)
+                        .drain()
+                        .for_each(|(name, node)| {
+                            all_children
+                                .entry(name.clone())
+                                .or_insert_with(|| Vec::new())
+                                .push(node);
+                        });
                 }
             }
         }
+
+        // Step2: Now, go through all resolution rules and resolve the conflicts collected in step 1
+        if let Some(resolutions) = self.import_resolutions.as_ref() {
+            for resolution in resolutions {
+                match resolution {
+                    // class::member as private
+                    // class::member as otherMember
+                    // member as private
+                    // member as OtherMember
+                    TraitUseAlteration::As {
+                        visibility,
+                        class,
+                        member,
+                        alias,
+                    } => {
+                        let visibility = if let Some(v_token) = visibility {
+                            match v_token.t {
+                                TokenType::Public => Visibility::Public,
+                                TokenType::Protected => Visibility::Protected,
+                                TokenType::Private => Visibility::Private,
+                                _ => Visibility::None,
+                            }
+                        } else {
+                            Visibility::None
+                        };
+
+                        let normalized_member = &member.to_lowercase();
+                        if let Some(class) = class {
+                            if let Some(class) =
+                                resolver.resolve_type_ref(class, arena, &my_node_id, true)
+                            {
+                                if let Some(member_node) = class.children(arena).find(|child| {
+                                    arena[*child]
+                                        .get()
+                                        .normalized_name()
+                                        .eq(&member.to_lowercase())
+                                }) {
+                                    if let Some(alias) = alias {
+                                        if let Some(alias_label) = alias.label.as_ref() {
+                                            let normalized_alias = alias.to_string().to_lowercase();
+                                            dbg!(&normalized_alias);
+
+                                            if all_children.contains_key(normalized_member) {
+                                                all_children
+                                                    .get_mut(normalized_member)
+                                                    .unwrap()
+                                                    .retain(|alias| alias.symbol != member_node);
+
+                                                all_children
+                                                    .entry(normalized_alias)
+                                                    .or_insert_with(|| Vec::new())
+                                                    .push(SymbolAlias::new(
+                                                        member_node,
+                                                        alias_label,
+                                                        visibility,
+                                                    ));
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    if visibility != Visibility::None
+                                        && all_children.contains_key(normalized_member)
+                                    {
+                                        all_children
+                                            .get_mut(normalized_member)
+                                            .unwrap()
+                                            .iter_mut()
+                                            .for_each(|alias| {
+                                                if alias.alias.to_lowercase() == *normalized_member
+                                                {
+                                                    alias.visibility = visibility;
+                                                }
+                                            });
+                                    }
+                                }
+                            }
+                        } else if let Some(children_with_name) = all_children.get(normalized_member)
+                        {
+                            if let Some(alias) = alias {
+                                if let Some(alias_label) = alias.label.as_ref() {
+                                    let normalized_alias = alias.to_string().to_lowercase();
+
+                                    all_children.get_mut(normalized_member).unwrap().retain(
+                                        |alias| alias.alias.to_lowercase() != *normalized_member,
+                                    );
+                                    /*
+                                    all_children
+                                        .entry(normalized_alias)
+                                        .or_insert_with(|| Vec::new())
+                                        .push(SymbolAlias::new(
+                                            member_node,
+                                            alias_label,
+                                            visibility,
+                                        ));*/
+                                }
+                            }
+
+                            if visibility != Visibility::None
+                                && all_children.contains_key(normalized_member)
+                            {
+                                all_children
+                                    .get_mut(normalized_member)
+                                    .unwrap()
+                                    .iter_mut()
+                                    .for_each(|alias| {
+                                        if alias.alias.to_lowercase() == *normalized_member {
+                                            alias.visibility = visibility;
+                                        }
+                                    });
+                            }
+                        }
+                    }
+                    TraitUseAlteration::InsteadOf {
+                        class,
+                        member,
+                        instead_ofs,
+                    } => {
+                        // Validate that the member that shall be used even exists
+                        if let Some(class) =
+                            resolver.resolve_type_ref(class, arena, &my_node_id, true)
+                        {
+                            if class
+                                .children(arena)
+                                .find(|child| {
+                                    arena[*child]
+                                        .get()
+                                        .normalized_name()
+                                        .eq(&member.to_lowercase())
+                                })
+                                .is_none()
+                            {
+                                // TODO: Raise error that prefered item does not exist
+                            }
+                        }
+
+                        instead_ofs.iter().for_each(|t_ref| {
+                            if let Some(class) =
+                                resolver.resolve_type_ref(t_ref, arena, &my_node_id, true)
+                            {
+                                if let Some(to_be_removed) = class.children(arena).find(|child| {
+                                    arena[*child]
+                                        .get()
+                                        .normalized_name()
+                                        .eq(&member.to_lowercase())
+                                }) {
+                                    // TODO: Remove from result and set alias
+                                } else {
+                                    // TODO: Raise error that the thing we want to remove was not even added!
+                                }
+                            } else {
+                                // TODO: Raise error that trait does not exist
+                            }
+                        });
+                    }
+                }
+            }
+        }
+        // Split the children into two buckets: One without conflicts, where names are unique and
+        // one with conflicts, where names are defined more than once
+
+        let mut children = HashMap::with_capacity(all_children.len());
+        let mut conflicts = HashMap::with_capacity(all_children.len());
+        for (key, values) in all_children.drain() {
+            if values.len() == 1 {
+                children.insert(key, values[0]);
+            } else {
+                conflicts.insert(key, values);
+            }
+        }
+
+        children
+    }
+
+    /// Collect all available symbols, including used through traits and symbols of parents
+    pub fn get_all_symbols<'a, 'b>(
+        &'a self,
+        my_node_id: NodeId,
+        resolver: &'b mut NameResolver,
+        arena: &'a Arena<Self>,
+    ) -> HashMap<String, SymbolAlias> {
+        let mut children = HashMap::new();
+
+        // Get this symbols children
+        my_node_id.children(arena).for_each(|child| {
+            let child_symbol = arena[child].get();
+
+            children.insert(
+                child_symbol.normalized_name(),
+                SymbolAlias::new(child, child_symbol.name(), child_symbol.visibility),
+            );
+        });
+
+        // Go through all used traits and get the children of all traits
+        children.extend(self.get_imports(my_node_id, resolver, arena));
 
         // Get the children of all data_types, which are also all implemented interfaces
         let resolved_datatypes = self
@@ -450,8 +678,8 @@ impl Symbol {
 
         resolved_datatypes.iter().for_each(|dt| {
             // Skip self-reference
-            if my_node_id != dt {
-                children.extend(arena[*dt].get().get_all_symbols(&dt, resolver, arena));
+            if my_node_id != *dt {
+                children.extend(arena[*dt].get().get_all_symbols(*dt, resolver, arena));
             }
         });
 
@@ -462,7 +690,7 @@ impl Symbol {
 
     pub fn get_unique_parent(
         &self,
-        my_node_id: &NodeId,
+        my_node_id: NodeId,
         resolver: &mut NameResolver,
         arena: &Arena<Self>,
     ) -> Option<NodeId> {
@@ -471,16 +699,18 @@ impl Symbol {
         if parents.len() != 1 {
             None
         } else {
-            Some(parents.first().unwrap().clone())
+            Some(parents.values().next().unwrap().clone())
         }
     }
 
     pub fn get_parent_nodes(
         &self,
-        my_node_id: &NodeId,
+        my_node_id: NodeId,
         resolver: &mut NameResolver,
         arena: &Arena<Self>,
-    ) -> Vec<NodeId> {
+    ) -> HashMap<String, NodeId> {
+        let mut parents = HashMap::new();
+
         if let Some(inherits_from) = self.inherits_from.as_ref() {
             inherits_from
                 .iter()
@@ -492,21 +722,23 @@ impl Symbol {
                         false,
                     )
                 })
-                .collect()
-        } else {
-            Vec::new()
+                .for_each(|node| {
+                    parents.insert(arena[node].get().normalized_name(), node);
+                })
         }
+
+        parents
     }
 
     pub fn get_parent_symbols<'a>(
         &'a self,
-        my_node_id: &NodeId,
+        my_node_id: NodeId,
         resolver: &mut NameResolver,
         arena: &'a Arena<Self>,
     ) -> Vec<&'a Self> {
         self.get_parent_nodes(my_node_id, resolver, &arena)
             .iter()
-            .map(|parent| arena[*parent].get())
+            .map(|(name, parent)| arena[*parent].get())
             .collect()
     }
 

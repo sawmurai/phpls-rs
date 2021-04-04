@@ -1,7 +1,7 @@
 use crate::{
     backend::FileReferenceMap,
     environment::{
-        symbol::{PhpSymbolKind, Symbol, Visibility},
+        symbol::{PhpSymbolKind, Symbol, SymbolAlias, Visibility},
         visitor::name_resolver::NameResolver,
     },
     parser::{node::NodeRange, token::TokenType},
@@ -41,6 +41,7 @@ pub struct Suggestion {
     pub token: Option<TokenType>,
     pub context: SuggestionContext,
     pub replace: Option<NodeRange>,
+    pub alias: Option<String>,
 }
 
 impl Suggestion {
@@ -50,6 +51,7 @@ impl Suggestion {
             node: None,
             context: SuggestionContext::Keyword,
             replace,
+            alias: None,
         }
     }
 
@@ -59,6 +61,22 @@ impl Suggestion {
             node: Some(node),
             context: role,
             replace,
+            alias: None,
+        }
+    }
+
+    pub fn aliased(
+        node: NodeId,
+        alias: &str,
+        role: SuggestionContext,
+        replace: Option<NodeRange>,
+    ) -> Self {
+        Self {
+            token: None,
+            node: Some(node),
+            context: role,
+            replace,
+            alias: Some(alias.to_owned()),
         }
     }
 }
@@ -149,7 +167,7 @@ fn suggest_symbol_starting_with(
     let prefix = node.normalized_name();
     return global_symbols
         .iter()
-        .filter_map(|(_key, value)| {
+        .filter_map(|(key, value)| {
             if arena[*value].get().normalized_name().starts_with(&prefix) {
                 Some(Suggestion::node(
                     *value,
@@ -202,7 +220,10 @@ fn suggest_members_of_symbol(
     // Find the reference for the parent, i.e. the $object in $object->|
     // If a $this is encountered it we already found the parent
     let mut resolved_parent = None;
-    if let AstNode::Member { object, .. } = parent {
+    if let AstNode::Member { object, .. } = node {
+        parent_range = object.range();
+        no_magic_const = true;
+    } else if let AstNode::Member { object, .. } = parent {
         no_magic_const = true;
         if let AstNode::Call { callee, .. } = object.as_ref() {
             if let AstNode::Member { member, .. } = callee.as_ref() {
@@ -246,19 +267,27 @@ fn suggest_members_of_symbol(
     });
 
     // Collect a list of all accessible members of this class and its parents
-    let mut accessible_members = Vec::new();
+    let mut accessible_members = HashMap::new();
     if let Some(current_class) = current_class {
-        accessible_members.extend(current_class.children(&arena));
+        current_class.children(&arena).for_each(|c| {
+            let symbol = arena[c].get();
+            accessible_members.insert(
+                symbol.normalized_name(),
+                SymbolAlias::new(c, symbol.name(), symbol.visibility),
+            );
+        });
 
+        let cc_symbol = arena[current_class].get();
         let mut resolver = NameResolver::new(&global_symbols, current_class);
 
-        accessible_members.extend(
-            arena[current_class]
-                .get()
-                .get_inherited_symbols(&current_class, &mut resolver, &arena)
-                .iter()
-                .filter(|n| arena[**n].get().visibility >= Visibility::Protected),
-        );
+        accessible_members.extend(cc_symbol.get_imports(current_class, &mut resolver, arena));
+        cc_symbol
+            .get_inherited_symbols(current_class, &mut resolver, &arena)
+            .drain()
+            .filter(|(_, n)| arena[n.symbol].get().visibility >= Visibility::Protected)
+            .for_each(|(name, node)| {
+                accessible_members.insert(name, node);
+            });
     }
 
     let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
@@ -290,14 +319,14 @@ fn suggest_members_of_symbol(
             suggestions.extend(
                 arena[node]
                     .get()
-                    .get_all_symbols(&node, &mut resolver, arena)
-                    .drain(..)
-                    .filter_map(|n| {
-                        let s = arena[n].get();
-
-                        if !s.name().starts_with(&prefix) {
+                    .get_all_symbols(node, &mut resolver, arena)
+                    .iter()
+                    .filter_map(|(name, n)| {
+                        if !n.alias.starts_with(&prefix) {
                             return None;
                         }
+
+                        let s = arena[n.symbol].get();
 
                         if static_only && !s.is_static
                             || no_magic_const && s.kind == PhpSymbolKind::MagicConst
@@ -306,8 +335,15 @@ fn suggest_members_of_symbol(
                         }
 
                         // Either the element is accessible from this scope anyway or its public ...
-                        if s.visibility >= Visibility::Public || accessible_members.contains(&n) {
-                            Some(Suggestion::node(n, SuggestionContext::Call, None))
+                        if s.visibility >= Visibility::Public
+                            || accessible_members.contains_key(s.name())
+                        {
+                            Some(Suggestion::aliased(
+                                n.symbol,
+                                n.alias,
+                                SuggestionContext::Call,
+                                None,
+                            ))
                         } else {
                             None
                         }
@@ -432,11 +468,21 @@ mod tests {
             let pr = Parser::ast(scanner.tokens).unwrap();
 
             Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+        }
+
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
             Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
         }
+
         let mut scanner = Scanner::new(&sources[file].1);
         scanner.scan().unwrap();
         let pr = Parser::ast(scanner.tokens).unwrap();
+
         let pos = Position { line, character };
 
         let references = state.symbol_references.get(sources[file].0).unwrap();
@@ -455,7 +501,9 @@ mod tests {
         suggestions
             .drain(..)
             .map(|n| {
-                if let Some(node) = n.node {
+                if let Some(alias) = n.alias {
+                    alias
+                } else if let Some(node) = n.node {
                     state.arena[node].get().fqdn()
                 } else {
                     n.token.unwrap().to_string()
@@ -629,5 +677,28 @@ mod tests {
 
         assert_eq!(1, actual.len());
         assert!(actual.contains(&&"TheTrait".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_suggests_aliased_trait_method() {
+        let sources = vec![
+            (
+                "index.php",
+                "<?php use TheClass; $m = new TheClass(); $m-> ",
+            ),
+            ("test.php", "<?php trait A { public function m1() {} }"),
+            ("test4.php", "<?php trait B { public function m1() {} }"),
+            (
+                "test2.php",
+                "<?php class TheClass { use A, B { A::m1 as public m2; B::m1 as public m3; C::test insteadof A,B; } }",
+            ),
+        ];
+
+        let actual = suggestions(&sources, 0, 0, 45, Some('>'));
+
+        dbg!(&actual);
+        assert_eq!(2, actual.len());
+        assert!(actual.contains(&&"m2".to_string()));
+        assert!(actual.contains(&&"m3".to_string()));
     }
 }

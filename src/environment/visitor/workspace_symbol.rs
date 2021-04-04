@@ -1,5 +1,5 @@
 use super::super::get_range;
-use super::super::import::collect_uses;
+use super::super::import::{collect_alterations, collect_uses};
 use super::NextAction;
 use super::Symbol;
 use super::Visitor;
@@ -52,9 +52,9 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 NextAction::Abort
             }
-            AstNode::UseTraitAlterationBlock { .. }
-            | AstNode::UseTraitInsteadOf { .. }
+            AstNode::UseTraitInsteadOf { .. }
             | AstNode::UseTraitAs { .. }
+            | AstNode::UseTraitAlterationBlock { .. }
             | AstNode::UseTrait { .. } => {
                 let mut class_symbol = arena[parent].get_mut();
 
@@ -64,6 +64,13 @@ impl Visitor for WorkspaceSymbolVisitor {
                     class_symbol.imports = Some(collect_uses(node, &[]));
                 }
 
+                if let Some(imports) = class_symbol.import_resolutions.as_mut() {
+                    imports.extend(collect_alterations(node));
+                } else {
+                    class_symbol.import_resolutions = Some(collect_alterations(node));
+                }
+
+                dbg!(&class_symbol.import_resolutions);
                 NextAction::Abort
             }
             AstNode::Block { .. } => NextAction::ProcessChildren(parent),

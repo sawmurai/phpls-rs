@@ -1193,7 +1193,11 @@ impl LanguageServer for Backend {
                                 };
                             }
 
-                            symbol.completion_item(sn, &state.arena)
+                            let mut item = symbol.completion_item(sn, &state.arena);
+                            if let Some(alias) = sug.alias {
+                                item.label = alias;
+                            }
+                            item
                         })
                         .collect::<Vec<CompletionItem>>(),
                 )));

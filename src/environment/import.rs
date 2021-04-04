@@ -3,10 +3,27 @@ use crate::parser::node::Node;
 use crate::parser::token::{to_fqdn, Token};
 use tower_lsp::lsp_types::{Position, Range};
 
+use super::symbol::Visibility;
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SymbolImport {
     pub path: Vec<Token>,
     pub alias: Option<Token>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TraitUseAlteration {
+    As {
+        visibility: Option<Token>,
+        class: Option<Vec<Token>>,
+        member: String,
+        alias: Option<Token>,
+    },
+    InsteadOf {
+        class: Vec<Token>,
+        member: String,
+        instead_ofs: Vec<Vec<Token>>,
+    },
 }
 
 pub fn namespace_to_string(path: &[Token]) -> String {
@@ -66,11 +83,94 @@ impl From<&SymbolImport> for Symbol {
     }
 }
 
+pub fn collect_alterations(node: &Node) -> Vec<TraitUseAlteration> {
+    let mut rules = Vec::new();
+    match node {
+        Node::UseTraitAlterationBlock { alterations, .. } => {
+            // Aight, this section should output something like
+            // - traits: A, B, C, D
+            // - alterations / rules / modifiers:
+            // - A::rofl instead of C, B <- check if C and B have a rofl, if a has a rofl and if D has no rofl
+            // - rofl as private <- check if there is a rofl at all and if its only in one of the A, B, C or D
+            //
+            // Overall check if:
+            // - no conflicts left unresolved
+
+            for alteration in alterations {
+                match alteration {
+                    Node::UseTraitAs {
+                        left,
+                        member,
+                        visibility,
+                        as_name,
+                        ..
+                    } => {
+                        let class = if let Some(Node::TypeRef(tr)) = left.as_deref() {
+                            Some(tr.clone())
+                        } else {
+                            None
+                        };
+
+                        rules.push(TraitUseAlteration::As {
+                            class,
+                            visibility: visibility.clone(),
+                            alias: as_name.clone(),
+                            member: member.name(),
+                        });
+                    }
+                    Node::UseTraitInsteadOf {
+                        left,
+                        member,
+                        insteadof_list,
+                        ..
+                    } => {
+                        let class = if let Some(Node::TypeRef(tr)) = left.as_deref() {
+                            tr.clone()
+                        } else {
+                            // TODO: There must always be a class:: ... rewrite parser to enforce it
+                            continue;
+                        };
+                        let instead_ofs = insteadof_list
+                            .iter()
+                            .map(|tr| match tr {
+                                Node::TypeRef(tr) => tr.clone(),
+                                _ => unreachable!("Impossibru"),
+                            })
+                            .collect();
+                        rules.push(TraitUseAlteration::InsteadOf {
+                            class,
+                            member: member.name(),
+                            instead_ofs,
+                        });
+                    }
+                    _ => (),
+                }
+            }
+        }
+        Node::UseTraitStatement { traits_usages, .. } => {
+            traits_usages
+                .iter()
+                .for_each(|n| rules.extend(collect_alterations(n)));
+        }
+        _ => (),
+    }
+
+    rules
+}
+
 /// Collect symbol imports underneath the current node
 pub fn collect_uses(node: &Node, prefix: &[Token]) -> Vec<SymbolImport> {
     let mut collected_uses = Vec::new();
 
     match node {
+        Node::UseTraitAlterationBlock {
+            alteration_group_type_refs,
+            ..
+        } => {
+            alteration_group_type_refs
+                .iter()
+                .for_each(|n| collected_uses.extend(collect_uses(n, prefix)));
+        }
         Node::UseTraitStatement { traits_usages, .. } => {
             traits_usages
                 .iter()
@@ -79,6 +179,7 @@ pub fn collect_uses(node: &Node, prefix: &[Token]) -> Vec<SymbolImport> {
         Node::UseTrait { type_ref } => {
             collected_uses.extend(collect_uses(type_ref, prefix));
         }
+
         Node::UseStatement { imports, .. } => {
             imports
                 .iter()
@@ -135,6 +236,7 @@ pub fn collect_uses(node: &Node, prefix: &[Token]) -> Vec<SymbolImport> {
             collected_uses.push(SymbolImport {
                 path: ns,
                 alias: None,
+                ..SymbolImport::default()
             });
         }
         _ => {}
@@ -173,6 +275,7 @@ mod tests {
                 label: Some("IncludedSymbol".to_owned()),
             }],
             alias: None,
+            ..SymbolImport::default()
         };
         assert_eq!(expected, collect_uses(&use_statement, &vec![])[0]);
     }
@@ -199,6 +302,7 @@ mod tests {
                 label: Some("IncludedSymbol".to_owned()),
             }],
             alias: None,
+            ..SymbolImport::default()
         };
         assert_eq!(expected, collect_uses(&trait_use, &vec![])[0]);
     }
