@@ -125,7 +125,7 @@ pub(crate) fn short_tag_echo_statement(parser: &mut Parser) -> ExpressionResult 
 
     parser.consume_end_of_statement()?;
 
-    parser.consume_or_err(TokenType::ScriptEnd)?;
+    parser.consume_or_err(TokenType::ScriptEnd, &[TokenType::ScriptEnd])?;
 
     Ok(Node::EchoStatement { token, expressions })
 }
@@ -170,7 +170,7 @@ pub(crate) fn goto_statement(parser: &mut Parser) -> ExpressionResult {
 
     let label = parser.consume_identifier()?;
 
-    parser.consume_end_of_statement()?;
+    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     Ok(Node::GotoStatement { token, label })
 }

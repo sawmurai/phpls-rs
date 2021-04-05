@@ -147,23 +147,26 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 parts.push(printed_consts.join(",\n "));
                 parts.push(";".to_string());
             }
+            Node::Property { name, value } => {
+                parts.push(name.to_string());
+
+                if let Some(value) = value {
+                    parts.push(" = ".to_string());
+                    parts.push(format_node(value, line, col, options));
+                }
+            }
             Node::PropertyDefinitionStatement {
-                name,
                 visibility,
                 is_abstract,
                 is_static,
-                value,
+                properties,
                 ..
             } => {
                 parts.push(" ".repeat(col));
                 push_if_some!(is_abstract, parts);
                 push_if_some!(visibility, parts);
                 push_if_some!(is_static, parts);
-                parts.push(name.to_string());
-
-                if let Some(value) = value {
-                    parts.push(format!(" = {}", format_node(value, line, col, options)));
-                }
+                parts.push(format(properties, line, col, options));
 
                 parts.push(";".to_string());
             }

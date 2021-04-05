@@ -289,9 +289,9 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     }
 
     if parser.next_token_one_of(&[TokenType::HereDocStart]) {
-        parser.consume_or_err(TokenType::HereDocStart)?;
+        parser.consume_or_err(TokenType::HereDocStart, &[TokenType::HereDocStart])?;
         let string = parser.next().unwrap();
-        parser.consume_or_err(TokenType::HereDocEnd)?;
+        parser.consume_or_err(TokenType::HereDocEnd, &[TokenType::HereDocEnd])?;
 
         return Ok(Node::Literal(string));
     }
@@ -359,9 +359,9 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     }
 
     if parser.next_token_one_of(&[TokenType::OpenParenthesis]) {
-        parser.consume_or_err(TokenType::OpenParenthesis)?;
+        parser.consume_or_err(TokenType::OpenParenthesis, &[TokenType::OpenParenthesis])?;
         let expr = expression(parser)?;
-        parser.consume_or_err(TokenType::CloseParenthesis)?;
+        parser.consume_or_err(TokenType::CloseParenthesis, &[TokenType::Semicolon])?;
 
         return Ok(Node::Grouping(Box::new(expr)));
     }

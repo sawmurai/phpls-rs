@@ -73,7 +73,7 @@ pub(crate) fn throw_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Throw)?;
     let expression = Box::new(expressions::expression(parser)?);
 
-    parser.consume_end_of_statement()?;
+    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     Ok(Node::ThrowStatement { token, expression })
 }

@@ -590,7 +590,7 @@ impl Display for Token {
             TokenType::ShellEscape => format!("`{}`", self.label.as_ref().unwrap()),
             TokenType::HereDocStart => format!("<<<{}", self.label.as_ref().unwrap()),
             TokenType::HereDocEnd => self.label.as_ref().unwrap().to_string(),
-            _ => unreachable!("Should have never been called with {:?}", self.col),
+            _ => format!("Should have never been called with {:?}", self),
         };
 
         write!(f, "{}", dis)

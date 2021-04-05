@@ -53,9 +53,9 @@ pub(crate) fn anonymous_class(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Class)?;
 
     let arguments = if parser.next_token_one_of(&[TokenType::OpenParenthesis]) {
-        parser.consume_or_err(TokenType::OpenParenthesis)?;
+        parser.consume_or_err(TokenType::OpenParenthesis, &[TokenType::OpenParenthesis])?;
         let result = Some(functions::parameter_list(parser)?);
-        parser.consume_or_err(TokenType::CloseParenthesis)?;
+        parser.consume_or_err(TokenType::CloseParenthesis, &[TokenType::OpenCurly])?;
 
         result
     } else {
@@ -81,6 +81,149 @@ pub(crate) fn anonymous_class(parser: &mut Parser) -> ExpressionResult {
     })
 }
 
+pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
+    if parser.next_token_one_of(&[TokenType::Use]) {
+        return use_trait_statement(parser);
+    }
+
+    let doc_comment = comments::consume_optional_doc_comment(parser);
+
+    if parser
+        .consume_or_ignore(TokenType::AttributeStart)
+        .is_some()
+    {
+        return attributes::attribute(parser);
+    }
+
+    let doc_comment = if doc_comment.is_some() {
+        doc_comment
+    } else {
+        comments::consume_optional_doc_comment(parser)
+    };
+
+    let mut is_abstract = None;
+    let mut is_final = None;
+    let mut visibility = None;
+    let mut is_static = None;
+
+    // Collect all modifiers
+    while parser.next_token_one_of(&[
+        TokenType::Abstract,
+        TokenType::Final,
+        TokenType::Public,
+        TokenType::Var,
+        TokenType::Private,
+        TokenType::Protected,
+        TokenType::Static,
+    ]) {
+        is_abstract = parser.consume_or_ignore(TokenType::Abstract);
+        is_final = parser.consume_or_ignore(TokenType::Final);
+        visibility = parser.consume_one_of_or_ignore(&[
+            TokenType::Public,
+            TokenType::Var,
+            TokenType::Private,
+            TokenType::Protected,
+        ]);
+        is_static = parser.consume_or_ignore(TokenType::Static);
+    }
+
+    if let Some(token) = parser.consume_or_ignore(TokenType::Const) {
+        let mut consts = Vec::new();
+        loop {
+            let name = parser.consume_identifier()?;
+
+            parser.consume_or_err(TokenType::Assignment, &[TokenType::Semicolon])?;
+
+            let value = Box::new(expressions::expression(parser)?);
+            consts.push(Node::ClassConstant {
+                name,
+                value,
+                visibility: visibility.clone(),
+            });
+
+            if parser.consume_or_ignore(TokenType::Comma).is_some() {
+                continue;
+            }
+
+            break;
+        }
+
+        let statement = Node::ClassConstantDefinitionStatement {
+            visibility,
+            token,
+            consts,
+            doc_comment: doc_comment.clone(),
+        };
+
+        parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+
+        return Ok(statement);
+    };
+
+    if let Some(token) = parser.consume_or_ignore(TokenType::Function) {
+        let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
+        let name = parser.consume_identifier()?;
+
+        return Ok(Node::MethodDefinitionStatement {
+            token,
+            is_final,
+            by_ref,
+            name,
+            visibility,
+            is_abstract,
+            function: Box::new(functions::anonymous_function_statement(
+                parser,
+                &doc_comment,
+            )?),
+            is_static,
+            doc_comment,
+        });
+    }
+
+    let data_type = if !parser.next_token_one_of(&[TokenType::Variable]) {
+        // TODO: Handle nullable
+        Some(Box::new(types::data_type(parser)?))
+    } else {
+        None
+    };
+
+    let mut props = Vec::new();
+    loop {
+        let name = parser.consume(TokenType::Variable)?;
+
+        // The next variable
+        let assignment = if parser.next_token_one_of(&[TokenType::Assignment]) {
+            parser.next();
+            Some(Box::new(expressions::expression(parser)?))
+        } else {
+            None
+        };
+
+        props.push(Node::Property {
+            name,
+            value: assignment,
+        });
+
+        if !parser.next_token_one_of(&[TokenType::Comma]) {
+            break;
+        }
+
+        // The comma
+        parser.next();
+    }
+
+    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+
+    return Ok(Node::PropertyDefinitionStatement {
+        properties: props,
+        data_type,
+        visibility,
+        is_abstract,
+        is_static,
+        doc_comment,
+    });
+}
+
 /// Parses a class block, so basically the body that contains all the method definitions etc.
 /// It expects to be past the `{` and will read until it encounters a `}`
 ///
@@ -94,148 +237,14 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
     let oc = parser.consume(TokenType::OpenCurly)?;
     let mut statements = Vec::new();
 
-    'class_loop: while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
-        if parser.next_token_one_of(&[TokenType::Use]) {
-            statements.push(use_trait_statement(parser)?);
-
-            continue;
+    while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
+        match class_block_statement(parser) {
+            Ok(statement) => statements.push(statement),
+            Err(_) => {}
         }
 
-        let doc_comment = comments::consume_optional_doc_comment(parser);
-
-        if parser
-            .consume_or_ignore(TokenType::AttributeStart)
-            .is_some()
-        {
-            statements.push(attributes::attribute(parser)?);
-        }
-
-        let doc_comment = if doc_comment.is_some() {
-            doc_comment
-        } else {
-            comments::consume_optional_doc_comment(parser)
-        };
-
-        let mut is_abstract = None;
-        let mut is_final = None;
-        let mut visibility = None;
-        let mut is_static = None;
-
-        // Collect all modifiers
-        while parser.next_token_one_of(&[
-            TokenType::Abstract,
-            TokenType::Final,
-            TokenType::Public,
-            TokenType::Var,
-            TokenType::Private,
-            TokenType::Protected,
-            TokenType::Static,
-        ]) {
-            is_abstract = parser.consume_or_ignore(TokenType::Abstract);
-            is_final = parser.consume_or_ignore(TokenType::Final);
-            visibility = parser.consume_one_of_or_ignore(&[
-                TokenType::Public,
-                TokenType::Var,
-                TokenType::Private,
-                TokenType::Protected,
-            ]);
-            is_static = parser.consume_or_ignore(TokenType::Static);
-        }
-
-        if let Some(token) = parser.consume_or_ignore(TokenType::Const) {
-            let mut consts = Vec::new();
-            loop {
-                let name = parser.consume_identifier()?;
-
-                parser.consume_or_err(TokenType::Assignment)?;
-
-                let value = Box::new(expressions::expression(parser)?);
-                consts.push(Node::ClassConstant {
-                    name,
-                    value,
-                    visibility: visibility.clone(),
-                });
-
-                if parser.consume_or_ignore(TokenType::Comma).is_some() {
-                    continue;
-                }
-
-                break;
-            }
-
-            statements.push(Node::ClassConstantDefinitionStatement {
-                visibility,
-                token,
-                consts,
-                doc_comment: doc_comment.clone(),
-            });
-
-            parser.consume_end_of_statement()?;
-
-            continue;
-        };
-
-        if let Some(token) = parser.consume_or_ignore(TokenType::Function) {
-            let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
-            let name = parser.consume_identifier()?;
-
-            statements.push(Node::MethodDefinitionStatement {
-                token,
-                is_final,
-                by_ref,
-                name,
-                visibility,
-                is_abstract,
-                function: Box::new(functions::anonymous_function_statement(
-                    parser,
-                    &doc_comment,
-                )?),
-                is_static,
-                doc_comment,
-            });
-        } else {
-            let data_type = if !parser.next_token_one_of(&[TokenType::Variable]) {
-                // TODO: Handle nullable
-                Some(Box::new(types::data_type(parser)?))
-            } else {
-                None
-            };
-
-            loop {
-                if !parser.next_token_one_of(&[TokenType::Variable]) {
-                    parser.error_fast_forward();
-
-                    break 'class_loop;
-                }
-                let name = parser.consume(TokenType::Variable)?;
-
-                // The next variable
-                let assignment = if parser.next_token_one_of(&[TokenType::Assignment]) {
-                    parser.next();
-                    Some(Box::new(expressions::expression(parser)?))
-                } else {
-                    None
-                };
-
-                statements.push(Node::PropertyDefinitionStatement {
-                    name,
-                    data_type: data_type.clone(),
-                    visibility: visibility.clone(),
-                    is_abstract: is_abstract.clone(),
-                    value: assignment,
-                    is_static: is_static.clone(),
-                    doc_comment: doc_comment.clone(),
-                });
-
-                if !parser.next_token_one_of(&[TokenType::Comma]) {
-                    break;
-                }
-
-                // The comma
-                parser.next();
-            }
-
-            parser.consume_end_of_statement()?;
+        if parser.peek().is_none() {
+            break;
         }
     }
 
@@ -330,7 +339,7 @@ fn trait_usages(parser: &mut Parser) -> ExpressionListResult {
         });
     }
 
-    parser.consume_end_of_statement()?;
+    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     Ok(usages)
 }
@@ -393,7 +402,7 @@ fn trait_usage_alteration_group(
             });
         }
 
-        parser.consume_or_err(TokenType::Semicolon)?;
+        parser.consume_or_err(TokenType::Semicolon, &[TokenType::CloseCurly])?;
     }
 
     Ok(Node::UseTraitAlterationBlock {
@@ -643,6 +652,7 @@ class Aliased_Talker {
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        dbg!(&errors);
         assert_eq!(true, errors.is_empty());
 
         let options = FormatterOptions {

@@ -274,7 +274,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 NextAction::Abort
             }
             AstNode::PropertyDefinitionStatement {
-                name,
+                properties,
                 data_type,
                 doc_comment,
                 visibility,
@@ -293,17 +293,21 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 ref_from_doc!(doc_comment, data_types, var_docs);
 
-                let child = arena.new_node(Symbol {
-                    name: name.to_string(),
-                    kind: PhpSymbolKind::Property,
-                    range,
-                    selection_range: range,
-                    data_types,
-                    visibility: Visibility::from(visibility),
-                    ..Symbol::default()
-                });
+                for prop in properties {
+                    if let AstNode::Property { name, .. } = prop {
+                        let child = arena.new_node(Symbol {
+                            name: name.to_string(),
+                            kind: PhpSymbolKind::Property,
+                            range,
+                            selection_range: range,
+                            data_types: data_types.clone(),
+                            visibility: Visibility::from(visibility),
+                            ..Symbol::default()
+                        });
 
-                parent.append(child, arena);
+                        parent.append(child, arena);
+                    }
+                }
 
                 NextAction::Abort
             }

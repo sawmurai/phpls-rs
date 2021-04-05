@@ -568,14 +568,17 @@ pub enum Node {
         name: Token,
         value: Box<Node>,
     },
-    PropertyDefinitionStatement {
+    Property {
         name: Token,
-        data_type: Option<Box<Node>>,
-        visibility: Option<Token>,
-        is_abstract: Option<Token>,
         value: Option<Box<Node>>,
-        is_static: Option<Token>,
+    },
+    PropertyDefinitionStatement {
+        properties: Vec<Node>,
         doc_comment: Option<Box<Node>>,
+        visibility: Option<Token>,
+        data_type: Option<Box<Node>>,
+        is_static: Option<Token>,
+        is_abstract: Option<Token>,
     },
     /// Method definition inside a class, interface or trait
     MethodDefinitionStatement {
@@ -961,18 +964,24 @@ impl Node {
             Node::Const { value, .. } | Node::ClassConstant { value, .. } => {
                 vec![value]
             }
+            Node::Property { value, .. } => {
+                if let Some(value) = value {
+                    vec![value]
+                } else {
+                    vec![]
+                }
+            }
             Node::PropertyDefinitionStatement {
-                data_type, value, ..
+                data_type,
+                properties,
+                ..
             } => {
-                let mut children: Vec<&Node> = Vec::new();
-
-                if let Some(data_type) = data_type {
+                let mut children: Vec<&Node> = Vec::with_capacity(properties.len() + 1);
+                if let Some(data_type) = data_type.as_ref() {
                     children.push(data_type);
                 }
 
-                if let Some(value) = value {
-                    children.push(value);
-                }
+                children.extend(properties.iter().collect::<Vec<&Node>>());
 
                 children
             }
@@ -1119,6 +1128,7 @@ impl Node {
             }
             Node::Grouping(node) => vec![node],
             Node::Attribute { expression, .. } => expression.children(),
+            Node::DataType { type_refs, .. } => (*type_refs).iter().collect::<Vec<&Node>>(),
             _ => Vec::new(),
         }
     }
@@ -1454,7 +1464,27 @@ impl Node {
                 consts.first().unwrap().range().0,
                 consts.last().unwrap().range().1,
             ),
-            Node::PropertyDefinitionStatement { name, .. } => name.range(),
+            Node::Property { name, value } => {
+                if let Some(value) = value {
+                    (name.range().0, value.range().1)
+                } else {
+                    name.range()
+                }
+            }
+            Node::PropertyDefinitionStatement {
+                data_type,
+                properties,
+                ..
+            } => {
+                if let Some(data_type) = data_type {
+                    (data_type.range().0, properties.last().unwrap().range().1)
+                } else {
+                    (
+                        properties.first().unwrap().range().0,
+                        properties.last().unwrap().range().1,
+                    )
+                }
+            }
             Node::MethodDefinitionStatement {
                 is_abstract,
                 is_final,

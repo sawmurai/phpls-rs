@@ -15,7 +15,7 @@ use super::{arrays, expressions};
 /// ```
 pub(crate) fn for_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::For)?;
-    parser.consume_or_err(TokenType::OpenParenthesis)?;
+    parser.consume_or_err(TokenType::OpenParenthesis, &[TokenType::Semicolon])?;
 
     let mut init = Vec::new();
     while !parser.next_token_one_of(&[TokenType::Semicolon]) {
@@ -28,7 +28,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> ExpressionResult {
         }
     }
 
-    parser.consume_or_err(TokenType::Semicolon)?;
+    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     let mut condition = Vec::new();
     while !parser.next_token_one_of(&[TokenType::Semicolon]) {
@@ -41,7 +41,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> ExpressionResult {
         }
     }
 
-    parser.consume_or_err(TokenType::Semicolon)?;
+    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     let mut step = Vec::new();
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
@@ -53,7 +53,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> ExpressionResult {
             break;
         }
     }
-    parser.consume_or_err(TokenType::CloseParenthesis)?;
+    parser.consume_or_err(TokenType::CloseParenthesis, &[TokenType::Semicolon])?;
 
     let body = Box::new(parser.alternative_block_or_statement(TokenType::EndFor)?);
 
@@ -140,7 +140,7 @@ pub(crate) fn do_while_statement(parser: &mut Parser) -> ExpressionResult {
     let op = parser.consume(TokenType::OpenParenthesis)?;
     let condition = Box::new(expressions::expression(parser)?);
     let cp = parser.consume(TokenType::CloseParenthesis)?;
-    parser.consume_end_of_statement()?;
+    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     Ok(Node::DoWhileStatement {
         do_token,

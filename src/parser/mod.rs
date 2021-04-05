@@ -418,7 +418,7 @@ impl Parser {
 
                     let statement = Node::TokenStatement { token, expr };
 
-                    self.consume_end_of_statement()?;
+                    self.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
                     return Ok(statement);
                 }
@@ -447,7 +447,7 @@ impl Parser {
                     }
                     let expr = expressions::expression_statement(self)?;
 
-                    self.consume_end_of_statement()?;
+                    self.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
                     return Ok(expr);
                 }
@@ -492,7 +492,7 @@ impl Parser {
 
     /// Consumes the end of a statement. This can either be a semicolon or a script end.
     fn consume_end_of_statement(&mut self) -> Result<()> {
-        if let Some(token) = self.peek() {
+        let wrong_token = if let Some(token) = self.peek() {
             if token.t == TokenType::Semicolon {
                 self.next();
                 return Ok(());
@@ -503,31 +503,50 @@ impl Parser {
             if token.t == TokenType::ScriptEnd {
                 return Ok(());
             }
-            /*
-            return Err(Error::WrongTokenError {
-                expected: vec![TokenType::Semicolon, TokenType::ScriptEnd],
-                token: token.clone(),
-            });*/
-        }
 
+            token.clone()
+        } else {
+            self.errors.push(Error::Eof);
+            return Ok(());
+        };
+
+        self.error_fast_forward();
+
+        self.errors.push(Error::WrongTokenError {
+            expected: vec![TokenType::Semicolon, TokenType::ScriptEnd],
+            token: wrong_token.clone(),
+        });
         Ok(())
     }
 
     /// Consume a token of type `t` or return an Err
-    fn consume_or_err(&mut self, t: TokenType) -> Result<()> {
-        if let Some(token) = self.peek() {
+    fn consume_or_err(&mut self, t: TokenType, ff_to: &[TokenType]) -> Result<()> {
+        let bad_token = if let Some(token) = self.peek() {
             if token.t == t {
                 self.next();
                 return Ok(());
             }
 
-            return Err(Error::WrongTokenError {
-                expected: vec![t],
-                token: token.clone(),
-            });
+            token.clone()
+        } else {
+            self.errors.push(Error::Eof);
+            return Ok(());
+        };
+
+        self.errors.push(Error::WrongTokenError {
+            expected: vec![t.clone()],
+            token: bad_token.clone(),
+        });
+
+        'outer: while let Some(next) = self.next() {
+            for tt in ff_to {
+                if *tt == next.t {
+                    break 'outer;
+                }
+            }
         }
 
-        Err(Error::Eof)
+        return Ok(());
     }
 
     /// Consume a Some of token of type `t` or do nothing.
@@ -556,6 +575,7 @@ impl Parser {
         };
 
         if is_wrong_token {
+            self.error_fast_forward();
             self.errors.push(Error::WrongTokenError {
                 expected: vec![t],
                 token: token.clone(),

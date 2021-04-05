@@ -400,7 +400,7 @@ pub fn get_suggestions_at(
         return suggest_keywords(arena, symbol_under_cursor);
     };
 
-    let parent = ancestors.pop();
+    let parent = Some(ancestors.last().unwrap().clone());
 
     match node {
         AstNode::UseTrait { type_ref, .. } => {
@@ -413,21 +413,11 @@ pub fn get_suggestions_at(
         | AstNode::UseDeclaration { declaration, .. } => {
             return suggest_imports_starting_with(global_symbols, declaration);
         }
-        AstNode::Block { .. } => match parent {
-            Some(AstNode::ClassStatement { .. }) => {
-                return vec![
-                    Suggestion::token(TokenType::Public, None),
-                    Suggestion::token(TokenType::Private, None),
-                    Suggestion::token(TokenType::Protected, None),
-                ];
-            }
-            _ => vec![],
-        },
         AstNode::Variable(..) | AstNode::AliasedVariable { .. } => {
-            suggest_variables_of_scope(arena[symbol_under_cursor].parent().unwrap(), arena)
+            return suggest_variables_of_scope(arena[symbol_under_cursor].parent().unwrap(), arena)
         }
         AstNode::Missing(..) | AstNode::Literal(..) | AstNode::Member { .. } => {
-            suggest_members_of_symbol(
+            return suggest_members_of_symbol(
                 trigger,
                 node,
                 parent,
@@ -437,8 +427,40 @@ pub fn get_suggestions_at(
                 references,
             )
         }
-        _ => suggest_symbol_starting_with(global_symbols, arena, node),
+        _ => (),
     }
+
+    let mut is_class_block = false;
+
+    while let Some(ancestor) = ancestors.pop() {
+        match ancestor {
+            AstNode::ClassStatement { .. } => {
+                is_class_block = true;
+                break;
+            }
+            AstNode::Block { .. } => {
+                match ancestors.last() {
+                    Some(AstNode::ClassStatement { .. }) => {
+                        is_class_block = true;
+                    }
+                    _ => (),
+                }
+
+                break;
+            }
+            _ => (),
+        }
+    }
+
+    if is_class_block {
+        return vec![
+            Suggestion::token(TokenType::Public, None),
+            Suggestion::token(TokenType::Private, None),
+            Suggestion::token(TokenType::Protected, None),
+        ];
+    }
+
+    suggest_symbol_starting_with(global_symbols, arena, node)
 }
 
 #[cfg(test)]
@@ -463,6 +485,7 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
+            dbg!(&pr);
             Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
         }
 
@@ -693,7 +716,7 @@ mod tests {
                         m1 as m1alias;
                         B::m1 as public m3;
                         C::test insteadof A,B;
-                    };
+                    }
                     use A;
                     use B;
                 }",

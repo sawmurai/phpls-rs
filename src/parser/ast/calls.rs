@@ -148,7 +148,7 @@ fn finish_call(parser: &mut Parser, expr: Node) -> ExpressionResult {
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
             break;
         } else {
-            parser.consume_or_err(TokenType::Comma)?;
+            parser.consume_or_err(TokenType::Comma, &[TokenType::CloseParenthesis])?;
         }
     }
     Ok(Node::Call {
