@@ -167,7 +167,7 @@ fn suggest_symbol_starting_with(
     let prefix = node.normalized_name();
     return global_symbols
         .iter()
-        .filter_map(|(key, value)| {
+        .filter_map(|(_, value)| {
             if arena[*value].get().normalized_name().starts_with(&prefix) {
                 Some(Suggestion::node(
                     *value,

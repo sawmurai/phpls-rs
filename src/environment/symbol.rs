@@ -508,7 +508,7 @@ impl Symbol {
                     } => {
                         let loser_traits = instead_ofs
                             .iter()
-                            .filter_map(|tr| resolver.resolve_type_ref(class, arena, &ctx, false))
+                            .filter_map(|tr| resolver.resolve_type_ref(tr, arena, &ctx, false))
                             .collect::<Vec<NodeId>>();
 
                         if let Some(winner_trait) =
