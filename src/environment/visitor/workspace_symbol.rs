@@ -70,7 +70,6 @@ impl Visitor for WorkspaceSymbolVisitor {
                     class_symbol.import_resolutions = Some(collect_alterations(node));
                 }
 
-                dbg!(&class_symbol.import_resolutions);
                 NextAction::Abort
             }
             AstNode::Block { .. } => NextAction::ProcessChildren(parent),

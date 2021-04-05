@@ -273,7 +273,7 @@ fn suggest_members_of_symbol(
             let symbol = arena[c].get();
             accessible_members.insert(
                 symbol.normalized_name(),
-                SymbolAlias::new(c, symbol.name(), symbol.visibility),
+                SymbolAlias::new(c, symbol.name(), symbol.visibility, current_class),
             );
         });
 
@@ -321,7 +321,7 @@ fn suggest_members_of_symbol(
                     .get()
                     .get_all_symbols(node, &mut resolver, arena)
                     .iter()
-                    .filter_map(|(name, n)| {
+                    .filter_map(|(_, n)| {
                         if !n.alias.starts_with(&prefix) {
                             return None;
                         }
@@ -335,7 +335,7 @@ fn suggest_members_of_symbol(
                         }
 
                         // Either the element is accessible from this scope anyway or its public ...
-                        if s.visibility >= Visibility::Public
+                        if n.visibility >= Visibility::Public
                             || accessible_members.contains_key(s.name())
                         {
                             Some(Suggestion::aliased(
@@ -680,7 +680,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_suggests_aliased_trait_method() {
+    async fn test_suggests_aliased_trait_method_and_ignores_errors() {
         let sources = vec![
             (
                 "index.php",
@@ -690,14 +690,26 @@ mod tests {
             ("test4.php", "<?php trait B { public function m1() {} }"),
             (
                 "test2.php",
-                "<?php class TheClass { use A, B { A::m1 as public m2; B::m1 as public m3; C::test insteadof A,B; } }",
+                r"<?php class TheClass {
+                    use A, B {
+                        A::m1 as private schnggel;
+                        A::m1 as public m2;
+                        m1 as m1alias;
+                        B::m1 as public m3;
+                        C::test insteadof A,B;
+                    };
+                    use A;
+                    use B;
+                }",
             ),
         ];
 
         let actual = suggestions(&sources, 0, 0, 45, Some('>'));
 
         dbg!(&actual);
-        assert_eq!(2, actual.len());
+        assert_eq!(4, actual.len());
+        assert!(actual.contains(&&"m1".to_string()));
+        assert!(actual.contains(&&"m1alias".to_string()));
         assert!(actual.contains(&&"m2".to_string()));
         assert!(actual.contains(&&"m3".to_string()));
     }

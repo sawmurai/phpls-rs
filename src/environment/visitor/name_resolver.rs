@@ -921,6 +921,15 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                 DiagnosticSeverity::Warning,
                             );
                         }
+                    } else {
+                        self.resolver.diagnostic(
+                            file_name.to_owned(),
+                            link.range(),
+                            String::from("Method is not accessible from this scope"),
+                            DiagnosticSeverity::Error,
+                        );
+
+                        return None;
                     }
 
                     match link.as_ref() {
