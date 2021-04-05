@@ -214,7 +214,7 @@ pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResu
         if declaration.last().unwrap().t == TokenType::NamespaceSeparator {
             imports.push(Node::GroupedUse {
                 token: token.clone(),
-                parent: Box::new(Node::TypeRef(declaration)),
+                parent: Box::new(Node::TypeRef(declaration.into())),
                 oc: parser.consume(TokenType::OpenCurly)?,
                 uses: symbol_imports(parser)?,
                 cc: parser.consume(TokenType::CloseCurly)?,
@@ -223,7 +223,7 @@ pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResu
         } else if let Some(aliased) = parser.consume_or_ignore(TokenType::As) {
             imports.push(Node::UseDeclaration {
                 token: Some(token.clone()),
-                declaration: Box::new(Node::TypeRef(declaration)),
+                declaration: Box::new(Node::TypeRef(declaration.into())),
                 aliased: Some(aliased),
                 alias: Some(parser.consume(TokenType::Identifier)?),
             });
@@ -231,7 +231,7 @@ pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResu
         } else {
             imports.push(Node::UseDeclaration {
                 token: Some(token.clone()),
-                declaration: Box::new(Node::TypeRef(declaration)),
+                declaration: Box::new(Node::TypeRef(declaration.into())),
                 aliased: None,
                 alias: None,
             });
@@ -272,11 +272,14 @@ mod tests {
         assert_eq!(
             Node::NamespaceStatement {
                 token: Token::new(TokenType::Namespace, 1, 8),
-                type_ref: Box::new(Node::TypeRef(vec![
-                    Token::named(TokenType::Identifier, 1, 18, "Rofl"),
-                    Token::new(TokenType::NamespaceSeparator, 1, 22),
-                    Token::named(TokenType::Identifier, 1, 23, "Copter")
-                ]))
+                type_ref: Box::new(Node::TypeRef(
+                    vec![
+                        Token::named(TokenType::Identifier, 1, 18, "Rofl"),
+                        Token::new(TokenType::NamespaceSeparator, 1, 22),
+                        Token::named(TokenType::Identifier, 1, 23, "Copter")
+                    ]
+                    .into()
+                ))
             },
             ast[0]
         );

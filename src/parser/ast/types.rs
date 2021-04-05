@@ -39,7 +39,7 @@ pub(crate) fn type_ref(parser: &mut Parser) -> Result<Option<Box<Node>>> {
     if path.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(Box::new(Node::TypeRef(path))))
+        Ok(Some(Box::new(Node::TypeRef(path.into()))))
     }
 }
 
@@ -58,7 +58,7 @@ pub(crate) fn non_empty_type_ref(parser: &mut Parser) -> ExpressionResult {
         path.push(parser.consume_identifier()?);
     }
 
-    Ok(Node::TypeRef(path))
+    Ok(Node::TypeRef(path.into()))
 }
 
 // non_empty_namespace_ref -> "\"? identifier ("\" identifier)* "\"?

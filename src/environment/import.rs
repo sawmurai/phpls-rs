@@ -1,13 +1,14 @@
-use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use crate::parser::node::Node;
-use crate::parser::token::{to_fqdn, Token};
+use crate::parser::token::Token;
+use crate::{
+    environment::symbol::{PhpSymbolKind, Symbol},
+    parser::node::TypeRef,
+};
 use tower_lsp::lsp_types::{Position, Range};
-
-use super::symbol::Visibility;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SymbolImport {
-    pub path: Vec<Token>,
+    pub path: TypeRef,
     pub alias: Option<Token>,
 }
 
@@ -15,51 +16,40 @@ pub struct SymbolImport {
 pub enum TraitUseAlteration {
     As {
         visibility: Option<Token>,
-        class: Option<Vec<Token>>,
+        class: Option<TypeRef>,
         member: String,
         alias: Option<Token>,
     },
     InsteadOf {
-        class: Vec<Token>,
+        class: TypeRef,
         member: String,
-        instead_ofs: Vec<Vec<Token>>,
+        instead_ofs: Vec<TypeRef>,
     },
-}
-
-pub fn namespace_to_string(path: &[Token]) -> String {
-    to_fqdn(path)
 }
 
 impl SymbolImport {
     pub fn name(&self) -> String {
         if let Some(alias) = &self.alias {
             alias.label.clone().unwrap()
+        } else if let Some(tip) = self.path.tip() {
+            tip.to_owned()
         } else {
-            if self.path.is_empty() {
-                return "".to_string();
-            }
-
-            self.path
-                .last()
-                .unwrap()
-                .label
-                .clone()
-                .unwrap_or_else(|| "".to_string())
+            String::from("")
         }
     }
 
     pub fn full_name(&self) -> String {
-        to_fqdn(&self.path)
+        self.path.to_fqdn()
     }
 }
 
 impl From<&SymbolImport> for Symbol {
     fn from(symbol_import: &SymbolImport) -> Symbol {
-        let start = symbol_import.path.first().unwrap().start();
+        let start = symbol_import.path.range().0;
         let end = if let Some(alias) = symbol_import.alias.as_ref() {
             alias.end()
         } else {
-            symbol_import.path.last().unwrap().end()
+            symbol_import.path.range().1
         };
 
         let range = Range {
@@ -159,7 +149,7 @@ pub fn collect_alterations(node: &Node) -> Vec<TraitUseAlteration> {
 }
 
 /// Collect symbol imports underneath the current node
-pub fn collect_uses(node: &Node, prefix: &[Token]) -> Vec<SymbolImport> {
+pub fn collect_uses(node: &Node, prefix: &TypeRef) -> Vec<SymbolImport> {
     let mut collected_uses = Vec::new();
 
     match node {
@@ -231,10 +221,8 @@ pub fn collect_uses(node: &Node, prefix: &[Token]) -> Vec<SymbolImport> {
             });
         }
         Node::TypeRef(tokens) => {
-            let mut ns = prefix.to_owned();
-            ns.extend(tokens.clone());
             collected_uses.push(SymbolImport {
-                path: ns,
+                path: TypeRef::append(prefix, tokens),
                 alias: None,
                 ..SymbolImport::default()
             });
@@ -256,12 +244,9 @@ mod tests {
             token: Token::new(TokenType::Use, 1, 1),
             imports: vec![Node::UseDeclaration {
                 token: Some(Token::new(TokenType::Use, 1, 1)),
-                declaration: Box::new(Node::TypeRef(vec![Token::named(
-                    TokenType::Identifier,
-                    1,
-                    1,
-                    "IncludedSymbol",
-                )])),
+                declaration: Box::new(Node::TypeRef(
+                    vec![Token::named(TokenType::Identifier, 1, 1, "IncludedSymbol")].into(),
+                )),
                 aliased: None,
                 alias: None,
             }],
@@ -273,11 +258,12 @@ mod tests {
                 line: 1,
                 t: TokenType::Identifier,
                 label: Some("IncludedSymbol".to_owned()),
-            }],
+            }]
+            .into(),
             alias: None,
             ..SymbolImport::default()
         };
-        assert_eq!(expected, collect_uses(&use_statement, &vec![])[0]);
+        assert_eq!(expected, collect_uses(&use_statement, &vec![].into())[0]);
     }
 
     #[test]
@@ -285,12 +271,9 @@ mod tests {
         let trait_use = Node::UseTraitStatement {
             token: Token::new(TokenType::Use, 1, 1),
             traits_usages: vec![Node::UseTrait {
-                type_ref: Box::new(Node::TypeRef(vec![Token::named(
-                    TokenType::Identifier,
-                    1,
-                    1,
-                    "IncludedSymbol",
-                )])),
+                type_ref: Box::new(Node::TypeRef(
+                    vec![Token::named(TokenType::Identifier, 1, 1, "IncludedSymbol")].into(),
+                )),
             }],
         };
 
@@ -300,10 +283,11 @@ mod tests {
                 line: 1,
                 t: TokenType::Identifier,
                 label: Some("IncludedSymbol".to_owned()),
-            }],
+            }]
+            .into(),
             alias: None,
             ..SymbolImport::default()
         };
-        assert_eq!(expected, collect_uses(&trait_use, &vec![])[0]);
+        assert_eq!(expected, collect_uses(&trait_use, &vec![].into())[0]);
     }
 }

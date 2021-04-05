@@ -1,4 +1,154 @@
-use super::token::Token;
+use std::{iter::Skip, slice::Iter};
+
+use super::token::{Token, TokenType};
+
+#[derive(Debug, PartialEq, Clone, Default)]
+pub struct TypeRef(Vec<Token>);
+
+pub type NodeRange = ((u32, u32), (u32, u32));
+
+impl TypeRef {
+    pub fn append(orig: &Self, appendix: &Self) -> Self {
+        let combined = orig
+            .0
+            .iter()
+            .chain(appendix.0.iter())
+            .map(|token| token.clone())
+            .collect();
+        Self(combined)
+    }
+
+    pub fn range(&self) -> NodeRange {
+        (
+            self.0.first().unwrap().range().0,
+            self.0.last().unwrap().range().1,
+        )
+    }
+
+    pub fn is_fully_qualified(&self) -> bool {
+        if let Some(first) = self.0.first() {
+            return first.t == TokenType::NamespaceSeparator;
+        }
+
+        return false;
+    }
+
+    /// Return true of the token is an identifier of a built in type
+    pub fn is_builtin(&self) -> bool {
+        if self.0.len() == 1 {
+            match self.0[0].t {
+                TokenType::TypeString
+                | TokenType::TypeSelf
+                | TokenType::Static
+                | TokenType::Mixed
+                | TokenType::TypeArray
+                | TokenType::TypeBool
+                | TokenType::TypeInt
+                | TokenType::TypeFloat
+                | TokenType::Null
+                | TokenType::TypeObject
+                | TokenType::ConstFile
+                | TokenType::ConstDir
+                | TokenType::ConstClass
+                | TokenType::ConstFunction
+                | TokenType::ConstMethod
+                | TokenType::Callable
+                | TokenType::ConstLine
+                | TokenType::ConstTrait
+                | TokenType::BinaryNumber
+                | TokenType::DecimalNumber
+                | TokenType::ExponentialNumber
+                | TokenType::HexNumber
+                | TokenType::LongNumber
+                | TokenType::Generator
+                | TokenType::Resource
+                | TokenType::Void => return true,
+                _ => return false,
+            }
+        }
+
+        false
+    }
+
+    /// Ns1\Ns2\Class
+    /// This returns Ns1
+    pub fn root(&self) -> Option<String> {
+        if self.is_empty() {
+            return None;
+        }
+
+        if self.is_fully_qualified() {
+            Some(self.0[1].to_string())
+        } else {
+            Some(self.0[0].to_string())
+        }
+    }
+
+    /// Ns1\Ns2\Class
+    /// This returns Ns2\Class
+    pub fn stem<'a>(&'a self) -> Skip<Iter<'_, Token>> {
+        if self.is_fully_qualified() {
+            self.0.iter().skip(2)
+        } else {
+            self.0.iter().skip(1)
+        }
+    }
+
+    pub fn root_token_type(&self) -> TokenType {
+        self.0.first().unwrap().t.clone()
+    }
+
+    pub fn root_token<'a>(&'a self) -> &'a Token {
+        self.0.first().unwrap()
+    }
+
+    pub fn tip<'a>(&'a self) -> Option<&'a str> {
+        if let Some(last) = self.0.iter().last() {
+            if let Some(label) = last.label.as_ref() {
+                return Some(label);
+            }
+        }
+
+        return None;
+    }
+
+    pub fn to_fqdn(&self) -> String {
+        self.0
+            .iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<String>>()
+            .join("")
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0 || self.is_fully_qualified() && self.len() == 1
+    }
+}
+
+impl From<&TypeRef> for String {
+    fn from(s: &TypeRef) -> Self {
+        s.0.iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<String>>()
+            .join("")
+    }
+}
+
+impl Into<TypeRef> for Vec<Token> {
+    fn into(self) -> TypeRef {
+        TypeRef(self)
+    }
+}
+
+impl Into<TypeRef> for [Token; 0] {
+    fn into(self) -> TypeRef {
+        TypeRef(self.into())
+    }
+}
 
 #[derive(Debug, PartialEq, Clone)]
 /// Represents a node in the AST
@@ -227,7 +377,7 @@ pub enum Node {
         /// Node::DataType
         data_type: Box<Node>,
     },
-    TypeRef(Vec<Token>),
+    TypeRef(TypeRef),
     Class {
         token: Token,
         arguments: Option<Vec<Node>>,
@@ -973,9 +1123,6 @@ impl Node {
         }
     }
 }
-
-pub type NodeRange = ((u32, u32), (u32, u32));
-
 impl Node {
     pub fn end(&self) -> Token {
         match self {
@@ -1414,10 +1561,7 @@ impl Node {
             Node::GlobalVariablesStatement { token, vars } => {
                 (token.start(), vars.last().unwrap().range().1)
             }
-            Node::TypeRef(tokens) => (
-                tokens.first().unwrap().range().0,
-                tokens.last().unwrap().range().1,
-            ),
+            Node::TypeRef(tokens) => tokens.range(),
             Node::Literal(token) | Node::Variable(token) => token.range(),
             Node::Missing(token) => token.range(),
             Node::DefineStatement { token, cp, .. } => (token.range().0, cp.range().1),
@@ -1441,11 +1585,7 @@ impl Node {
         match self {
             Node::NamedFunctionDefinitionStatement { name, .. } => name.to_string(),
             Node::Variable(token) | Node::Literal(token) => token.to_string(),
-            Node::TypeRef(type_ref) => type_ref
-                .iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<String>>()
-                .join(""),
+            Node::TypeRef(type_ref) => type_ref.into(),
             _ => String::new(),
         }
     }

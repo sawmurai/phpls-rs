@@ -588,10 +588,7 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             parts.join("")
         }
         Node::Identifier(token) | Node::Literal(token) | Node::Variable(token) => token.to_string(),
-        Node::TypeRef(tokens) => tokens
-            .iter()
-            .map(|n| n.clone().to_string())
-            .collect::<String>(),
+        Node::TypeRef(tokens) => tokens.to_fqdn(),
         Node::Missing(..) => "<Missing>".to_string(),
         Node::Array { cb, elements, ob } => {
             format!(

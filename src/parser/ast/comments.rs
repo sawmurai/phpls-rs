@@ -287,7 +287,7 @@ impl DocBlockScanner {
                 )),
                 _ => {
                     if !type_ref_parts.is_empty() {
-                        return Some(Node::TypeRef(type_ref_parts.clone()));
+                        return Some(Node::TypeRef(type_ref_parts.into()));
                     } else {
                         return None;
                     }

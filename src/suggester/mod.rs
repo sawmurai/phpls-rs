@@ -301,12 +301,8 @@ fn suggest_members_of_symbol(
         .filter_map(|dt_reference| {
             if let Some(type_ref) = dt_reference.type_ref.as_ref() {
                 if let Some(tr) = dt_reference.type_ref.as_ref() {
-                    if let Some(first) = tr.first() {
-                        if let Some(label) = first.label.as_ref() {
-                            if label == "$this" {
-                                return arena[*resolved_parent].parent();
-                            }
-                        }
+                    if "$this" == tr.root().unwrap() {
+                        return arena[*resolved_parent].parent();
                     }
                 }
 

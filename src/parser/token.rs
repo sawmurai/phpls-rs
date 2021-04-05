@@ -389,34 +389,6 @@ impl Token {
     }
 }
 
-/// Join parts together to create a FQDN
-/// tokens: The tokens that shall be joined together
-pub fn to_fqdn<'a, I>(tokens: I) -> String
-where
-    I: IntoIterator<Item = &'a Token>,
-{
-    tokens
-        .into_iter()
-        .filter_map(|t| t.label.clone())
-        .collect::<Vec<String>>()
-        .join("\\")
-}
-
-pub fn range(tokens: &[Token]) -> NodeRange {
-    (
-        tokens.first().unwrap().range().0,
-        tokens.last().unwrap().range().1,
-    )
-}
-
-pub fn name(tokens: &[Token]) -> String {
-    tokens
-        .iter()
-        .map(|n| n.to_string())
-        .collect::<Vec<String>>()
-        .join("")
-}
-
 impl Display for TokenType {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let dis = match self {

@@ -1172,7 +1172,7 @@ impl LanguageServer for Backend {
                                     } else {
                                         // add use to the end of the imports
                                         if let Some(first_import) = imports.first() {
-                                            first_import.path.first().unwrap().line
+                                            first_import.path.range().0 .0
                                         } else {
                                             3
                                         }

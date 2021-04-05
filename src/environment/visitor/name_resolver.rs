@@ -3,8 +3,8 @@ use super::{workspace_symbol::get_type_ref, Visitor};
 use super::{workspace_symbol::get_type_refs, NextAction};
 use crate::environment::symbol::Visibility;
 use crate::environment::{scope::Reference as SymbolReference, Notification};
-use crate::parser::node::{Node as AstNode, NodeRange};
-use crate::parser::token::{to_fqdn, Token, TokenType};
+use crate::parser::node::{Node as AstNode, NodeRange, TypeRef};
+use crate::parser::token::{Token, TokenType};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::DiagnosticSeverity;
@@ -102,43 +102,6 @@ impl<'a> NameResolver<'a> {
         self.current_class = None;
     }
 
-    /// Return true of the token is an identifier of a built in type
-    fn is_builtin(&self, tokens: &[Token]) -> bool {
-        if tokens.len() == 1 {
-            match tokens[0].t {
-                TokenType::TypeString
-                | TokenType::TypeSelf
-                | TokenType::Static
-                | TokenType::Mixed
-                | TokenType::TypeArray
-                | TokenType::TypeBool
-                | TokenType::TypeInt
-                | TokenType::TypeFloat
-                | TokenType::Null
-                | TokenType::TypeObject
-                | TokenType::ConstFile
-                | TokenType::ConstDir
-                | TokenType::ConstClass
-                | TokenType::ConstFunction
-                | TokenType::ConstMethod
-                | TokenType::Callable
-                | TokenType::ConstLine
-                | TokenType::ConstTrait
-                | TokenType::BinaryNumber
-                | TokenType::DecimalNumber
-                | TokenType::ExponentialNumber
-                | TokenType::HexNumber
-                | TokenType::LongNumber
-                | TokenType::Generator
-                | TokenType::Resource
-                | TokenType::Void => return true,
-                _ => return false,
-            }
-        }
-
-        false
-    }
-
     /// Return a local symbol by its name. The name is stored in the token, so its sufficient
     /// to just pass the token
     pub fn get_local(&self, token: &Token) -> Option<NodeId> {
@@ -203,37 +166,24 @@ impl<'a> NameResolver<'a> {
     /// Resolve a TypeRef `Some\Name\Space` to the node of the definition of that symbol
     pub fn resolve_type_ref(
         &mut self,
-        tokens: &[Token],
+        type_ref: &TypeRef,
         arena: &Arena<Symbol>,
         context_anchor: &NodeId,
         register_ref: bool,
     ) -> Option<NodeId> {
-        if self.is_builtin(tokens) {
+        if type_ref.is_builtin() || type_ref.is_empty() {
             return None;
         }
 
-        let fully_qualified =
-            !tokens.is_empty() && tokens.first().unwrap().t == TokenType::NamespaceSeparator;
-
-        let tokens = tokens
-            .iter()
-            .filter(|t| t.label.is_some())
-            .cloned()
-            .collect::<Vec<Token>>();
-
-        if tokens.is_empty() {
-            return None;
-        }
+        let fully_qualified = type_ref.is_fully_qualified();
 
         let file = context_anchor.ancestors(arena).last().unwrap();
         let file_symbol = arena[file].get();
 
         // Maybe do the following only if the name starts with a backslash?
-        let name = tokens.first().unwrap().label.clone().unwrap();
-        let range = (
-            tokens.first().unwrap().start(),
-            tokens.last().unwrap().end(),
-        );
+
+        let name = type_ref.root().unwrap();
+        let range = type_ref.range();
 
         let cache_key = (file, range);
         if let Some(cached) = self.cache.get(&cache_key) {
@@ -312,11 +262,15 @@ impl<'a> NameResolver<'a> {
 
         // Simple, if fully qualified do not tamper with the name
         let joined_name = if fully_qualified {
-            to_fqdn(&tokens)
+            type_ref.to_fqdn()[1..].to_string()
         } else if let Some(import) = current_available_imports.get(&name.to_lowercase()) {
             // If not fully qualified, check imports
-            if tokens.len() > 1 {
-                let end = to_fqdn(tokens.iter().skip(1));
+            if type_ref.len() > 1 {
+                let end = type_ref
+                    .stem()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<String>>()
+                    .join("");
 
                 format!("{}\\{}", import, end)
             } else {
@@ -327,7 +281,7 @@ impl<'a> NameResolver<'a> {
             format!("{}\\{}", current_namespace, name)
         } else {
             // Otherwise use a fqdn but cut off the leading backslash
-            to_fqdn(&tokens)
+            type_ref.to_fqdn()
         };
 
         // Ensure case-insensitivity
@@ -439,10 +393,12 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             }
             AstNode::ClassStatement { name, .. } | AstNode::TraitStatement { name, .. } => {
                 // Register $this in the current scope
-                if let Some(current_class) =
-                    self.resolver
-                        .resolve_type_ref(&vec![name.clone()], arena, &parent, false)
-                {
+                if let Some(current_class) = self.resolver.resolve_type_ref(
+                    &vec![name.clone()].into(),
+                    arena,
+                    &parent,
+                    false,
+                ) {
                     self.resolver.enter_class(current_class);
 
                     NextAction::ProcessChildren(current_class)
@@ -601,7 +557,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         } else if let Some(data_type) = data_type {
                             arena.new_node(Symbol {
                                 data_types: vec![SymbolReference::node(
-                                    &[token.clone()],
+                                    &vec![token.clone()].into(),
                                     data_type,
                                 )],
                                 ..Symbol::from(token)
@@ -700,7 +656,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             } else if let Some(data_type) = data_type {
                                 arena.new_node(Symbol {
                                     data_types: vec![SymbolReference::node(
-                                        &[token.clone()],
+                                        &vec![token.clone()].into(),
                                         data_type,
                                     )],
                                     ..Symbol::from(token)
@@ -847,8 +803,12 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         let sc = self.resolver.scope_container;
 
                         break (
-                            self.resolver
-                                .resolve_type_ref(&vec![token.clone()], arena, &sc, true),
+                            self.resolver.resolve_type_ref(
+                                &vec![token.clone()].into(),
+                                arena,
+                                &sc,
+                                true,
+                            ),
                             Visibility::Public,
                         );
                     }
@@ -945,17 +905,15 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         PhpSymbolKind::Property | PhpSymbolKind::Method => {
                             for data_type in &child_symbol.data_types {
                                 if let Some(type_ref) = data_type.type_ref.as_ref() {
-                                    let first_type = type_ref.first().unwrap().t.clone();
+                                    let first_type = type_ref.root_token_type();
                                     if TokenType::TypeSelf == first_type
                                         || TokenType::Static == first_type
                                     {
                                         continue 'link_loop;
                                     }
 
-                                    if let Some(first) = type_ref.first() {
-                                        if first.label == Some("$this".to_string()) {
-                                            continue 'link_loop;
-                                        }
+                                    if "$this" == type_ref.root().unwrap() {
+                                        continue 'link_loop;
                                     }
 
                                     if TokenType::Parent == first_type {

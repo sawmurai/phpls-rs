@@ -3,10 +3,12 @@ use super::super::import::{collect_alterations, collect_uses};
 use super::NextAction;
 use super::Symbol;
 use super::Visitor;
-use crate::environment::symbol::{FunctionParameter, PhpSymbolKind, Visibility};
-use crate::environment::{import::namespace_to_string, scope::Reference};
+use crate::environment::scope::Reference;
 use crate::parser::node::Node as AstNode;
-use crate::parser::token::{name as token_name, range as token_range, Token};
+use crate::{
+    environment::symbol::{FunctionParameter, PhpSymbolKind, Visibility},
+    parser::node::TypeRef,
+};
 use indextree::{Arena, NodeId};
 
 pub struct WorkspaceSymbolVisitor {
@@ -45,9 +47,9 @@ impl Visitor for WorkspaceSymbolVisitor {
                 };
 
                 if let Some(imports) = file_symbol.imports.as_mut() {
-                    imports.extend(collect_uses(node, &[]));
+                    imports.extend(collect_uses(node, &[].into()));
                 } else {
-                    file_symbol.imports = Some(collect_uses(node, &[]));
+                    file_symbol.imports = Some(collect_uses(node, &[].into()));
                 }
 
                 NextAction::Abort
@@ -59,9 +61,9 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let mut class_symbol = arena[parent].get_mut();
 
                 if let Some(imports) = class_symbol.imports.as_mut() {
-                    imports.extend(collect_uses(node, &[]));
+                    imports.extend(collect_uses(node, &[].into()));
                 } else {
-                    class_symbol.imports = Some(collect_uses(node, &[]));
+                    class_symbol.imports = Some(collect_uses(node, &[].into()));
                 }
 
                 if let Some(imports) = class_symbol.import_resolutions.as_mut() {
@@ -75,9 +77,7 @@ impl Visitor for WorkspaceSymbolVisitor {
             AstNode::Block { .. } => NextAction::ProcessChildren(parent),
             AstNode::NamespaceStatement { type_ref, .. } => {
                 let (name, selection_range) = match type_ref.as_ref() {
-                    AstNode::TypeRef(tokens) => {
-                        (token_name(tokens), get_range(token_range(tokens)))
-                    }
+                    AstNode::TypeRef(tokens) => (tokens.to_fqdn(), get_range(tokens.range())),
                     _ => panic!("This should not happen"),
                 };
 
@@ -132,7 +132,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     None
                 };
 
-                let mut data_types = vec![Reference::type_ref(vec![name.clone()])];
+                let mut data_types = vec![Reference::type_ref(vec![name.clone()].into())];
                 if let Some(implements) = implements {
                     data_types.extend(
                         implements
@@ -467,13 +467,13 @@ impl Visitor for WorkspaceSymbolVisitor {
         match node {
             AstNode::NamespaceStatement { type_ref, .. } => {
                 if let AstNode::TypeRef(type_ref) = type_ref.as_ref() {
-                    self.namespace_stack.push(namespace_to_string(type_ref))
+                    self.namespace_stack.push(type_ref.to_fqdn())
                 }
             }
             AstNode::NamespaceBlock { type_ref, .. } => {
                 if let Some(type_ref) = type_ref {
                     if let AstNode::TypeRef(type_ref) = type_ref.as_ref() {
-                        self.namespace_stack.push(namespace_to_string(type_ref))
+                        self.namespace_stack.push(type_ref.to_fqdn())
                     }
                 }
             }
@@ -491,7 +491,7 @@ impl Visitor for WorkspaceSymbolVisitor {
     }
 }
 
-pub(crate) fn get_type_refs(node: &AstNode) -> Vec<Vec<Token>> {
+pub(crate) fn get_type_refs(node: &AstNode) -> Vec<TypeRef> {
     match node {
         AstNode::ReturnType { data_type, .. } => get_type_refs(data_type),
         AstNode::DataType { type_refs, .. } => type_refs.iter().filter_map(get_type_ref).collect(),
@@ -508,7 +508,7 @@ pub(crate) fn get_type_refs(node: &AstNode) -> Vec<Vec<Token>> {
     }
 }
 
-pub(crate) fn get_type_ref(node: &AstNode) -> Option<Vec<Token>> {
+pub(crate) fn get_type_ref(node: &AstNode) -> Option<TypeRef> {
     if let AstNode::TypeRef(tokens) = node {
         return Some(tokens.clone());
     }
