@@ -485,7 +485,6 @@ mod tests {
             let dr = scanner.document_range();
             let pr = Parser::ast(scanner.tokens).unwrap();
 
-            dbg!(&pr);
             Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
         }
 
@@ -725,7 +724,6 @@ mod tests {
 
         let actual = suggestions(&sources, 0, 0, 45, Some('>'));
 
-        dbg!(&actual);
         assert_eq!(4, actual.len());
         assert!(actual.contains(&&"m1".to_string()));
         assert!(actual.contains(&&"m1alias".to_string()));
