@@ -294,8 +294,6 @@ impl Backend {
         let walker = WalkBuilder::new(PathBuf::from(&root_path))
             .standard_filters(false)
             .add(PathBuf::from(&self.stubs))
-            //  .git_ignore(false)
-            //  .git_exclude(false)
             .types(types)
             .threads(6)
             .build_parallel();
@@ -443,18 +441,24 @@ impl Backend {
 
         // and register new children
         let mut current_namespace = String::new();
+        let mut file_namespace = None;
 
         for symbol_id in enclosing_file.children(&state.arena) {
             let symbol = state.arena[symbol_id].get();
 
             if symbol.kind == PhpSymbolKind::Namespace {
                 current_namespace = symbol.normalized_name();
+                file_namespace = Some(symbol.name().to_owned());
             } else if symbol.kind.register_global() {
                 state.global_symbols.insert(
                     format!("{}\\{}", current_namespace, symbol.normalized_name()),
                     symbol_id,
                 );
             }
+        }
+
+        if !current_namespace.is_empty() {
+            state.arena[enclosing_file].get_mut().namespace = file_namespace;
         }
 
         Ok(())
@@ -1159,19 +1163,23 @@ impl LanguageServer for Backend {
                                     return symbol.completion_item(sn, &state.arena);
                                 };
 
+                                // Same namespace, no need to add an import
+                                if current_file.namespace.eq(&symbol.namespace) {
+                                    return symbol.completion_item(sn, &state.arena);
+                                }
+
                                 let fqdn = format!("{}\\{}", ns, symbol.name());
-                                let to_import = format!("use {};\n", fqdn);
                                 // Check if the current file already has that import. if yes we are good
                                 let line = if let Some(imports) = current_file.imports.as_ref() {
                                     if imports
-                                        .iter()
+                                        .all()
                                         .find(|import| import.full_name() == fqdn)
                                         .is_some()
                                     {
                                         return symbol.completion_item(sn, &state.arena);
                                     } else {
                                         // add use to the end of the imports
-                                        if let Some(first_import) = imports.first() {
+                                        if let Some(first_import) = imports.all().nth(0) {
                                             first_import.path.range().0 .0
                                         } else {
                                             3
@@ -1183,11 +1191,10 @@ impl LanguageServer for Backend {
                                 };
 
                                 // if not, we add it as a text edit
-
                                 return CompletionItem {
                                     additional_text_edits: Some(vec![TextEdit {
                                         range: get_range(((line, 0), (line, 0))),
-                                        new_text: to_import,
+                                        new_text: format!("use {};\n", fqdn),
                                     }]),
                                     ..symbol.completion_item(sn, &state.arena)
                                 };

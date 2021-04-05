@@ -229,7 +229,7 @@ impl<'a> NameResolver<'a> {
 
         let mut current_available_imports = HashMap::new();
         if let Some(imports) = file_symbol.imports.as_ref() {
-            for import in imports {
+            for import in imports.all() {
                 current_available_imports.insert(import.name().to_lowercase(), import.full_name());
             }
         }

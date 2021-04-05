@@ -1,15 +1,38 @@
-use crate::parser::node::Node;
-use crate::parser::token::Token;
+use crate::parser::{node::NodeRange, token::Token};
+use crate::{backend::FileReferenceMap, parser::node::Node};
 use crate::{
     environment::symbol::{PhpSymbolKind, Symbol},
     parser::node::TypeRef,
 };
+use indextree::NodeId;
 use tower_lsp::lsp_types::{Position, Range};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SymbolImport {
     pub path: TypeRef,
     pub alias: Option<Token>,
+}
+#[derive(Clone, Debug, Default)]
+pub struct SymbolImportBlock(Vec<SymbolImport>);
+
+impl SymbolImportBlock {
+    pub fn all(&self) -> std::slice::Iter<SymbolImport> {
+        self.0.iter()
+    }
+
+    pub fn extend(&mut self, imports: Vec<SymbolImport>) {
+        self.0.extend(imports);
+    }
+
+    pub fn contains(&self, search: NodeId, references: &[NodeRange]) -> bool {
+        false
+    }
+}
+
+impl Into<SymbolImportBlock> for Vec<SymbolImport> {
+    fn into(self) -> SymbolImportBlock {
+        SymbolImportBlock(self)
+    }
 }
 
 #[derive(Clone, Debug)]

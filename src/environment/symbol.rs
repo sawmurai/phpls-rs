@@ -1,5 +1,8 @@
 use super::{
-    get_range, import::TraitUseAlteration, in_range, visitor::name_resolver::NameResolver,
+    get_range,
+    import::{SymbolImportBlock, TraitUseAlteration},
+    in_range,
+    visitor::name_resolver::NameResolver,
 };
 use crate::environment::fs::file_read_range;
 use crate::environment::import::SymbolImport;
@@ -183,7 +186,7 @@ pub struct Symbol {
 
     /// If symbol is a file, this contains the namespace imports. If its a class
     /// this contains the used traits
-    pub imports: Option<Vec<SymbolImport>>,
+    pub imports: Option<SymbolImportBlock>,
 
     /// Contains all the use x insteadof y or as a public b trait import rules
     pub import_resolutions: Option<Vec<TraitUseAlteration>>,
@@ -474,7 +477,7 @@ impl Symbol {
         // Step 1: Go through all used traits and get the children of all traits
         let mut all_children = HashMap::new();
         if let Some(imports) = self.imports.as_ref() {
-            for import in imports.iter() {
+            for import in imports.all() {
                 if let Some(used_trait) =
                     resolver.resolve_type_ref(&import.path, arena, &ctx, false)
                 {

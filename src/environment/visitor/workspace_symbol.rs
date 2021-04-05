@@ -49,7 +49,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 if let Some(imports) = file_symbol.imports.as_mut() {
                     imports.extend(collect_uses(node, &[].into()));
                 } else {
-                    file_symbol.imports = Some(collect_uses(node, &[].into()));
+                    file_symbol.imports = Some(collect_uses(node, &[].into()).into());
                 }
 
                 NextAction::Abort
@@ -63,7 +63,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 if let Some(imports) = class_symbol.imports.as_mut() {
                     imports.extend(collect_uses(node, &[].into()));
                 } else {
-                    class_symbol.imports = Some(collect_uses(node, &[].into()));
+                    class_symbol.imports = Some(collect_uses(node, &[].into()).into());
                 }
 
                 if let Some(imports) = class_symbol.import_resolutions.as_mut() {
