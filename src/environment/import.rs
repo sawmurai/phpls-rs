@@ -1,10 +1,9 @@
-use crate::parser::{node::NodeRange, token::Token};
-use crate::{backend::FileReferenceMap, parser::node::Node};
+use crate::parser::node::Node;
+use crate::parser::token::Token;
 use crate::{
     environment::symbol::{PhpSymbolKind, Symbol},
     parser::node::TypeRef,
 };
-use indextree::NodeId;
 use tower_lsp::lsp_types::{Position, Range};
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -22,10 +21,6 @@ impl SymbolImportBlock {
 
     pub fn extend(&mut self, imports: Vec<SymbolImport>) {
         self.0.extend(imports);
-    }
-
-    pub fn contains(&self, search: NodeId, references: &[NodeRange]) -> bool {
-        false
     }
 }
 
