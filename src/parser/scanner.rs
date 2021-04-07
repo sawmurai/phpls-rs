@@ -244,6 +244,11 @@ impl Scanner {
                             }
                         }
                     }
+                    Some('>') => {
+                        self.advance();
+
+                        self.push_token(TokenType::IsNotEqualAlt);
+                    }
                     _ => {
                         self.push_token(TokenType::Smaller);
                     }
@@ -1258,6 +1263,7 @@ for ($i = 0; $i < 100; $i++) {}",
             2 ?? 1;
             2 == 1;
             2 != 1;
+            2 <> 1;
             2 > 1;
             2 < 1;
             2 % 1 == 1;
@@ -1268,7 +1274,8 @@ for ($i = 0; $i < 100; $i++) {}",
 
         assert_eq!(
             token_list!(scanner.tokens),
-            "<?php true || false && 1 === 1 && $a <=> $b && 2 !== 1 ; 2 <= 1 ; 2 >= 1 ; 2 ?? 1 ; 2 == 1 ; 2 != 1 ; \
+            "<?php true || false && 1 === 1 && $a <=> $b && 2 !== 1 ; \
+            2 <= 1 ; 2 >= 1 ; 2 ?? 1 ; 2 == 1 ; 2 != 1 ; 2 <> 1 ; \
             2 > 1 ; 2 < 1 ; 2 % 1 == 1 ; "
         );
     }
@@ -1352,16 +1359,11 @@ for ($i = 0; $i < 100; $i++) {}",
     }
     #[test]
     fn test_parses_line_comments_and_respects_end_of_script() {
-        let mut scanner = Scanner::new(
-            "<?php // Line comment ?> <h1> test </h1>",
-        );
+        let mut scanner = Scanner::new("<?php // Line comment ?> <h1> test </h1>");
 
         scanner.scan().unwrap();
 
-        assert_eq!(
-            token_list!(scanner.tokens),
-            "<?php ?>"
-        );
+        assert_eq!(token_list!(scanner.tokens), "<?php ?>");
     }
 
     #[test]

@@ -63,6 +63,7 @@ pub(crate) fn equality(parser: &mut Parser) -> ExpressionResult {
 
     let potential_matches = vec![
         TokenType::IsNotEqual,
+        TokenType::IsNotEqualAlt,
         TokenType::IsEqual,
         TokenType::IsNotIdentical,
         TokenType::IsIdentical,
