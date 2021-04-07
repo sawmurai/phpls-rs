@@ -447,7 +447,12 @@ impl Parser {
                     }
                     let expr = expressions::expression_statement(self)?;
 
-                    self.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+                    if self.next_token_one_of(&[TokenType::ScriptEnd]) {
+                        self.consume(TokenType::ScriptEnd)?;
+                        self.context = Context::Out;
+                    } else {
+                        self.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+                    }
 
                     return Ok(expr);
                 }
@@ -742,5 +747,26 @@ mod tests {
         };
 
         assert_eq!(&expected, ast_result.unwrap().1.first().unwrap());
+    }
+
+    #[test]
+    fn test_expects_either_a_semicolon_or_a_script_end_after_an_expression_statement() {
+        let code_semicolon = "<?php echo 1 + 1; ";
+
+        let mut scanner = Scanner::new(code_semicolon);
+        let tokens = scanner.scan().unwrap();
+        let ast_result = Parser::ast(tokens.clone());
+
+        assert!(ast_result.unwrap().1.is_empty());
+
+        let code_semicolon = "<?php 
+        empty(2)
+        ?>";
+
+        let mut scanner = Scanner::new(code_semicolon);
+        let tokens = scanner.scan().unwrap();
+        let ast_result = Parser::ast(tokens.clone());
+
+        assert!(ast_result.unwrap().1.is_empty());
     }
 }
