@@ -208,8 +208,7 @@ pub(crate) fn case_list(parser: &mut Parser) -> Result<Vec<Option<Node>>> {
                 cases_current_branch.push(None);
                 parser.next();
                 parser
-                    .consume_or_err(TokenType::Colon, &[TokenType::Semicolon])
-                    .or_else(|_| parser.consume_end_of_statement())?;
+                    .consume_one_of(&[TokenType::Colon, TokenType::Semicolon])?;
             }
             Some(Token {
                 t: TokenType::Case, ..
@@ -217,8 +216,7 @@ pub(crate) fn case_list(parser: &mut Parser) -> Result<Vec<Option<Node>>> {
                 parser.next();
                 cases_current_branch.push(Some(expressions::expression(parser)?));
                 parser
-                    .consume_or_err(TokenType::Colon, &[TokenType::Semicolon])
-                    .or_else(|_| parser.consume_end_of_statement())?;
+                    .consume_one_of(&[TokenType::Colon, TokenType::Semicolon])?;
             }
             _ => {
                 break;
