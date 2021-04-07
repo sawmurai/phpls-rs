@@ -287,22 +287,15 @@ impl<'a> NameResolver<'a> {
         // Ensure case-insensitivity
         let normalized_joined_name = joined_name.to_lowercase();
 
-        let node = if let Some(node) = self.global_scope.get(&normalized_joined_name) {
-            Some(*node)
+        let (node, comp_name) = if let Some(node) = self.global_scope.get(&normalized_joined_name) {
+            (Some(*node), joined_name)
         } else if let Some(node) = self
             .global_scope
             .get(&format!("\\{}", normalized_joined_name))
         {
-            Some(*node)
+            (Some(*node), joined_name)
         } else if let Some(node) = self.global_scope.get(&format!("\\{}", name.to_lowercase())) {
-            if !arena[*node].get().fqdn_matches(&name) {
-                self.diagnostics.push(Notification::warning(
-                    file_symbol.name().to_owned(),
-                    String::from("Case mismatch between call and definition"),
-                    range,
-                ));
-            }
-            Some(*node)
+            (Some(*node), name)
         } else {
             self.diagnostics.push(Notification::error(
                 file_symbol.name().to_owned(),
@@ -310,7 +303,7 @@ impl<'a> NameResolver<'a> {
                 range,
             ));
 
-            None
+            (None, String::from(""))
         };
 
         if let Some(node) = node {
@@ -318,7 +311,7 @@ impl<'a> NameResolver<'a> {
                 self.reference(file, Reference::new(range, node));
             }
 
-            if !arena[node].get().fqdn_matches(&joined_name) {
+            if !arena[node].get().fqdn_matches(&comp_name) {
                 self.diagnostics.push(Notification::warning(
                     file_symbol.name().to_owned(),
                     String::from("Case mismatch between call and definition"),
