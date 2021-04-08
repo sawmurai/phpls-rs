@@ -941,7 +941,6 @@ impl LanguageServer for Backend {
         let mut state = self.state.lock().await;
 
         if !state.opened_files.contains_key(&path) {
-            eprintln!("[did_open] indexing file");
             self.client
                 .log_message(MessageType::Info, "Need to freshly index")
                 .await;
@@ -966,8 +965,6 @@ impl LanguageServer for Backend {
             }
         }
 
-        eprintln!("[did_open] file stored in opened files");
-
         let (ast, _) = if let Some((ast, range)) = state.opened_files.get(&path) {
             self.client
                 .log_message(MessageType::Info, "Opened from cache")
@@ -981,7 +978,6 @@ impl LanguageServer for Backend {
             return;
         };
 
-        eprintln!("[did_open] start resolving symbols");
         if let Err(e) = Backend::collect_references(&path, &ast, &mut state, None) {
             self.client
                 .log_message(MessageType::Error, format!("Failed to index {}", e))
@@ -989,7 +985,6 @@ impl LanguageServer for Backend {
 
             return;
         }
-        eprintln!("[did_open] done resolving symbols");
 
         if let Some(diagnostics) = state.diagnostics.get(&path) {
             self.client

@@ -5,7 +5,6 @@ use super::{
     visitor::name_resolver::NameResolver,
 };
 use crate::environment::fs::file_read_range;
-use crate::environment::import::SymbolImport;
 use crate::environment::scope::Reference;
 use crate::parser::node::Node as AstNode;
 use crate::parser::token::{Token, TokenType};
