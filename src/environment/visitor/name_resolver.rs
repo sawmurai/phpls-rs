@@ -341,7 +341,11 @@ impl<'a> NameResolver<'a> {
             if !arena[node].get().fqdn_matches(&comp_name) {
                 self.diagnostics.push(Notification::warning(
                     file_symbol.name().to_owned(),
-                    String::from("Case mismatch between call and definition"),
+                    format!(
+                        "Case mismatch between call and definition {} vs {}",
+                        &comp_name,
+                        arena[node].get().fqdn(),
+                    ),
                     range,
                 ));
             }
@@ -626,6 +630,18 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                             .reference(self.file, Reference::new(name.range(), method));
 
                         return;
+                    }
+                }
+            }
+            AstNode::Property { name, .. } | AstNode::Const { name, .. } => {
+                if let Some(label) = name.label.as_ref() {
+                    for container in self.resolver.scope_container.children(arena) {
+                        if arena[container].get().name() == label {
+                            self.resolver
+                                .reference(self.file, Reference::new(name.range(), container));
+
+                            return;
+                        }
                     }
                 }
             }
