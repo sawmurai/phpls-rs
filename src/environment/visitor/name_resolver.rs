@@ -86,6 +86,17 @@ impl<'a> NameResolver<'a> {
         self.local_scopes.push(HashMap::new());
     }
 
+    /// Enter a new scope and prefill it with the current scope
+    pub fn clone_scope(&mut self) {
+        let new = if let Some(last) = self.local_scopes.last() {
+            last.clone()
+        } else {
+            HashMap::new()
+        };
+
+        self.local_scopes.push(new);
+    }
+
     /// Leave the current scope and discard it
     pub fn pop_scope(&mut self) {
         self.local_scopes.pop();
@@ -138,20 +149,36 @@ impl<'a> NameResolver<'a> {
             .push(reference)
     }
 
-    /// Declare a local symbol, usually a variable or a function
-    pub fn declare_local(&mut self, file: NodeId, token: &Token, t: NodeId) {
+    /// Declare a local symbol, usually a variable or a function if it has not
+    /// been declared before
+    pub fn declare_local_if_new(&mut self, file: NodeId, token: &Token, t: NodeId) {
         if let Some(top_scope) = self.local_scopes.last_mut() {
             if let Some(name) = token.label.as_ref() {
                 if let Some(node) = top_scope.get(name) {
                     self.document_references
                         .entry(file)
                         .or_insert_with(Vec::new)
-                        .push(Reference::new(token.range(), *node))
+                        .push(Reference::new(token.range(), *node));
                 } else {
                     top_scope.insert(name.clone(), t);
+                    self.reference_local(file, token, &t);
                 }
             }
         }
+    }
+
+    /// Declare a local symbol and overwrite an existing declaration
+    /// The use case for this is variable shadowing and defining arguments of an
+    /// arrow function in another scope that already defined a variable with the same
+    /// name.
+    pub fn declare_or_overwrite_local(&mut self, file: NodeId, token: &Token, t: NodeId) {
+        if let Some(top_scope) = self.local_scopes.last_mut() {
+            if let Some(label) = token.label.as_ref() {
+                top_scope.insert(label.clone(), t);
+            }
+        }
+
+        self.reference_local(file, token, &t);
     }
 
     /// Resolve fully qualified
@@ -386,12 +413,10 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             }
             AstNode::ClassStatement { name, .. } | AstNode::TraitStatement { name, .. } => {
                 // Register $this in the current scope
-                if let Some(current_class) = self.resolver.resolve_type_ref(
-                    &vec![name.clone()].into(),
-                    arena,
-                    &parent,
-                    false,
-                ) {
+                if let Some(current_class) =
+                    self.resolver
+                        .resolve_type_ref(&vec![name.clone()].into(), arena, &parent, true)
+                {
                     self.resolver.enter_class(current_class);
 
                     NextAction::ProcessChildren(current_class)
@@ -418,7 +443,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 // the arguments
                 NextAction::ProcessChildren(self.resolver.scope_container)
             }
-            AstNode::NamedFunctionDefinitionStatement { .. } => {
+            AstNode::ArrowFunction { .. } | AstNode::NamedFunctionDefinitionStatement { .. } => {
                 NextAction::ProcessChildren(self.resolver.scope_container)
             }
 
@@ -429,7 +454,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     let child = arena.new_node(Symbol::from(token));
 
                     self.resolver.scope_container.append(child, arena);
-                    self.resolver.declare_local(self.file, token, child);
+                    self.resolver.declare_local_if_new(self.file, token, child);
                 }
 
                 NextAction::Abort
@@ -458,7 +483,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 };
 
                 self.resolver.scope_container.append(child, arena);
-                self.resolver.declare_local(self.file, name, child);
+                self.resolver.declare_local_if_new(self.file, name, child);
 
                 NextAction::Abort
             }
@@ -479,7 +504,8 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 });
 
                 self.resolver.scope_container.append(child, arena);
-                self.resolver.declare_local(self.file, var, child);
+                self.resolver
+                    .declare_or_overwrite_local(self.file, var, child);
 
                 NextAction::ProcessChildren(parent)
             }
@@ -522,7 +548,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     arena[current_argument].get_mut().data_types = resolved_references.collect();
 
                     self.resolver
-                        .declare_local(self.file, name, current_argument);
+                        .declare_or_overwrite_local(self.file, name, current_argument);
 
                     if let Some(doc_comment) = doc_comment {
                         if let AstNode::DocCommentParam { name, .. } = doc_comment.as_ref() {
@@ -545,9 +571,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 if token.t == TokenType::Assignment {
                     let data_type = self.resolve_member_type(&right, arena);
                     if let AstNode::Variable(token) = left.as_ref() {
-                        let child = if let Some(existing) = self.resolver.get_local(token) {
-                            existing
-                        } else if let Some(data_type) = data_type {
+                        let child = if let Some(data_type) = data_type {
                             arena.new_node(Symbol {
                                 data_types: vec![SymbolReference::node(
                                     &vec![token.clone()].into(),
@@ -560,7 +584,8 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         };
 
                         self.resolver.scope_container.append(child, arena);
-                        self.resolver.declare_local(self.file, token, child);
+                        self.resolver
+                            .declare_or_overwrite_local(self.file, token, child);
                     } else {
                         self.resolve_member_type(&left, arena);
                     }
@@ -597,6 +622,21 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 for method in self.resolver.scope_container.children(arena) {
                     if arena[method].get().name() == method_name {
                         self.resolver.scope_container = method;
+                        self.resolver
+                            .reference(self.file, Reference::new(name.range(), method));
+
+                        return;
+                    }
+                }
+            }
+            AstNode::ArrowFunction { token, .. } => {
+                self.resolver.clone_scope();
+                let method_name = format!("af-{:?}", token.range());
+
+                // Find this method in the current scope
+                for method in self.resolver.scope_container.children(arena) {
+                    if arena[method].get().name() == method_name {
+                        self.resolver.scope_container = method;
 
                         return;
                     }
@@ -614,7 +654,8 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 self.resolver.scope_container = parent;
             }
             AstNode::MethodDefinitionStatement { .. }
-            | AstNode::NamedFunctionDefinitionStatement { .. } => {
+            | AstNode::NamedFunctionDefinitionStatement { .. }
+            | AstNode::ArrowFunction { .. } => {
                 self.resolver.pop_scope();
                 self.resolver.scope_container = parent;
             }
@@ -644,9 +685,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         if let AstNode::Variable(token) = left.as_ref() {
                             let data_type = self.resolve_member_type(&right, arena);
 
-                            let child = if let Some(existing) = self.resolver.get_local(token) {
-                                existing
-                            } else if let Some(data_type) = data_type {
+                            let child = if let Some(data_type) = data_type {
                                 arena.new_node(Symbol {
                                     data_types: vec![SymbolReference::node(
                                         &vec![token.clone()].into(),
@@ -659,7 +698,8 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             };
 
                             self.resolver.scope_container.append(child, arena);
-                            self.resolver.declare_local(self.file, token, child);
+                            self.resolver
+                                .declare_or_overwrite_local(self.file, token, child);
 
                             current_object = left;
                         } else {
@@ -1045,6 +1085,7 @@ mod tests {
                 "kaetzchen",
                 "getName",
                 "kaetzchen",
+                "kaetzchen",
                 "getPulse",
                 "Cat",
             ],
@@ -1057,10 +1098,12 @@ mod tests {
                 "Cat",
                 "test",
                 "kaetzchen",
+                "kaetzchen",
                 "getThis",
                 "getThis",
                 "getThis",
                 "getPulse",
+                "test",
                 "test",
                 "getName",
             ],
@@ -1075,7 +1118,9 @@ mod tests {
                 "marci",
                 "getName",
                 "kaetzchen",
+                "kaetzchen",
                 "setName",
+                "marci",
                 "marci",
                 "getName",
                 "Cat",
@@ -1114,7 +1159,14 @@ mod tests {
         assert!(state.diagnostics.is_empty());
 
         assert_reference_names!(
-            vec!["Living", "Living", "cat", "getPulse",],
+            vec![
+                "Living",
+                "Living",
+                "animal_caller",
+                "cat",
+                "cat",
+                "getPulse"
+            ],
             references!(state, "index.php")
         );
     }
@@ -1150,7 +1202,7 @@ mod tests {
         assert!(state.diagnostics.is_empty());
 
         assert_reference_names!(
-            vec!["Cat", "Cat", "marci", "getName",],
+            vec!["Cat", "Cat", "marci", "marci", "getName",],
             references!(state, "index.php")
         );
     }
@@ -1194,19 +1246,26 @@ mod tests {
         assert_reference_names!(
             vec![
                 "Living",
-                "instance",
+                "Living",
+                "getName",
+                "getOther",
+                "getOther",
+                "getOther",
                 "getOther",
                 "instance",
-                "name",
+                "instance",
+                "instance",
                 "instance2",
-                "getOther",
+                "instance2",
                 "instance3",
-                "getOther",
+                "instance3",
+                "name",
+                "test"
             ],
             references!(state, "living.php")
         );
         assert_reference_names!(
-            vec!["Living", "Cat", "getName", "Cat", "getOther",],
+            vec!["Cat", "Cat", "Cat", "Living", "getName", "getOther", "test"],
             references!(state, "cat.php")
         );
     }
@@ -1244,10 +1303,13 @@ mod tests {
         eprintln!("{:?}", state.diagnostics);
         assert!(state.diagnostics.is_empty());
 
-        assert_reference_names!(vec!["Living"], references!(state, "cat.php"));
-        assert_reference_names!(vec!["Living", "Living"], references!(state, "tiger.php"));
+        assert_reference_names!(vec!["Cat", "Living"], references!(state, "cat.php"));
         assert_reference_names!(
-            vec!["Living", "Living"],
+            vec!["Living", "Living", "Tiger"],
+            references!(state, "tiger.php")
+        );
+        assert_reference_names!(
+            vec!["Cat", "Living", "Living"],
             references!(state, "anothercat.php")
         );
     }
@@ -1280,7 +1342,7 @@ mod tests {
         assert!(state.diagnostics.is_empty());
 
         assert_reference_names!(
-            vec!["Living", "Living", "__construct"],
+            vec!["Cat", "Living", "Living", "__construct", "__construct"],
             references!(state, "cat.php")
         );
     }
@@ -1314,7 +1376,7 @@ mod tests {
         assert!(state.diagnostics.is_empty());
 
         assert_reference_names!(
-            vec!["If3", "object", "m1", "object", "m2",],
+            vec!["If3", "m1", "m2", "object", "object", "object", "x"],
             references!(state, "index.php")
         );
     }
@@ -1352,11 +1414,14 @@ mod tests {
         assert!(state.diagnostics.is_empty());
 
         assert_reference_names!(
-            vec!["Test", "o", "inst", "test"],
+            vec!["Test", "o", "o", "inst", "test"],
             references!(state, "index.php")
         );
 
-        assert_reference_names!(vec!["OtherTest", "var"], references!(state, "c2.php"));
+        assert_reference_names!(
+            vec!["OtherTest", "OtherTest", "test", "var", "var"],
+            references!(state, "c2.php")
+        );
     }
 
     #[tokio::test]
@@ -1393,7 +1458,16 @@ mod tests {
         eprintln!("{:?}", state.diagnostics);
         assert!(state.diagnostics.is_empty());
         assert_reference_names!(
-            vec!["Living", "Living", "inst", "me", "myself", "i", "my_parent"],
+            vec![
+                "Living",
+                "Living",
+                "inst",
+                "inst",
+                "me",
+                "myself",
+                "i",
+                "my_parent"
+            ],
             references!(state, "index.php")
         );
     }

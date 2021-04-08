@@ -356,9 +356,9 @@ impl Token {
     }
 
     fn len(&self) -> u32 {
-        if let Some(label) = self.label.as_ref() {
+        /*if let Some(label) = self.label.as_ref() {
             return (label.len()) as u32;
-        }
+        }*/
 
         self.to_string().len() as u32
     }

@@ -361,6 +361,21 @@ impl Visitor for WorkspaceSymbolVisitor {
                 NextAction::ProcessChildren(child)
             }
 
+            AstNode::ArrowFunction { token, .. } => {
+                // TODO: Add data type callable
+                let child = arena.new_node(Symbol {
+                    name: format!("af-{:?}", token.range()),
+                    kind: PhpSymbolKind::Function,
+                    range: get_range(node.range()),
+                    selection_range: get_range(token.range()),
+                    ..Symbol::default()
+                });
+
+                parent.append(child, arena);
+
+                NextAction::ProcessChildren(child)
+            }
+
             AstNode::NamedFunctionDefinitionStatement { name, function, .. } => {
                 let (return_type, doc_comment) = if let AstNode::FunctionDefinitionStatement {
                     doc_comment,
@@ -463,7 +478,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 NextAction::Abort
             }
 
-            _ => NextAction::Abort,
+            _ => NextAction::ProcessChildren(parent),
         }
     }
 
