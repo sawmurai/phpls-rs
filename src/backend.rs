@@ -347,18 +347,11 @@ impl Backend {
             eprintln!("Indexed {} files ", state.files.len());
             let mut global_table: HashMap<String, NodeId> = HashMap::new();
             for (_file, node_id) in state.files.iter() {
-                let mut current_namespace = String::new();
-
                 for symbol_id in node_id.children(&state.arena) {
                     let symbol = state.arena[symbol_id].get();
 
-                    if symbol.kind == PhpSymbolKind::Namespace {
-                        current_namespace = symbol.normalized_name();
-                    } else if symbol.kind.register_global() {
-                        global_table.insert(
-                            format!("{}\\{}", current_namespace, symbol.normalized_name()),
-                            symbol_id,
-                        );
+                    if symbol.kind.register_global() {
+                        global_table.insert(symbol.fqdn().to_lowercase(), symbol_id);
                     }
                 }
             }
@@ -409,8 +402,6 @@ impl Backend {
             traverse(node, &mut visitor, &mut state.arena, enclosing_file);
         }
 
-        let mut current_namespace = String::new();
-
         // Deregister old children from the global symbol table and the references
         if let Some(old_enclosing) = state.files.insert(path.to_owned(), enclosing_file) {
             // Since only the top level symbols are in the global_symbols its okay
@@ -418,15 +409,7 @@ impl Backend {
             for symbol_id in old_enclosing.children(&state.arena) {
                 let symbol = state.arena[symbol_id].get();
 
-                if symbol.kind == PhpSymbolKind::Namespace {
-                    current_namespace = symbol.normalized_name();
-                } else if symbol.kind.register_global() {
-                    state.global_symbols.remove(&format!(
-                        "{}\\{}",
-                        current_namespace,
-                        symbol.normalized_name()
-                    ));
-                }
+                state.global_symbols.remove(&symbol.fqdn().to_lowercase());
             }
 
             // But references are a different story
@@ -439,26 +422,14 @@ impl Backend {
             old_enclosing.remove_subtree(&mut state.arena);
         }
 
-        // and register new children
-        let mut current_namespace = String::new();
-        let mut file_namespace = None;
-
         for symbol_id in enclosing_file.children(&state.arena) {
             let symbol = state.arena[symbol_id].get();
 
-            if symbol.kind == PhpSymbolKind::Namespace {
-                current_namespace = symbol.normalized_name();
-                file_namespace = Some(symbol.name().to_owned());
-            } else if symbol.kind.register_global() {
-                state.global_symbols.insert(
-                    format!("{}\\{}", current_namespace, symbol.normalized_name()),
-                    symbol_id,
-                );
+            if symbol.kind.register_global() {
+                state
+                    .global_symbols
+                    .insert(symbol.fqdn().to_lowercase(), symbol_id);
             }
-        }
-
-        if !current_namespace.is_empty() {
-            state.arena[enclosing_file].get_mut().namespace = file_namespace;
         }
 
         Ok(())

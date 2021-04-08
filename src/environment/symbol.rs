@@ -481,9 +481,15 @@ impl Symbol {
                 if let Some(used_trait) =
                     resolver.resolve_type_ref(&import.path, arena, &ctx, false)
                 {
+                    let symbol = arena[used_trait].get();
+
+                    // Prevent inclusion of false positives, mainly in the php storm stubs
+                    if symbol.kind != PhpSymbolKind::Trait {
+                        continue;
+                    }
+
                     // Get HashMap<String, Vec<NodeId>> where nodeids are all symbols with the same name (i.e. conflicting)
-                    arena[used_trait]
-                        .get()
+                    symbol
                         .get_all_symbols(used_trait, resolver, arena)
                         .drain()
                         .for_each(|(name, node)| {
@@ -617,29 +623,24 @@ impl Symbol {
     /// Collect all available symbols, including used through traits and symbols of parents
     pub fn get_all_symbols<'a, 'b>(
         &'a self,
-        my_node_id: NodeId,
+        ctx: NodeId,
         resolver: &'b mut NameResolver,
         arena: &'a Arena<Self>,
     ) -> HashMap<String, SymbolAlias> {
         let mut children = HashMap::new();
 
         // Get this symbols children
-        my_node_id.children(arena).for_each(|child| {
+        ctx.children(arena).for_each(|child| {
             let child_symbol = arena[child].get();
 
             children.insert(
                 child_symbol.normalized_name(),
-                SymbolAlias::new(
-                    child,
-                    child_symbol.name(),
-                    child_symbol.visibility,
-                    my_node_id,
-                ),
+                SymbolAlias::new(child, child_symbol.name(), child_symbol.visibility, ctx),
             );
         });
 
         // Go through all used traits and get the children of all traits
-        children.extend(self.get_imports(my_node_id, resolver, arena));
+        children.extend(self.get_imports(ctx, resolver, arena));
 
         // Get the children of all data_types, which are also all implemented interfaces
         let resolved_datatypes = self
@@ -647,7 +648,7 @@ impl Symbol {
             .iter()
             .filter_map(|dt| {
                 if let Some(tr) = dt.type_ref.as_ref() {
-                    resolver.resolve_type_ref(tr, arena, &my_node_id, false)
+                    resolver.resolve_type_ref(tr, arena, &ctx, false)
                 } else {
                     None
                 }
@@ -656,23 +657,22 @@ impl Symbol {
 
         resolved_datatypes.iter().for_each(|dt| {
             // Skip self-reference
-            if my_node_id != *dt {
+            if ctx != *dt {
                 children.extend(arena[*dt].get().get_all_symbols(*dt, resolver, arena));
             }
         });
 
-        children.extend(self.get_inherited_symbols(my_node_id, resolver, arena));
-
+        children.extend(self.get_inherited_symbols(ctx, resolver, arena));
         children
     }
 
     pub fn get_unique_parent(
         &self,
-        my_node_id: NodeId,
+        ctx: NodeId,
         resolver: &mut NameResolver,
         arena: &Arena<Self>,
     ) -> Option<NodeId> {
-        let parents = self.get_parent_nodes(my_node_id, resolver, arena);
+        let parents = self.get_parent_nodes(ctx, resolver, arena);
 
         if parents.len() != 1 {
             None
@@ -683,7 +683,7 @@ impl Symbol {
 
     pub fn get_parent_nodes(
         &self,
-        my_node_id: NodeId,
+        ctx: NodeId,
         resolver: &mut NameResolver,
         arena: &Arena<Self>,
     ) -> HashMap<String, NodeId> {
@@ -693,12 +693,7 @@ impl Symbol {
             inherits_from
                 .iter()
                 .filter_map(|r| {
-                    resolver.resolve_type_ref(
-                        &r.type_ref.as_ref().unwrap(),
-                        &arena,
-                        &my_node_id,
-                        false,
-                    )
+                    resolver.resolve_type_ref(&r.type_ref.as_ref().unwrap(), &arena, &ctx, false)
                 })
                 .for_each(|node| {
                     parents.insert(arena[node].get().normalized_name(), node);
@@ -710,11 +705,11 @@ impl Symbol {
 
     pub fn get_parent_symbols<'a>(
         &'a self,
-        my_node_id: NodeId,
+        ctx: NodeId,
         resolver: &mut NameResolver,
         arena: &'a Arena<Self>,
     ) -> Vec<&'a Self> {
-        self.get_parent_nodes(my_node_id, resolver, &arena)
+        self.get_parent_nodes(ctx, resolver, &arena)
             .iter()
             .map(|(_, parent)| arena[*parent].get())
             .collect()

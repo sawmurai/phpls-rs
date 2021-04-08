@@ -261,7 +261,7 @@ impl<'a> NameResolver<'a> {
             }
         }
 
-        // First attempt: Try to find the first parent namespace block
+        // First attempt: Try to find the parent namespace block
         let current_namespace = if let Some(ns) = context_anchor.ancestors(arena).find_map(|a| {
             let s = arena[a].get();
 
@@ -316,12 +316,7 @@ impl<'a> NameResolver<'a> {
 
         let (node, comp_name) = if let Some(node) = self.global_scope.get(&normalized_joined_name) {
             (Some(*node), joined_name)
-        } else if let Some(node) = self
-            .global_scope
-            .get(&format!("\\{}", normalized_joined_name))
-        {
-            (Some(*node), joined_name)
-        } else if let Some(node) = self.global_scope.get(&format!("\\{}", name.to_lowercase())) {
+        } else if let Some(node) = self.global_scope.get(&name.to_lowercase()) {
             (Some(*node), name)
         } else {
             self.diagnostics.push(Notification::error(
@@ -1275,6 +1270,7 @@ mod tests {
                 "instance2",
                 "instance3",
                 "instance3",
+                "name",
                 "name",
                 "test"
             ],

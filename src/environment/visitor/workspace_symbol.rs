@@ -12,14 +12,12 @@ use crate::{
 use indextree::{Arena, NodeId};
 
 pub struct WorkspaceSymbolVisitor {
-    namespace_stack: Vec<String>,
+    namespace: Option<String>,
 }
 
 impl WorkspaceSymbolVisitor {
     pub fn new() -> Self {
-        WorkspaceSymbolVisitor {
-            namespace_stack: Vec::new(),
-        }
+        WorkspaceSymbolVisitor { namespace: None }
     }
 }
 
@@ -126,7 +124,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let s_name = name.to_string();
                 let range = get_range(node.range());
 
-                let namespace = if let Some(ns) = self.namespace_stack.last() {
+                let namespace = if let Some(ns) = self.namespace.as_ref() {
                     Some(ns.clone())
                 } else {
                     None
@@ -174,7 +172,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let name = name.to_string();
                 let range = get_range(node.range());
 
-                let namespace = if let Some(ns) = self.namespace_stack.last() {
+                let namespace = if let Some(ns) = self.namespace.as_ref() {
                     Some(ns.clone())
                 } else {
                     None
@@ -208,7 +206,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     None
                 };
 
-                let namespace = if let Some(ns) = self.namespace_stack.last() {
+                let namespace = if let Some(ns) = self.namespace.as_ref() {
                     Some(ns.clone())
                 } else {
                     None
@@ -486,14 +484,16 @@ impl Visitor for WorkspaceSymbolVisitor {
         match node {
             AstNode::NamespaceStatement { type_ref, .. } => {
                 if let AstNode::TypeRef(type_ref) = type_ref.as_ref() {
-                    self.namespace_stack.push(type_ref.to_fqdn())
+                    self.namespace = Some(type_ref.to_fqdn());
                 }
             }
             AstNode::NamespaceBlock { type_ref, .. } => {
                 if let Some(type_ref) = type_ref {
                     if let AstNode::TypeRef(type_ref) = type_ref.as_ref() {
-                        self.namespace_stack.push(type_ref.to_fqdn())
+                        self.namespace = Some(type_ref.to_fqdn());
                     }
+                } else {
+                    self.namespace = None;
                 }
             }
             _ => (),
@@ -503,7 +503,7 @@ impl Visitor for WorkspaceSymbolVisitor {
     fn after(&mut self, node: &AstNode, _arena: &mut Arena<Symbol>, _parent: NodeId) {
         match node {
             AstNode::NamespaceBlock { .. } => {
-                self.namespace_stack.pop();
+                self.namespace = None;
             }
             _ => (),
         }
