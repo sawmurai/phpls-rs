@@ -12,14 +12,12 @@ use crate::parser::scanner::Scanner;
 use crate::parser::token::{Token, TokenType};
 use crate::parser::Error as ParserError;
 use crate::parser::Parser;
-use crate::suggester;
 use ignore::{types::TypesBuilder, WalkBuilder};
 use indextree::{Arena, NodeId};
 use lsp_types::SymbolTag;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use suggester::SuggestionContext;
 use tokio::io;
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
@@ -42,6 +40,12 @@ use tower_lsp::{Client, LanguageServer};
 extern crate crossbeam_channel as channel;
 extern crate ignore;
 extern crate walkdir;
+
+mod completion;
+mod did_change;
+mod did_close;
+mod did_open;
+mod hover;
 
 pub(crate) type FileReferenceMap = HashMap<NodeId, Vec<NodeRange>>;
 pub(crate) type ReferenceMap = HashMap<String, FileReferenceMap>;
@@ -168,13 +172,11 @@ impl Backend {
     }
 
     /// Returns the nodeid and name of the symbol under the cursor
-    async fn symbol_under_cursor(
-        &self,
+    fn symbol_under_cursor(
+        state: &BackendState,
         position: &Position,
         file: &str,
     ) -> Option<(NodeId, String)> {
-        let state = self.state.lock().await;
-
         let file = if let Some(node) = state.files.get(file) {
             node.clone()
         } else {
@@ -499,14 +501,12 @@ impl Backend {
         Ok(())
     }
 
-    async fn refresh_file(&self, uri: Url, src: &str) {
+    pub(crate) fn refresh_file(state: &mut BackendState, uri: Url, src: &str) {
         let file_path = uri.to_file_path().unwrap();
         let path = EnvFs::normalize_path(&file_path);
 
-        let mut state = self.state.lock().await;
-
         if let Ok((ast, range, errors)) = Backend::source_to_ast(&src) {
-            let reindex_result = Backend::collect_symbols(&path, &ast, &range, &mut state);
+            let reindex_result = Backend::collect_symbols(&path, &ast, &range, state);
 
             let diagnostics = state
                 .diagnostics
@@ -520,8 +520,6 @@ impl Backend {
                 .insert(path.to_string(), (ast.to_owned(), range));
 
             if let Err(e) = reindex_result {
-                self.client.log_message(MessageType::Error, e).await;
-
                 return;
             }
         }
@@ -529,16 +527,10 @@ impl Backend {
         // Now reindex all the other currently opened files to update references
         let tasks = state.opened_files.clone();
         for (path, (ast, _)) in tasks {
-            match Backend::collect_references(&path, &ast, &mut state, None) {
+            match Backend::collect_references(&path, &ast, state, None) {
                 Err(err) => eprintln!("Error updating opened file after save of another: {}", err),
                 _ => (),
             }
-        }
-
-        if let Some(diagnostics) = state.diagnostics.get(&path) {
-            self.client
-                .publish_diagnostics(uri, diagnostics.clone(), None)
-                .await;
         }
     }
 }
@@ -724,6 +716,7 @@ impl LanguageServer for Backend {
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let state = self.state.lock().await;
         let position = &params.text_document_position.position;
         let file = EnvFs::normalize_path(
             &params
@@ -733,11 +726,13 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-        let (suc, nuc) = if let Some((suc, nuc)) = self.symbol_under_cursor(position, &file).await {
-            (suc, nuc)
-        } else {
-            return Ok(None);
-        };
+
+        let (suc, nuc) =
+            if let Some((suc, nuc)) = Backend::symbol_under_cursor(&state, position, &file) {
+                (suc, nuc)
+            } else {
+                return Ok(None);
+            };
 
         eprintln!("Finding refs for {:?} {}", suc, nuc);
 
@@ -778,6 +773,7 @@ impl LanguageServer for Backend {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let state = self.state.lock().await;
         let position = &params.text_document_position.position;
         let file = EnvFs::normalize_path(
             &params
@@ -787,11 +783,12 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-        let (suc, nuc) = if let Some((suc, nuc)) = self.symbol_under_cursor(position, &file).await {
-            (suc, nuc)
-        } else {
-            return Ok(None);
-        };
+        let (suc, nuc) =
+            if let Some((suc, nuc)) = Backend::symbol_under_cursor(&state, position, &file) {
+                (suc, nuc)
+            } else {
+                return Ok(None);
+            };
 
         let symbol_references =
             if let Some(symbol_references) = self.references_of_symbol_under_cursor(&nuc).await {
@@ -910,82 +907,31 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        eprintln!("[did_change] start");
-        let uri = params.text_document.uri;
-        let file_path = uri.to_file_path().unwrap();
+        let mut state = self.state.lock().await;
+        let file_path = params.text_document.uri.to_file_path().unwrap();
         let path = EnvFs::normalize_path(&file_path);
 
-        if let Some(changes) = params.content_changes.first() {
-            self.state
-                .lock()
-                .await
-                .latest_version_of_file
-                .insert(path, changes.text.clone());
+        did_change::did_change(&mut state, &params);
 
-            self.refresh_file(uri, &changes.text).await;
+        if let Some(diagnostics) = state.diagnostics.get(&path) {
+            self.client
+                .publish_diagnostics(params.text_document.uri, diagnostics.clone(), None)
+                .await;
         }
-        eprintln!("[did_change] end");
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let p = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
         let mut state = self.state.lock().await;
-        state.latest_version_of_file.remove(&p);
-        state.opened_files.remove(&p);
-        state.symbol_references.remove(&p);
+        did_close::did_close(&mut state, params);
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let file_path = params.text_document.uri.to_file_path().unwrap();
-        let path = EnvFs::normalize_path(&file_path);
         let mut state = self.state.lock().await;
 
-        if !state.opened_files.contains_key(&path) {
-            self.client
-                .log_message(MessageType::Info, "Need to freshly index")
-                .await;
+        did_open::did_open(&mut state, &params);
 
-            let source = tokio::fs::read_to_string(file_path).await.unwrap();
-            state
-                .latest_version_of_file
-                .insert(path.clone(), source.clone());
-
-            if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
-                let diags = errors.iter().map(Diagnostic::from).collect();
-                state.diagnostics.insert(path.to_owned(), diags);
-                state
-                    .opened_files
-                    .insert(path.to_string(), (ast.to_owned(), range));
-            } else {
-                self.client
-                    .log_message(MessageType::Error, "Error indexing")
-                    .await;
-
-                return;
-            }
-        }
-
-        let (ast, _) = if let Some((ast, range)) = state.opened_files.get(&path) {
-            self.client
-                .log_message(MessageType::Info, "Opened from cache")
-                .await;
-            (ast.clone(), range)
-        } else {
-            self.client
-                .log_message(MessageType::Error, "Error storing reindexed")
-                .await;
-
-            return;
-        };
-
-        if let Err(e) = Backend::collect_references(&path, &ast, &mut state, None) {
-            self.client
-                .log_message(MessageType::Error, format!("Failed to index {}", e))
-                .await;
-
-            return;
-        }
-
+        let file_path = params.text_document.uri.to_file_path().unwrap();
+        let path = EnvFs::normalize_path(&file_path);
         if let Some(diagnostics) = state.diagnostics.get(&path) {
             self.client
                 .publish_diagnostics(
@@ -998,49 +944,8 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let file = EnvFs::normalize_path(
-            &params
-                .text_document_position_params
-                .text_document
-                .uri
-                .to_file_path()
-                .unwrap(),
-        );
-        let position = &params.text_document_position_params.position;
-
-        let symbol = self.symbol_under_cursor(position, &file).await;
         let state = self.state.lock().await;
-        if let Some((node, _)) = symbol {
-            let symbol = state.arena[node].get();
-
-            if in_range(position, &symbol.selection_range) {
-                return Ok(Some(Hover {
-                    range: Some(symbol.range),
-                    contents: HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: symbol.hover_text(node, &state.arena),
-                    }),
-                }));
-            }
-        }
-
-        if let Some(references) = state.symbol_references.get(&file) {
-            for (node, ranges) in references {
-                if let Some(range) = ranges.iter().find(|r| in_range(position, &get_range(**r))) {
-                    let symbol = state.arena[*node].get();
-
-                    return Ok(Some(Hover {
-                        range: Some(get_range(*range)),
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: symbol.hover_text(*node, &state.arena),
-                        }),
-                    }));
-                }
-            }
-        }
-
-        Ok(None)
+        return hover::hover(&state, params);
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -1049,135 +954,7 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let state = self.state.lock().await;
-
-        let pos = params.text_document_position.position;
-
-        let opened_file = EnvFs::normalize_path(
-            &params
-                .text_document_position
-                .text_document
-                .uri
-                .to_file_path()
-                .unwrap(),
-        );
-
-        let trigger = if let Some(context) = params.context {
-            if let Some(tc) = context.trigger_character {
-                tc.chars().nth(0)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let file_ast = state.opened_files.get(&opened_file);
-        if let Some((file_ast, _range)) = file_ast {
-            let ast = file_ast;
-
-            let current_file_symbol =
-                if let Some(current_file_symbol) = state.files.get(&opened_file) {
-                    current_file_symbol
-                } else {
-                    return Ok(None);
-                };
-            let current_file = state.arena[*current_file_symbol].get();
-
-            let symbol_under_cursor =
-                current_file.symbol_at(&pos, *current_file_symbol, &state.arena);
-
-            if let Some(references) = state.symbol_references.get(&opened_file) {
-                let mut suggestions = suggester::get_suggestions_at(
-                    trigger,
-                    pos,
-                    symbol_under_cursor,
-                    ast,
-                    &state.arena,
-                    &state.global_symbols,
-                    references,
-                );
-
-                return Ok(Some(CompletionResponse::Array(
-                    suggestions
-                        .drain(..)
-                        .map(|sug| {
-                            if let Some(token) = sug.token {
-                                return token.into();
-                            }
-
-                            let sn = sug.node.unwrap();
-                            let symbol = state.arena[sn].get();
-
-                            if symbol.kind == PhpSymbolKind::Class
-                                || symbol.kind == PhpSymbolKind::Trait
-                            {
-                                if sug.context == SuggestionContext::Import {
-                                    return CompletionItem {
-                                        additional_text_edits: Some(vec![TextEdit {
-                                            range: get_range(sug.replace.unwrap()),
-                                            new_text: String::from(""),
-                                        }]),
-                                        label: symbol.fqdn(),
-                                        ..symbol.completion_item(sn, &state.arena)
-                                    };
-                                }
-
-                                // If the symbol is a class we try to add a namespace as a text edit
-                                let ns = if let Some(ns) = symbol.namespace.as_ref() {
-                                    ns
-                                } else {
-                                    return symbol.completion_item(sn, &state.arena);
-                                };
-
-                                // Same namespace, no need to add an import
-                                if current_file.namespace.eq(&symbol.namespace) {
-                                    return symbol.completion_item(sn, &state.arena);
-                                }
-
-                                let fqdn = format!("{}\\{}", ns, symbol.name());
-                                // Check if the current file already has that import. if yes we are good
-                                let line = if let Some(imports) = current_file.imports.as_ref() {
-                                    if imports
-                                        .all()
-                                        .find(|import| import.full_name() == fqdn)
-                                        .is_some()
-                                    {
-                                        return symbol.completion_item(sn, &state.arena);
-                                    } else {
-                                        // add use to the end of the imports
-                                        if let Some(first_import) = imports.all().nth(0) {
-                                            first_import.path.range().0 .0
-                                        } else {
-                                            3
-                                        }
-                                    }
-                                } else {
-                                    // add use right after the namespace or the opening <?php
-                                    3
-                                };
-
-                                // if not, we add it as a text edit
-                                return CompletionItem {
-                                    additional_text_edits: Some(vec![TextEdit {
-                                        range: get_range(((line, 0), (line, 0))),
-                                        new_text: format!("use {};\n", fqdn),
-                                    }]),
-                                    ..symbol.completion_item(sn, &state.arena)
-                                };
-                            }
-
-                            let mut item = symbol.completion_item(sn, &state.arena);
-                            if let Some(alias) = sug.alias {
-                                item.label = alias;
-                            }
-                            item
-                        })
-                        .collect::<Vec<CompletionItem>>(),
-                )));
-            }
-        }
-
-        Ok(None)
+        return completion::completion(&state, params);
     }
 
     async fn completion_resolve(&self, params: CompletionItem) -> Result<CompletionItem> {
