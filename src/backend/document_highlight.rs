@@ -60,7 +60,7 @@ mod tests {
     use crate::backend::tests::populate_state;
 
     use super::*;
-    use lsp_types::{DocumentHighlight, DocumentHighlightParams, Position, Range};
+    use lsp_types::{DocumentHighlight, Position, Range};
 
     #[test]
     fn returns_none_if_no_symbol_at_position() {
