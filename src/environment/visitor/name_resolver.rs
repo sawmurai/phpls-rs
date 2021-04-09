@@ -463,9 +463,14 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                 if let Some(types) = types {
                     for t in types {
                         if let Some(type_ref) = get_type_ref(t) {
-                            let type_ref_ref = SymbolReference::type_ref(type_ref.clone());
-
-                            data_types.push(type_ref_ref);
+                            if let Some(node) = self
+                                .resolver
+                                .resolve_type_ref(&type_ref, arena, &parent, true)
+                            {
+                                data_types.push(SymbolReference::node(type_ref.clone(), node));
+                            } else {
+                                data_types.push(SymbolReference::type_ref(type_ref.clone()));
+                            }
                         }
                     }
                 }
@@ -583,8 +588,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         };
 
                         self.resolver.scope_container.append(child, arena);
-                        self.resolver
-                            .declare_or_overwrite_local(self.file, token, child);
+                        self.resolver.declare_local_if_new(self.file, token, child);
                     } else {
                         self.resolve_member_type(&left, arena);
                     }
@@ -709,8 +713,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             };
 
                             self.resolver.scope_container.append(child, arena);
-                            self.resolver
-                                .declare_or_overwrite_local(self.file, token, child);
+                            self.resolver.declare_local_if_new(self.file, token, child);
 
                             current_object = left;
                         } else {
