@@ -455,6 +455,18 @@ impl Backend {
             return Ok(());
         };
 
+        // Purge all existing variables as they will be created during resolution. This avoids ending up with duplicate
+        // variables
+        let variables = enclosing_file
+            .descendants(&state.arena)
+            .filter(|descendant| state.arena[*descendant].get().kind == PhpSymbolKind::Variable)
+            .collect::<Vec<NodeId>>();
+
+        variables.iter().for_each(|variable| {
+            dbg!("removing");
+            variable.remove(&mut state.arena);
+        });
+
         let mut resolver = NameResolver::new(&state.global_symbols, enclosing_file);
 
         let mut visitor = NameResolveVisitor::new(&mut resolver, enclosing_file);
