@@ -1,7 +1,5 @@
-use crate::environment;
 use crate::environment::fs as EnvFs;
 use crate::environment::get_range;
-use crate::environment::in_range;
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use crate::environment::traverser::traverse;
 use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolver};
@@ -14,7 +12,6 @@ use crate::parser::Error as ParserError;
 use crate::parser::Parser;
 use ignore::{types::TypesBuilder, WalkBuilder};
 use indextree::{Arena, NodeId};
-use lsp_types::SymbolTag;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,13 +23,12 @@ use tower_lsp::lsp_types::{
     CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
-    ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-    Location, MarkupContent, MarkupKind, MessageType, Position, Range, ReferenceParams,
-    RenameParams, RenameProviderCapability, ServerCapabilities, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url, WorkspaceCapability,
-    WorkspaceEdit, WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications,
-    WorkspaceSymbolParams,
+    ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
+    Position, Range, ReferenceParams, RenameParams, RenameProviderCapability, ServerCapabilities,
+    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
+    WorkspaceCapability, WorkspaceEdit, WorkspaceFolderCapability,
+    WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
 };
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
@@ -43,9 +39,14 @@ extern crate walkdir;
 
 mod completion;
 mod did_change;
+mod did_change_watched_files;
 mod did_close;
 mod did_open;
+mod document_highlight;
+mod document_symbol;
+mod goto_definition;
 mod hover;
+mod symbol;
 
 pub(crate) type FileReferenceMap = HashMap<NodeId, Vec<NodeRange>>;
 pub(crate) type ReferenceMap = HashMap<String, FileReferenceMap>;
@@ -639,96 +640,30 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
-        if params.query.is_empty() {
-            return Ok(None);
-        }
-
         let state = self.state.lock().await;
 
-        let query = params.query.to_lowercase();
-
-        let mut symbols = Vec::new();
-
-        for (file_name, node) in state.files.iter() {
-            for symbol in node.descendants(&state.arena) {
-                let symbol = state.arena[symbol].get();
-
-                if symbol.normalized_name().starts_with(&query) {
-                    if let Some(kind) = symbol.kind.to_symbol_kind() {
-                        let tags = if symbol.deprecated.is_some() {
-                            Some(vec![SymbolTag::Deprecated])
-                        } else {
-                            None
-                        };
-                        symbols.push(SymbolInformation {
-                            name: symbol.name().to_owned(),
-                            tags,
-                            kind,
-                            location: Location {
-                                uri: Url::from_file_path(&file_name).unwrap(),
-                                range: symbol.range,
-                            },
-                            container_name: None,
-                            deprecated: None,
-                        })
-                    }
-                }
-            }
-        }
-
-        Ok(Some(symbols))
+        return symbol::symbol(&state, params);
     }
 
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
-        let file_path = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
-
         let state = self.state.lock().await;
 
-        let node_id = if let Some(node_id) = state.files.get(&file_path) {
-            node_id.clone()
-        } else {
-            return Ok(None);
-        };
-
-        Ok(Some(DocumentSymbolResponse::Nested(
-            node_id
-                .children(&state.arena)
-                .filter_map(|s| state.arena[s].get().to_doc_sym(&state.arena, &s))
-                .collect(),
-        )))
+        return document_symbol::document_symbol(&state, params);
     }
 
     async fn document_highlight(
         &self,
         params: DocumentHighlightParams,
     ) -> Result<Option<Vec<DocumentHighlight>>> {
-        let file = EnvFs::normalize_path(
-            &params
-                .text_document_position_params
-                .text_document
-                .uri
-                .to_file_path()
-                .unwrap(),
-        );
-
         let state = self.state.lock().await;
 
-        if let Some(node_id) = state.files.get(&file) {
-            return Ok(environment::document_highlights(
-                &params.text_document_position_params.position,
-                &state.arena,
-                node_id,
-            ));
-        }
-
-        Ok(None)
+        return document_highlight::document_highlight(&state, params);
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let state = self.state.lock().await;
         let position = &params.text_document_position.position;
         let file = EnvFs::normalize_path(
             &params
@@ -739,12 +674,14 @@ impl LanguageServer for Backend {
                 .unwrap(),
         );
 
-        let (suc, nuc) =
+        let (suc, nuc) = {
+            let state = self.state.lock().await;
             if let Some((suc, nuc)) = Backend::symbol_under_cursor(&state, position, &file) {
                 (suc, nuc)
             } else {
                 return Ok(None);
-            };
+            }
+        };
 
         eprintln!("Finding refs for {:?} {}", suc, nuc);
 
@@ -785,7 +722,6 @@ impl LanguageServer for Backend {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let state = self.state.lock().await;
         let position = &params.text_document_position.position;
         let file = EnvFs::normalize_path(
             &params
@@ -795,12 +731,14 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-        let (suc, nuc) =
+        let (suc, nuc) = {
+            let state = self.state.lock().await;
             if let Some((suc, nuc)) = Backend::symbol_under_cursor(&state, position, &file) {
                 (suc, nuc)
             } else {
                 return Ok(None);
-            };
+            }
+        };
 
         let symbol_references =
             if let Some(symbol_references) = self.references_of_symbol_under_cursor(&nuc).await {
@@ -854,68 +792,15 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let uri = params.text_document_position_params.text_document.uri;
-        let file = EnvFs::normalize_path(&uri.to_file_path().unwrap());
         let state = self.state.lock().await;
 
-        let position = &params.text_document_position_params.position;
-
-        if let Some(references) = state.symbol_references.get(&file) {
-            for (node, ranges) in references {
-                if ranges
-                    .iter()
-                    .find(|r| in_range(position, &get_range(**r)))
-                    .is_some()
-                {
-                    if let Some(location) = environment::symbol_location(&state.arena, node) {
-                        return Ok(Some(GotoDefinitionResponse::Scalar(location)));
-                    }
-                }
-            }
-        }
-
-        Ok(None)
+        return goto_definition::goto_definition(&state, params);
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         let mut state = self.state.lock().await;
 
-        for change in params.changes {
-            let file_path = change.uri.to_file_path().unwrap();
-            if self
-                .ignore_patterns
-                .iter()
-                .any(|ip| file_path.ends_with(ip))
-            {
-                continue;
-            }
-
-            let path = EnvFs::normalize_path(&file_path);
-
-            // If the file is currently opened we don't have to refresh
-            if state.opened_files.contains_key(&path) {
-                return;
-            }
-
-            let content = tokio::fs::read_to_string(file_path).await.unwrap();
-
-            if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-                let reindex_result = Backend::collect_symbols(&path, &ast, &range, &mut state);
-
-                let diagnostics = state
-                    .diagnostics
-                    .entry(path.to_string())
-                    .or_insert_with(Vec::new);
-                diagnostics.clear();
-                diagnostics.extend(errors.iter().map(Diagnostic::from));
-
-                if let Err(e) = reindex_result {
-                    self.client.log_message(MessageType::Error, e).await;
-
-                    return;
-                }
-            }
-        }
+        did_change_watched_files::did_change_watched_files(&mut state, params);
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
