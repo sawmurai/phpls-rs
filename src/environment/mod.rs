@@ -10,21 +10,8 @@ pub mod symbol;
 pub mod traverser;
 pub mod visitor;
 
-/// Return all references to the symbol under the cursor at `position`
-pub fn document_highlights(
-    _position: &Position,
-    _arena: &Arena<Symbol>,
-    _file: &NodeId,
-) -> Option<Vec<DocumentHighlight>> {
-    //let all_symbols: Vec<Symbol> = symbol.get_definitions();
-
-    //if let Some(_symbol) = symbol_under_cursor(&all_symbols, position) {}
-
-    None
-}
-
 /// Find the definition or reference under the cursor
-pub fn symbol_location(arena: &Arena<Symbol>, symbol_node: &NodeId) -> Option<Location> {
+pub(crate) fn symbol_location(arena: &Arena<Symbol>, symbol_node: &NodeId) -> Option<Location> {
     let range = arena[*symbol_node].get().selection_range;
 
     let mut symbol_node = *symbol_node;
