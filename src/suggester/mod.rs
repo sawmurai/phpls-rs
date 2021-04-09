@@ -334,7 +334,7 @@ fn suggest_members_of_symbol(
 
                         // Either the element is accessible from this scope anyway or its public ...
                         if n.visibility >= Visibility::Public
-                            || accessible_members.contains_key(s.name())
+                            || accessible_members.contains_key(&s.normalized_name())
                         {
                             Some(Suggestion::aliased(
                                 n.symbol,
