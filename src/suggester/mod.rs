@@ -478,24 +478,7 @@ mod tests {
     ) -> Vec<String> {
         let mut state = BackendState::default();
 
-        for (file, source) in sources.iter() {
-            let mut scanner = Scanner::new(*source);
-            scanner.scan().unwrap();
-
-            let dr = scanner.document_range();
-            let pr = Parser::ast(scanner.tokens).unwrap();
-
-            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
-        }
-
-        for (file, source) in sources.iter() {
-            let mut scanner = Scanner::new(*source);
-            scanner.scan().unwrap();
-
-            let pr = Parser::ast(scanner.tokens).unwrap();
-
-            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
-        }
+        crate::backend::tests::populate_state(&mut state, sources);
 
         let mut scanner = Scanner::new(&sources[file].1);
         scanner.scan().unwrap();

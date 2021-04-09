@@ -859,6 +859,34 @@ impl LanguageServer for Backend {
     }
 }
 
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use crate::parser::scanner::Scanner;
+    use crate::parser::Parser;
+
+    pub(crate) fn populate_state(state: &mut BackendState, sources: &[(&str, &str)]) {
+        for (file_name, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_symbols(*file_name, &pr.0, &get_range(dr), state).unwrap();
+        }
+
+        for (file_name, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_references(*file_name, &pr.0, state, None).unwrap();
+        }
+    }
+}
+
 /*
 
 Disabled for now since Backend expects a client instance due to the update of tower_lsp
