@@ -538,7 +538,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         .map(|tr| (tr, self.resolver.resolve_type_ref(tr, arena, &parent, true)))
                         .map(|(tr, node)| {
                             if let Some(node) = node {
-                                SymbolReference::node(tr, node)
+                                SymbolReference::node(tr.to_owned(), node)
                             } else {
                                 SymbolReference::type_ref(tr.to_owned())
                             }
@@ -573,7 +573,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         let child = if let Some(data_type) = data_type {
                             arena.new_node(Symbol {
                                 data_types: vec![SymbolReference::node(
-                                    &vec![token.clone()].into(),
+                                    vec![token.clone()].into(),
                                     data_type,
                                 )],
                                 ..Symbol::from(token)
@@ -699,7 +699,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             let child = if let Some(data_type) = data_type {
                                 arena.new_node(Symbol {
                                     data_types: vec![SymbolReference::node(
-                                        &vec![token.clone()].into(),
+                                        vec![token.clone()].into(),
                                         data_type,
                                     )],
                                     ..Symbol::from(token)

@@ -26,12 +26,12 @@ impl std::fmt::Display for Reference {
 
 impl Reference {
     /// Reference to an identifier, for example a function or a member
-    pub fn node(type_ref: &TypeRef, node: NodeId) -> Self {
+    pub fn node(type_ref: TypeRef, node: NodeId) -> Self {
         let range = get_range(type_ref.range());
 
         Self {
-            type_ref: None,
-            range: range,
+            type_ref: Some(type_ref),
+            range,
             node: Some(node),
         }
     }

@@ -299,16 +299,18 @@ fn suggest_members_of_symbol(
         .data_types
         .iter()
         .filter_map(|dt_reference| {
+            if dt_reference.node.is_some() {
+                return dt_reference.node;
+            }
+
             if let Some(type_ref) = dt_reference.type_ref.as_ref() {
-                if let Some(tr) = dt_reference.type_ref.as_ref() {
-                    if "$this" == tr.root().unwrap() {
-                        return arena[*resolved_parent].parent();
-                    }
+                if "$this" == type_ref.root().unwrap() {
+                    return arena[*resolved_parent].parent();
                 }
 
                 return resolver.resolve_type_ref(&type_ref, arena, &symbol_under_cursor, false);
             }
-            return dt_reference.node;
+            return None;
         })
         .for_each(|node| {
             let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
@@ -465,7 +467,7 @@ pub fn get_suggestions_at(
 
 #[cfg(test)]
 mod tests {
-    use crate::{backend::Backend, backend::BackendState, environment::get_range, parser};
+    use crate::{backend::BackendState, parser};
     use parser::{scanner::Scanner, Parser};
     use tower_lsp::lsp_types::Position;
 

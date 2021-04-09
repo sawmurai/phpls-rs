@@ -464,7 +464,7 @@ impl Backend {
             .collect::<Vec<NodeId>>();
 
         variables.iter().for_each(|variable| {
-            dbg!("removing");
+            dbg!("removing {}", state.arena[*variable].get().name());
             variable.remove(&mut state.arena);
         });
 
