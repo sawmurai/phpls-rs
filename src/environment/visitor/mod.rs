@@ -19,6 +19,24 @@ macro_rules! ref_from_doc {
     };
 }
 
+macro_rules! deprecated_from_doc {
+    ($source:ident) => {
+        if let Some(doc_comment) = $source.as_ref() {
+            if let AstNode::DocComment { is_deprecated, .. } = doc_comment.as_ref() {
+                if *is_deprecated {
+                    Some(*is_deprecated)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+    };
+}
+
 pub mod name_resolver;
 pub mod workspace_symbol;
 

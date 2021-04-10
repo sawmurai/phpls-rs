@@ -109,6 +109,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 name,
                 extends,
                 implements,
+                doc_comment,
                 ..
             } => {
                 let inherits_from = if let Some(extends) = extends {
@@ -148,6 +149,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     selection_range,
                     inherits_from,
                     data_types,
+                    deprecated: deprecated_from_doc!(doc_comment),
                     ..Symbol::default()
                 });
 
@@ -167,7 +169,9 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 NextAction::ProcessChildren(child)
             }
-            AstNode::TraitStatement { name, .. } => {
+            AstNode::TraitStatement {
+                name, doc_comment, ..
+            } => {
                 let selection_range = get_range(name.range());
                 let name = name.to_string();
                 let range = get_range(node.range());
@@ -184,13 +188,19 @@ impl Visitor for WorkspaceSymbolVisitor {
                     kind: PhpSymbolKind::Trait,
                     range,
                     selection_range,
+                    deprecated: deprecated_from_doc!(doc_comment),
                     ..Symbol::default()
                 });
                 parent.append(child, arena);
 
                 NextAction::ProcessChildren(child)
             }
-            AstNode::Interface { name, extends, .. } => {
+            AstNode::Interface {
+                name,
+                extends,
+                doc_comment,
+                ..
+            } => {
                 let selection_range = get_range(name.range());
                 let name = name.to_string();
                 let range = get_range(node.range());
@@ -219,26 +229,42 @@ impl Visitor for WorkspaceSymbolVisitor {
                     range,
                     selection_range,
                     inherits_from,
+                    deprecated: deprecated_from_doc!(doc_comment),
                     ..Symbol::default()
                 });
                 parent.append(child, arena);
 
                 NextAction::ProcessChildren(child)
             }
-            AstNode::ClassConstantDefinitionStatement { .. } => NextAction::ProcessChildren(parent),
-            AstNode::ClassConstant {
-                name, visibility, ..
+            AstNode::ClassConstantDefinitionStatement {
+                consts,
+                doc_comment,
+                ..
             } => {
-                let range = get_range(node.range());
-                let child = arena.new_node(Symbol {
-                    name: name.to_string(),
-                    kind: PhpSymbolKind::Constant,
-                    range,
-                    selection_range: range,
-                    visibility: Visibility::from(visibility),
-                    ..Symbol::default()
-                });
-                parent.append(child, arena);
+                let deprecated = deprecated_from_doc!(doc_comment);
+
+                for constant in consts {
+                    if let AstNode::ClassConstant {
+                        name, visibility, ..
+                    } = constant
+                    {
+                        let mut data_types = Vec::new();
+                        ref_from_doc!(doc_comment, data_types, var_docs);
+
+                        let range = get_range(node.range());
+                        let child = arena.new_node(Symbol {
+                            name: name.to_string(),
+                            kind: PhpSymbolKind::Constant,
+                            range,
+                            selection_range: range,
+                            visibility: Visibility::from(visibility),
+                            data_types,
+                            deprecated,
+                            ..Symbol::default()
+                        });
+                        parent.append(child, arena);
+                    }
+                }
 
                 NextAction::Abort
             }
@@ -278,6 +304,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 visibility,
                 ..
             } => {
+                let deprecated = deprecated_from_doc!(doc_comment);
                 let range = get_range(node.range());
 
                 let mut data_types = if let Some(data_type) = data_type {
@@ -300,6 +327,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                             selection_range: range,
                             data_types: data_types.clone(),
                             visibility: Visibility::from(visibility),
+                            deprecated,
                             ..Symbol::default()
                         });
 
@@ -351,6 +379,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     data_types,
                     is_static: is_static.is_some(),
                     visibility: Visibility::from(visibility),
+                    deprecated: deprecated_from_doc!(doc_comment),
                     ..Symbol::default()
                 });
 
@@ -446,6 +475,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     range: get_range(node.range()),
                     selection_range: get_range(name.range()),
                     data_types,
+                    deprecated: deprecated_from_doc!(doc_comment),
                     ..Symbol::default()
                 });
 
