@@ -2,8 +2,6 @@ use std::fmt::{Display, Formatter, Result};
 
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind};
 
-use super::node::NodeRange;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScriptStartType {
     Regular,

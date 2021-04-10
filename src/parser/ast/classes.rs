@@ -97,7 +97,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
 
     let doc_comment = comments::consume_optional_doc_comment(parser);
 
-    let mut attributes = attributes::attributes_block(parser)?;
+    let attributes = attributes::attributes_block(parser)?;
 
     let doc_comment = if doc_comment.is_some() {
         doc_comment

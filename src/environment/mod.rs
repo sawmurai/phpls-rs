@@ -1,7 +1,7 @@
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use crate::parser::node::NodeRange;
 use indextree::{Arena, NodeId};
-use tower_lsp::lsp_types::{DiagnosticSeverity, DocumentHighlight, Location, Position, Range, Url};
+use tower_lsp::lsp_types::{DiagnosticSeverity, Location, Position, Range, Url};
 
 pub mod fs;
 pub mod import;

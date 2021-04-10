@@ -4,10 +4,10 @@ use super::{
     in_range,
     visitor::name_resolver::NameResolver,
 };
+use crate::environment::fs::file_read_range;
 use crate::environment::scope::Reference;
 use crate::parser::node::Node as AstNode;
 use crate::parser::token::{Token, TokenType};
-use crate::{environment::fs::file_read_range, parser::node::TypeRef};
 use indextree::{Arena, NodeId};
 use lsp_types::SymbolTag;
 use std::{cmp::PartialOrd, collections::HashMap, fmt::Display};
