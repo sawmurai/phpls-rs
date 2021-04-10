@@ -17,3 +17,6 @@ clap = "2.23.3"
 ignore = "0.4"
 crossbeam-channel = "0.5.0"
 walkdir = "2"
+
+[profile.release]
+panic = "abort"
