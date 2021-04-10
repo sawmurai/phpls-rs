@@ -1,6 +1,6 @@
-use super::super::node::Node;
 use super::super::token::TokenType;
 use super::super::{Error, ExpressionResult, Parser};
+use super::{super::node::Node, attributes::attributes_block};
 use super::{arrays, calls, classes, functions, keywords, types, variables};
 
 pub(crate) fn expression_statement(parser: &mut Parser) -> ExpressionResult {
@@ -367,12 +367,14 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         return Ok(Node::Grouping(Box::new(expr)));
     }
 
+    let attributes = attributes_block(parser)?;
+
     if parser.next_token_one_of(&[TokenType::Fn]) {
-        return functions::arrow_function(parser, None);
+        return functions::arrow_function(parser, None, attributes);
     }
 
     if parser.next_token_one_of(&[TokenType::Function]) {
-        return functions::anonymous_function(parser, None);
+        return functions::anonymous_function(parser, None, attributes);
     }
 
     // Static is fun ... watch this ...
@@ -384,11 +386,11 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
 
         // Followed by "function"? Static function expression
         if parser.next_token_one_of(&[TokenType::Function]) {
-            return functions::anonymous_function(parser, Some(static_token));
+            return functions::anonymous_function(parser, Some(static_token), attributes);
         }
 
         if parser.next_token_one_of(&[TokenType::Fn]) {
-            return functions::arrow_function(parser, Some(static_token));
+            return functions::arrow_function(parser, Some(static_token), attributes);
         }
 
         // Otherwise probably used in a instantiation context
@@ -409,7 +411,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     }
 
     if parser.next_token_one_of(&[TokenType::Class]) {
-        return classes::anonymous_class(parser);
+        return classes::anonymous_class(parser, attributes);
     }
 
     if let Some(new) = parser.consume_or_ignore(TokenType::New) {

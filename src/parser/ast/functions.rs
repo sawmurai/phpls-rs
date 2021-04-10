@@ -1,10 +1,10 @@
-use super::super::node::Node;
 use super::super::token::{Token, TokenType};
 use super::super::{ArgumentListResult, ExpressionListResult, ExpressionResult, Parser, Result};
 use super::comments;
 use super::expressions;
 use super::types;
 use super::variables;
+use super::{super::node::Node, attributes::attributes_block};
 
 /// Parses the argument list of a function, excluding the parenthesis
 ///
@@ -25,6 +25,7 @@ pub(crate) fn argument_list(
     }
 
     loop {
+        let attributes = attributes_block(parser)?;
         let argument_type = argument_type(parser)?;
         let reference = parser.consume_or_ignore(TokenType::BinaryAnd);
         let spread = parser.consume_or_ignore(TokenType::Elipsis);
@@ -52,6 +53,7 @@ pub(crate) fn argument_list(
             has_default,
             default_value,
             doc_comment,
+            attributes,
         });
 
         if parser.next_token_one_of(&[TokenType::Comma]) {
@@ -120,12 +122,14 @@ pub(crate) fn return_type(parser: &mut Parser) -> Result<Option<Box<Node>>> {
 pub(crate) fn named_function(
     parser: &mut Parser,
     doc_comment: &Option<Box<Node>>,
+    attributes: Vec<Node>,
 ) -> ExpressionResult {
     Ok(Node::NamedFunctionDefinitionStatement {
         token: parser.consume(TokenType::Function)?,
         by_ref: parser.consume_or_ignore(TokenType::BinaryAnd),
         name: parser.consume_identifier()?,
         function: Box::new(anonymous_function_statement(parser, doc_comment)?),
+        attributes,
     })
 }
 
@@ -173,7 +177,11 @@ pub(crate) fn anonymous_function_statement(
     })
 }
 
-pub(crate) fn arrow_function(parser: &mut Parser, is_static: Option<Token>) -> ExpressionResult {
+pub(crate) fn arrow_function(
+    parser: &mut Parser,
+    is_static: Option<Token>,
+    attributes: Vec<Node>,
+) -> ExpressionResult {
     let token = parser.consume(TokenType::Fn)?;
     let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
 
@@ -196,12 +204,14 @@ pub(crate) fn arrow_function(parser: &mut Parser, is_static: Option<Token>) -> E
         return_type,
         arrow,
         body,
+        attributes,
     })
 }
 
 pub(crate) fn anonymous_function(
     parser: &mut Parser,
     is_static: Option<Token>,
+    attributes: Vec<Node>,
 ) -> ExpressionResult {
     let token = parser.consume(TokenType::Function)?;
     let by_ref = parser.consume_or_ignore(TokenType::BinaryAnd);
@@ -231,6 +241,7 @@ pub(crate) fn anonymous_function(
         return_type,
         uses,
         body,
+        attributes,
     })
 }
 

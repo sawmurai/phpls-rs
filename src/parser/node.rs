@@ -337,6 +337,7 @@ pub enum Node {
         token: Token,
         expr: Vec<Node>,
     },
+    // Anonymous function
     Function {
         is_static: Option<Token>,
         by_ref: Option<Token>,
@@ -347,6 +348,7 @@ pub enum Node {
         uses: Option<Vec<Node>>,
         return_type: Option<Box<Node>>,
         body: Box<Node>,
+        attributes: Vec<Node>,
     },
     ArrowFunction {
         is_static: Option<Token>,
@@ -358,6 +360,7 @@ pub enum Node {
         arrow: Token,
         return_type: Option<Box<Node>>,
         body: Box<Node>,
+        attributes: Vec<Node>,
     },
     FunctionArgument {
         argument_type: Option<Box<Node>>,
@@ -367,6 +370,7 @@ pub enum Node {
         spread: Option<Token>,
         reference: Option<Token>,
         doc_comment: Option<Box<Node>>,
+        attributes: Vec<Node>,
     },
     DataType {
         nullable: Option<Token>,
@@ -384,6 +388,7 @@ pub enum Node {
         extends: Option<Box<Node>>,
         implements: Option<Vec<Node>>,
         body: Box<Node>,
+        attributes: Vec<Node>,
     },
     Yield {
         token: Token,
@@ -542,6 +547,7 @@ pub enum Node {
         extends: Option<Box<Node>>,
         body: Box<Node>,
         doc_comment: Option<Box<Node>>,
+        attributes: Vec<Node>,
     },
     TraitStatement {
         token: Token,
@@ -562,6 +568,7 @@ pub enum Node {
         doc_comment: Option<Box<Node>>,
         // The same token as below in the ClassConstant, replicated for the formatter
         visibility: Option<Token>,
+        attributes: Vec<Node>,
     },
     ClassConstant {
         visibility: Option<Token>,
@@ -579,6 +586,7 @@ pub enum Node {
         data_type: Option<Box<Node>>,
         is_static: Option<Token>,
         is_abstract: Option<Token>,
+        attributes: Vec<Node>,
     },
     /// Method definition inside a class, interface or trait
     MethodDefinitionStatement {
@@ -591,7 +599,9 @@ pub enum Node {
         function: Box<Node>,
         is_static: Option<Token>,
         doc_comment: Option<Box<Node>>,
+        attributes: Vec<Node>,
     },
+    /// Anonymous function
     FunctionDefinitionStatement {
         op: Token,
         arguments: Option<Vec<Node>>,
@@ -600,11 +610,13 @@ pub enum Node {
         body: Option<Box<Node>>,
         doc_comment: Option<Box<Node>>,
     },
+    /// Named function
     NamedFunctionDefinitionStatement {
         token: Token,
         by_ref: Option<Token>,
         name: Token,
         function: Box<Node>,
+        attributes: Vec<Node>,
     },
     WhileStatement {
         token: Token,
@@ -716,7 +728,7 @@ pub enum Node {
     },
     Attribute {
         ats: Token,
-        expression: Box<Node>,
+        expressions: Vec<Node>,
         cb: Token,
     },
 }
@@ -960,7 +972,9 @@ impl Node {
                 children
             }
             Node::TraitStatement { body, .. } => vec![body],
-            Node::ClassConstantDefinitionStatement { consts, .. } => consts.iter().collect(),
+            Node::ClassConstantDefinitionStatement {
+                attributes, consts, ..
+            } => consts.iter().chain(attributes.iter()).collect(),
             Node::Const { value, .. } | Node::ClassConstant { value, .. } => {
                 vec![value]
             }
@@ -974,6 +988,7 @@ impl Node {
             Node::PropertyDefinitionStatement {
                 data_type,
                 properties,
+                attributes,
                 ..
             } => {
                 let mut children: Vec<&Node> = Vec::with_capacity(properties.len() + 1);
@@ -981,12 +996,31 @@ impl Node {
                     children.push(data_type);
                 }
 
-                children.extend(properties.iter().collect::<Vec<&Node>>());
+                children.extend(
+                    properties
+                        .iter()
+                        .chain(attributes.iter())
+                        .collect::<Vec<&Node>>(),
+                );
 
                 children
             }
-            Node::MethodDefinitionStatement { function, .. }
-            | Node::NamedFunctionDefinitionStatement { function, .. } => vec![function],
+            Node::MethodDefinitionStatement {
+                function,
+                attributes,
+                ..
+            }
+            | Node::NamedFunctionDefinitionStatement {
+                function,
+                attributes,
+                ..
+            } => {
+                let mut children = attributes.iter().collect::<Vec<&Node>>();
+
+                children.push(function);
+
+                children
+            }
             Node::FunctionDefinitionStatement {
                 arguments,
                 return_type,
@@ -1127,7 +1161,7 @@ impl Node {
                 children
             }
             Node::Grouping(node) => vec![node],
-            Node::Attribute { expression, .. } => expression.children(),
+            Node::Attribute { expressions, .. } => (*expressions).iter().collect::<Vec<&Node>>(),
             Node::DataType { type_refs, .. } => (*type_refs).iter().collect::<Vec<&Node>>(),
             _ => Vec::new(),
         }

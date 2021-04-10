@@ -73,10 +73,15 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 by_ref,
                 function,
                 token,
+                attributes,
+                ..
             } => {
+                let indent = " ".repeat(col);
+
+                parts.push(format(attributes, line, col, options));
                 parts.push(format!(
                     "{}{} {}{}",
-                    " ".repeat(col),
+                    indent,
                     token,
                     name,
                     format_node(function, line, col, options)
@@ -106,8 +111,10 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 body,
                 extends,
                 implements,
+                attributes,
                 ..
             } => {
+                parts.push(format(attributes, line, col, options));
                 parts.push(" ".repeat(col));
                 push_if_some!(is_final, parts);
                 push_if_some!(is_abstract, parts);
@@ -126,7 +133,10 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 doc_comment,
                 consts,
                 visibility,
+                attributes,
+                ..
             } => {
+                parts.push(format(attributes, line, col, options));
                 parts.push(" ".repeat(col));
                 push_if_some!(visibility, parts);
 
@@ -160,8 +170,10 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 is_abstract,
                 is_static,
                 properties,
+                attributes,
                 ..
             } => {
+                parts.push(format(attributes, line, col, options));
                 parts.push(" ".repeat(col));
                 push_if_some!(is_abstract, parts);
                 push_if_some!(visibility, parts);
@@ -178,10 +190,12 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 is_static,
                 name,
                 function,
+                attributes,
                 ..
             } => {
-                parts.push(" ".repeat(col));
+                parts.push(format(attributes, line, col, options));
 
+                parts.push(" ".repeat(col));
                 push_if_some!(visibility, parts);
                 push_if_some!(is_static, parts);
                 push_if_some!(is_final, parts);
@@ -305,14 +319,18 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
             }
             Node::Attribute {
                 ats,
-                expression,
+                expressions,
                 cb,
             } => {
                 parts.push(" ".repeat(col));
                 parts.push(format!(
                     "{}{}{}",
                     ats,
-                    format_node(expression, col, line, options),
+                    expressions
+                        .iter()
+                        .map(|n| format_node(n, col, line, options))
+                        .collect::<Vec<String>>()
+                        .join(", "),
                     cb
                 ));
                 parts.push("\n".to_string());
@@ -432,6 +450,112 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
                 format!("{}{}{}{};", op, arguments, cp, return_type)
             }
         }
+        Node::ArrowFunction {
+            is_static,
+            by_ref,
+            token,
+            op,
+            arguments,
+            cp,
+            arrow,
+            return_type,
+            body,
+            attributes,
+        } => {
+            let arguments = if let Some(arguments) = arguments {
+                arguments
+                    .iter()
+                    .map(|a| format_node(a, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            } else {
+                String::new()
+            };
+
+            let return_type = if let Some(rt) = return_type {
+                format_node(rt, line, col, options)
+            } else {
+                String::new()
+            };
+            let is_static = if let Some(is_static) = is_static {
+                is_static.to_string()
+            } else {
+                String::new()
+            };
+
+            let mut attributes_formatted = String::from("");
+            if attributes.len() > 0 {
+                attributes_formatted
+                    .push_str(&format(attributes, line, 0, options).trim().to_string());
+                attributes_formatted.push_str(" ");
+            }
+
+            format!(
+                "{}{}{} {}{}{}{} {} {}",
+                attributes_formatted,
+                is_static,
+                token,
+                op,
+                arguments,
+                cp,
+                return_type,
+                arrow,
+                format_node(body, line, col, options)
+            )
+        }
+        Node::Function {
+            op,
+            cp,
+            by_ref,
+            is_static,
+            body,
+            attributes,
+            arguments,
+            return_type,
+            token,
+            uses,
+        } => {
+            let arguments = if let Some(arguments) = arguments {
+                arguments
+                    .iter()
+                    .map(|a| format_node(a, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            } else {
+                String::new()
+            };
+
+            let return_type = if let Some(rt) = return_type {
+                format_node(rt, line, col, options)
+            } else {
+                String::new()
+            };
+            let is_static = if let Some(is_static) = is_static {
+                is_static.to_string()
+            } else {
+                String::new()
+            };
+
+            let mut attributes_formatted = String::from("");
+            if attributes.len() > 0 {
+                attributes_formatted
+                    .push_str(&format(attributes, line, 0, options).trim().to_string());
+                attributes_formatted.push_str(" ");
+            }
+
+            format!(
+                "{}{}{} {}{}{}{}{} {}",
+                attributes_formatted,
+                is_static,
+                token,
+                op,
+                arguments,
+                cp,
+                return_type,
+                optional_ident_list!("(", ")", uses, line, col, options),
+                format_node(body, line, col, options)
+            )
+        }
         Node::ReturnType { token, data_type } => {
             format!("{} {}", token, format_node(data_type, line, col, options))
         }
@@ -453,9 +577,20 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             body,
             arguments,
             implements,
+            attributes,
         } => {
+            let attributes = if attributes.len() > 0 {
+                format!(
+                    "{} ",
+                    format(attributes, line, 0, options).trim().to_string()
+                )
+            } else {
+                String::from("")
+            };
+
             format!(
-                "{}{}{}{} {}",
+                "{}{}{}{}{} {}",
+                attributes,
                 token,
                 optional_ident_list!("(", ")", arguments, line, col, options),
                 optional_ident!(" extends ", "", extends, line, col, options),
@@ -572,9 +707,15 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             spread,
             reference,
             doc_comment: _,
+            attributes,
             ..
         } => {
             let mut parts = Vec::new();
+
+            if attributes.len() > 0 {
+                parts.push(format(attributes, line, 0, options).trim().to_string());
+                parts.push(String::from(" "));
+            }
             parts.push(optional_ident!("", " ", argument_type, line, col, options));
             push_unpadded_if_some!(spread, parts);
             push_unpadded_if_some!(reference, parts);

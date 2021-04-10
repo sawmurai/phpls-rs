@@ -350,20 +350,21 @@ impl Parser {
             _ => (),
         }
 
+        let attributes = attributes::attributes_block(self)?;
+
         if let Some(token) = self.peek() {
             match token.t {
                 // If we are currently in PHP land, check if the next token ends the show
                 TokenType::ScriptEnd => {
                     return self.inline_html();
                 }
-                TokenType::AttributeStart => return attributes::attribute(self),
                 TokenType::Function => {
                     let comment = comments::consume_optional_doc_comment(self);
                     /*let comment = match comments::consume_optional_doc_comment(self) {
                         Ok(comment) => comment,
                         Err(e) => panic!("{:?}", e),
                     };*/
-                    return functions::named_function(self, &comment);
+                    return functions::named_function(self, &comment, attributes);
                 }
                 TokenType::Namespace => return namespaces::namespace_statement(self),
                 TokenType::Use => {
@@ -386,10 +387,10 @@ impl Parser {
                 TokenType::Goto => return keywords::goto_statement(self),
                 TokenType::Return => return functions::return_statement(self),
                 TokenType::Throw => return exception_handling::throw_statement(self),
-                TokenType::Class => return classes::class_statement(self, None, None),
+                TokenType::Class => return classes::class_statement(self, None, None, attributes),
                 TokenType::Trait => return classes::trait_statement(self),
-                TokenType::Abstract => return classes::abstract_class_statement(self),
-                TokenType::Final => return classes::final_class_statement(self),
+                TokenType::Abstract => return classes::abstract_class_statement(self, attributes),
+                TokenType::Final => return classes::final_class_statement(self, attributes),
                 TokenType::Interface => return classes::interface(self),
                 TokenType::While => return loops::while_statement(self),
                 TokenType::Do => return loops::do_while_statement(self),
@@ -762,6 +763,28 @@ mod tests {
         let code_semicolon = "<?php 
         empty(2)
         ?>";
+
+        let mut scanner = Scanner::new(code_semicolon);
+        let tokens = scanner.scan().unwrap();
+        let ast_result = Parser::ast(tokens.clone());
+
+        assert!(ast_result.unwrap().1.is_empty());
+    }
+
+    #[test]
+    fn test_parses_attributes_without_errors() {
+        let code_semicolon = "
+        <?php
+        use Attribute;
+        
+        #[Attribute(Attribute::TARGET_METHOD | Attribute::TARGET_FUNCTION)]
+        class MyAttribute
+        {
+        }
+
+        #[Attribute]
+        class TheOtherAttribute {}
+";
 
         let mut scanner = Scanner::new(code_semicolon);
         let tokens = scanner.scan().unwrap();

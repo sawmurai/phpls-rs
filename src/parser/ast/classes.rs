@@ -4,17 +4,23 @@ use super::{super::node::Node, attributes};
 use super::{comments, expressions, functions, types};
 
 // abstract_class -> "abstract" class
-pub(crate) fn abstract_class_statement(parser: &mut Parser) -> ExpressionResult {
+pub(crate) fn abstract_class_statement(
+    parser: &mut Parser,
+    attributes: Vec<Node>,
+) -> ExpressionResult {
     let is_abstract = parser.consume(TokenType::Abstract)?;
 
-    class_statement(parser, Some(is_abstract), None)
+    class_statement(parser, Some(is_abstract), None, attributes)
 }
 
 // final_class -> "final" class
-pub(crate) fn final_class_statement(parser: &mut Parser) -> ExpressionResult {
+pub(crate) fn final_class_statement(
+    parser: &mut Parser,
+    attributes: Vec<Node>,
+) -> ExpressionResult {
     let is_final = parser.consume(TokenType::Final)?;
 
-    class_statement(parser, None, Some(is_final))
+    class_statement(parser, None, Some(is_final), attributes)
 }
 
 // class -> "class" identifier (extends identifier_list)? (implements identifier_list)?
@@ -22,6 +28,7 @@ pub(crate) fn class_statement(
     parser: &mut Parser,
     is_abstract: Option<Token>,
     is_final: Option<Token>,
+    attributes: Vec<Node>,
 ) -> ExpressionResult {
     let doc_comment = comments::consume_optional_doc_comment(parser);
     let token = parser.consume(TokenType::Class)?;
@@ -46,10 +53,11 @@ pub(crate) fn class_statement(
         implements,
         body: Box::new(class_block(parser)?),
         doc_comment,
+        attributes,
     })
 }
 
-pub(crate) fn anonymous_class(parser: &mut Parser) -> ExpressionResult {
+pub(crate) fn anonymous_class(parser: &mut Parser, attributes: Vec<Node>) -> ExpressionResult {
     let token = parser.consume(TokenType::Class)?;
 
     let arguments = if parser.next_token_one_of(&[TokenType::OpenParenthesis]) {
@@ -78,6 +86,7 @@ pub(crate) fn anonymous_class(parser: &mut Parser) -> ExpressionResult {
         extends,
         implements,
         body: Box::new(class_block(parser)?),
+        attributes,
     })
 }
 
@@ -88,12 +97,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
 
     let doc_comment = comments::consume_optional_doc_comment(parser);
 
-    if parser
-        .consume_or_ignore(TokenType::AttributeStart)
-        .is_some()
-    {
-        return attributes::attribute(parser);
-    }
+    let mut attributes = attributes::attributes_block(parser)?;
 
     let doc_comment = if doc_comment.is_some() {
         doc_comment
@@ -153,6 +157,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
             token,
             consts,
             doc_comment: doc_comment.clone(),
+            attributes,
         };
 
         parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
@@ -177,6 +182,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
             )?),
             is_static,
             doc_comment,
+            attributes,
         });
     }
 
@@ -221,6 +227,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
         is_abstract,
         is_static,
         doc_comment,
+        attributes,
     });
 }
 

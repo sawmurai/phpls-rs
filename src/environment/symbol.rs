@@ -4,10 +4,10 @@ use super::{
     in_range,
     visitor::name_resolver::NameResolver,
 };
-use crate::environment::fs::file_read_range;
 use crate::environment::scope::Reference;
 use crate::parser::node::Node as AstNode;
 use crate::parser::token::{Token, TokenType};
+use crate::{environment::fs::file_read_range, parser::node::TypeRef};
 use indextree::{Arena, NodeId};
 use lsp_types::SymbolTag;
 use std::{cmp::PartialOrd, collections::HashMap, fmt::Display};
@@ -167,6 +167,8 @@ impl<'a> SymbolAlias<'a> {
         }
     }
 }
+#[derive(Clone, Debug)]
+pub struct Attribute {}
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
@@ -207,6 +209,9 @@ pub struct Symbol {
 
     /// The visibility of the symbol
     pub visibility: Visibility,
+
+    /// Used attributes on this symbol
+    pub attributes: Option<Vec<Attribute>>,
 }
 
 impl Default for Symbol {
@@ -225,6 +230,7 @@ impl Default for Symbol {
             import_resolutions: None,
             parameters: Vec::new(),
             visibility: Visibility::None,
+            attributes: None,
         }
     }
 }
