@@ -110,6 +110,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 extends,
                 implements,
                 doc_comment,
+                attributes,
                 ..
             } => {
                 let inherits_from = if let Some(extends) = extends {
@@ -141,6 +142,26 @@ impl Visitor for WorkspaceSymbolVisitor {
                     );
                 }
 
+                let is_attribute = attributes
+                    .iter()
+                    .find(|attribute| {
+                        if let AstNode::Attribute { expressions, .. } = attribute {
+                            expressions
+                                .iter()
+                                .find(|expr| {
+                                    if let AstNode::TypeRef(tr) = expr {
+                                        tr.root_token().to_string() == "Attribute"
+                                    } else {
+                                        false
+                                    }
+                                })
+                                .is_some()
+                        } else {
+                            false
+                        }
+                    })
+                    .is_some();
+
                 let child = arena.new_node(Symbol {
                     namespace,
                     name: s_name,
@@ -150,6 +171,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     inherits_from,
                     data_types,
                     deprecated: deprecated_from_doc!(doc_comment),
+                    is_attribute,
                     ..Symbol::default()
                 });
 

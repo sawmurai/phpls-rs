@@ -167,8 +167,6 @@ impl<'a> SymbolAlias<'a> {
         }
     }
 }
-#[derive(Clone, Debug)]
-pub struct Attribute {}
 
 /// Contains information about a symbol in a scope. This can be a function, a class, a variable etc.
 /// It is bacially an extended `lsp_types::DocumentSymbol` that also contains a data type (for vars and properties)
@@ -210,8 +208,8 @@ pub struct Symbol {
     /// The visibility of the symbol
     pub visibility: Visibility,
 
-    /// Used attributes on this symbol
-    pub attributes: Option<Vec<Attribute>>,
+    /// Can this symbol be used as an attribute?
+    pub is_attribute: bool,
 }
 
 impl Default for Symbol {
@@ -230,7 +228,7 @@ impl Default for Symbol {
             import_resolutions: None,
             parameters: Vec::new(),
             visibility: Visibility::None,
-            attributes: None,
+            is_attribute: false,
         }
     }
 }
