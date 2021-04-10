@@ -258,7 +258,7 @@ pub(crate) fn non_empty_parameter_list(parser: &mut Parser) -> ExpressionListRes
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
             break;
         } else {
-            parser.consume_or_err(TokenType::Comma, &[TokenType::CloseParenthesis])?;
+            parser.consume_or_ff_after(TokenType::Comma, &[TokenType::CloseParenthesis])?;
         }
     }
 
@@ -275,7 +275,7 @@ pub(crate) fn parameter_list(parser: &mut Parser) -> ExpressionListResult {
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
             break;
         } else {
-            parser.consume_or_err(TokenType::Comma, &[TokenType::CloseParenthesis])?;
+            parser.consume_or_ff_after(TokenType::Comma, &[TokenType::CloseParenthesis])?;
         }
     }
     Ok(arguments)
@@ -285,7 +285,7 @@ pub(crate) fn return_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Return)?;
 
     if parser.next_token_one_of(&[TokenType::Semicolon]) {
-        parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+        parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
         Ok(Node::ReturnStatement {
             token,
             expression: None,
@@ -293,7 +293,7 @@ pub(crate) fn return_statement(parser: &mut Parser) -> ExpressionResult {
     } else {
         let value = Box::new(expressions::expression(parser)?);
 
-        parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+        parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
         Ok(Node::ReturnStatement {
             token,

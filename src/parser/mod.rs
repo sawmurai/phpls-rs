@@ -419,7 +419,7 @@ impl Parser {
 
                     let statement = Node::TokenStatement { token, expr };
 
-                    self.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+                    self.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
                     return Ok(statement);
                 }
@@ -452,7 +452,7 @@ impl Parser {
                         self.consume(TokenType::ScriptEnd)?;
                         self.context = Context::Out;
                     } else {
-                        self.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+                        self.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
                     }
 
                     return Ok(expr);
@@ -526,7 +526,7 @@ impl Parser {
     }
 
     /// Consume a token of type `t` or return an Err
-    fn consume_or_err(&mut self, t: TokenType, ff_to: &[TokenType]) -> Result<()> {
+    fn consume_or_ff_after(&mut self, t: TokenType, ff_to: &[TokenType]) -> Result<()> {
         let bad_token = if let Some(token) = self.peek() {
             if token.t == t {
                 self.next();
@@ -553,6 +553,35 @@ impl Parser {
         }
 
         return Ok(());
+    }
+
+    fn consume_or_ff_before(&mut self, t: TokenType, ff_to: &[TokenType]) -> Result<Token> {
+        let bad_token = if let Some(token) = self.peek() {
+            if token.t == t {
+                return Ok(self.next().unwrap());
+            }
+
+            token.clone()
+        } else {
+            self.errors.push(Error::Eof);
+            return Err(Error::Eof);
+        };
+
+        self.errors.push(Error::WrongTokenError {
+            expected: vec![t.clone()],
+            token: bad_token.clone(),
+        });
+
+        'outer: while let Some(next) = self.peek() {
+            for tt in ff_to {
+                if *tt == next.t {
+                    break 'outer;
+                }
+            }
+            self.next();
+        }
+
+        return Ok(bad_token);
     }
 
     /// Consume a Some of token of type `t` or do nothing.
@@ -630,6 +659,14 @@ impl Parser {
     fn next_is_member(&mut self) -> bool {
         if let Some(token) = self.peek() {
             return token.is_identifier() || token.t == TokenType::Variable;
+        }
+
+        return false;
+    }
+
+    fn next_is_identifier(&mut self) -> bool {
+        if let Some(token) = self.peek() {
+            return token.is_identifier();
         }
 
         return false;

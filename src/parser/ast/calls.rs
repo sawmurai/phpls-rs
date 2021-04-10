@@ -143,12 +143,31 @@ fn finish_call(parser: &mut Parser, expr: Node) -> ExpressionResult {
 
     let mut parameters = Vec::new();
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
-        parameters.push(expressions::expression(parser)?);
+        // This is tricky. We could either be looking at a named parameter or some other kind of identifier.
+        if parser.next_is_identifier() {
+            let name = parser.consume_identifier()?;
+            // Ok, the next token is a colon, so this is a named parameter.
+            if parser.next_token_one_of(&[TokenType::Colon]) {
+                let named = Node::NamedParameter {
+                    colon: parser.consume(TokenType::Colon)?,
+                    name,
+                    expr: Box::new(expressions::expression(parser)?),
+                };
+                parameters.push(named);
+
+            // Otherwise we give the name back and proceed knowing its not a named parameter
+            } else {
+                parser.tokens.push(name);
+                parameters.push(expressions::expression(parser)?);
+            }
+        } else {
+            parameters.push(expressions::expression(parser)?);
+        }
 
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
             break;
         } else {
-            parser.consume_or_err(TokenType::Comma, &[TokenType::CloseParenthesis])?;
+            parser.consume_or_ff_before(TokenType::Comma, &[TokenType::CloseParenthesis])?;
         }
     }
     Ok(Node::Call {
@@ -320,6 +339,29 @@ self::method();
 
         let expected = "\
 self::method(1, 2, 3);
+"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_static_method_access_with_named_parameters() {
+        let mut scanner = Scanner::new("<?php self::method(a: 1, b: 2, 3);");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(true, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format(&ast, 0, 0, &options);
+
+        let expected = "\
+self::method(a: 1, b: 2, 3);
 "
         .to_owned();
 

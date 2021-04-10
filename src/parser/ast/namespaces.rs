@@ -20,7 +20,7 @@ pub(crate) fn namespace_statement(parser: &mut Parser) -> ExpressionResult {
             block: Box::new(parser.block()?),
         })
     } else if let Some(type_ref) = type_ref {
-        parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+        parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
         Ok(Node::NamespaceStatement { token, type_ref })
     } else if let Some(token) = parser.next() {
         Err(Error::WrongTokenError {
@@ -159,7 +159,7 @@ pub(crate) fn use_function_statement(parser: &mut Parser, token: Token) -> Expre
         break;
     }
 
-    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+    parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     Ok(Node::UseFunctionStatement { token, imports })
 }
@@ -196,7 +196,7 @@ pub(crate) fn use_const_statement(parser: &mut Parser, token: Token) -> Expressi
         break;
     }
 
-    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+    parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     Ok(Node::UseConstStatement { token, imports })
 }
@@ -241,7 +241,7 @@ pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResu
             continue;
         }
 
-        parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+        parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
         break;
     }

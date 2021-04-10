@@ -40,11 +40,11 @@ pub(crate) fn global_variables(parser: &mut Parser) -> ExpressionResult {
         if parser.next_token_one_of(&[TokenType::Semicolon]) {
             break;
         } else {
-            parser.consume_or_err(TokenType::Comma, &[TokenType::Semicolon])?;
+            parser.consume_or_ff_after(TokenType::Comma, &[TokenType::Semicolon])?;
         }
     }
 
-    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+    parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     Ok(Node::GlobalVariablesStatement { token, vars })
 }
@@ -85,7 +85,7 @@ pub(crate) fn const_statement(parser: &mut Parser) -> ExpressionResult {
     });
 
     while parser.consume_or_ignore(TokenType::Semicolon).is_none() {
-        parser.consume_or_err(TokenType::Comma, &[TokenType::Semicolon])?;
+        parser.consume_or_ff_after(TokenType::Comma, &[TokenType::Semicolon])?;
         constants.push(Node::Const {
             name: parser.consume_identifier()?,
             token: parser.consume(TokenType::Assignment)?,
@@ -98,7 +98,7 @@ pub(crate) fn const_statement(parser: &mut Parser) -> ExpressionResult {
 
 /// Parses all the arguments of a call
 pub(crate) fn non_empty_lexical_variables_list(parser: &mut Parser) -> ExpressionListResult {
-    parser.consume_or_err(TokenType::OpenParenthesis, &[TokenType::Semicolon])?;
+    parser.consume_or_ff_after(TokenType::OpenParenthesis, &[TokenType::Semicolon])?;
 
     let mut arguments = Vec::new();
     arguments.push(lexical_variable(parser)?);
@@ -111,11 +111,11 @@ pub(crate) fn non_empty_lexical_variables_list(parser: &mut Parser) -> Expressio
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
             break;
         } else {
-            parser.consume_or_err(TokenType::Comma, &[TokenType::Semicolon])?;
+            parser.consume_or_ff_after(TokenType::Comma, &[TokenType::Semicolon])?;
         }
     }
 
-    parser.consume_or_err(TokenType::CloseParenthesis, &[TokenType::Semicolon])?;
+    parser.consume_or_ff_after(TokenType::CloseParenthesis, &[TokenType::Semicolon])?;
 
     Ok(arguments)
 }

@@ -61,9 +61,9 @@ pub(crate) fn anonymous_class(parser: &mut Parser, attributes: Vec<Node>) -> Exp
     let token = parser.consume(TokenType::Class)?;
 
     let arguments = if parser.next_token_one_of(&[TokenType::OpenParenthesis]) {
-        parser.consume_or_err(TokenType::OpenParenthesis, &[TokenType::OpenParenthesis])?;
+        parser.consume_or_ff_after(TokenType::OpenParenthesis, &[TokenType::OpenParenthesis])?;
         let result = Some(functions::parameter_list(parser)?);
-        parser.consume_or_err(TokenType::CloseParenthesis, &[TokenType::OpenCurly])?;
+        parser.consume_or_ff_after(TokenType::CloseParenthesis, &[TokenType::OpenCurly])?;
 
         result
     } else {
@@ -136,7 +136,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
         loop {
             let name = parser.consume_identifier()?;
 
-            parser.consume_or_err(TokenType::Assignment, &[TokenType::Semicolon])?;
+            parser.consume_or_ff_after(TokenType::Assignment, &[TokenType::Semicolon])?;
 
             let value = Box::new(expressions::expression(parser)?);
             consts.push(Node::ClassConstant {
@@ -160,7 +160,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
             attributes,
         };
 
-        parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+        parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
         return Ok(statement);
     };
@@ -218,7 +218,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
         parser.next();
     }
 
-    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+    parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     return Ok(Node::PropertyDefinitionStatement {
         properties: props,
@@ -346,7 +346,7 @@ fn trait_usages(parser: &mut Parser) -> ExpressionListResult {
         });
     }
 
-    parser.consume_or_err(TokenType::Semicolon, &[TokenType::Semicolon])?;
+    parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
     Ok(usages)
 }
@@ -409,7 +409,7 @@ fn trait_usage_alteration_group(
             });
         }
 
-        parser.consume_or_err(TokenType::Semicolon, &[TokenType::CloseCurly])?;
+        parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::CloseCurly])?;
     }
 
     Ok(Node::UseTraitAlterationBlock {

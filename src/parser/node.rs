@@ -362,6 +362,11 @@ pub enum Node {
         body: Box<Node>,
         attributes: Vec<Node>,
     },
+    NamedParameter {
+        name: Token,
+        colon: Token,
+        expr: Box<Node>,
+    },
     FunctionArgument {
         argument_type: Option<Box<Node>>,
         name: Token,
@@ -750,6 +755,7 @@ impl Node {
             | Node::PostUnary { expr, .. }
             | Node::AliasedVariable { expr, .. }
             | Node::DynamicVariable { expr, .. }
+            | Node::NamedParameter { expr, .. }
             | Node::YieldFrom { expr, .. } => vec![expr],
             Node::Ternary {
                 check,

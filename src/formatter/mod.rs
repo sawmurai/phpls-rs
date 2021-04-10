@@ -753,6 +753,14 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             parts.push(format_node(value, line, col, options));
             parts.join("")
         }
+        Node::NamedParameter { name, colon, expr } => {
+            format!(
+                "{}{} {}",
+                name,
+                colon,
+                format_node(expr, line, col, options)
+            )
+        }
         _ => unimplemented!("{:?}", node),
     }
 }
