@@ -299,7 +299,7 @@ impl<'a> NameResolver<'a> {
                     .collect::<Vec<String>>()
                     .join("");
 
-                format!("{}\\{}", import, end)
+                format!("{}{}", import, end)
             } else {
                 import.to_owned()
             }
