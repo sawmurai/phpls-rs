@@ -6,7 +6,7 @@ use tower_lsp::lsp_types::Range;
 #[derive(Clone, Debug)]
 pub struct Reference {
     /// The type_ref if applicable
-    pub type_ref: Option<TypeRef>,
+    pub type_ref: TypeRef,
 
     /// Selection range of the usage
     pub range: Range,
@@ -16,9 +16,7 @@ pub struct Reference {
 
 impl std::fmt::Display for Reference {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(type_ref) = self.type_ref.as_ref() {
-            f.write_str(&type_ref.to_fqdn())?;
-        }
+        f.write_str(&self.type_ref.to_fqdn())?;
 
         Ok(())
     }
@@ -30,7 +28,7 @@ impl Reference {
         let range = get_range(type_ref.range());
 
         Self {
-            type_ref: Some(type_ref),
+            type_ref,
             range,
             node: Some(node),
         }
@@ -41,7 +39,7 @@ impl Reference {
         let range = get_range(type_ref.range());
 
         Self {
-            type_ref: Some(type_ref),
+            type_ref,
             range,
             node: None,
         }

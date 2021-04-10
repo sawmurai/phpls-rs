@@ -303,14 +303,16 @@ fn suggest_members_of_symbol(
                 return dt_reference.node;
             }
 
-            if let Some(type_ref) = dt_reference.type_ref.as_ref() {
-                if "$this" == type_ref.root().unwrap() {
-                    return arena[*resolved_parent].parent();
-                }
-
-                return resolver.resolve_type_ref(&type_ref, arena, &symbol_under_cursor, false);
+            if "$this" == dt_reference.type_ref.root().unwrap() {
+                return arena[*resolved_parent].parent();
             }
-            return None;
+
+            return resolver.resolve_type_ref(
+                &dt_reference.type_ref,
+                arena,
+                &symbol_under_cursor,
+                false,
+            );
         })
         .for_each(|node| {
             let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);

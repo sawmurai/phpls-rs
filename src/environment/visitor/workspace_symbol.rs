@@ -296,12 +296,7 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 if let Some(data_types) = types {
                     for rt in data_types {
-                        combined_data_types.extend(
-                            get_type_refs(rt)
-                                .iter()
-                                .map(|tr| Reference::type_ref(tr.clone()))
-                                .collect::<Vec<Reference>>(),
-                        );
+                        combined_data_types.push(Reference::type_ref(rt.clone()));
                     }
                 }
 
@@ -570,7 +565,7 @@ pub(crate) fn get_type_refs(node: &AstNode) -> Vec<TypeRef> {
         | AstNode::DocCommentReturn { types, .. }
         | AstNode::DocCommentParam { types, .. } => {
             if let Some(types) = types {
-                types.iter().filter_map(get_type_ref).collect()
+                types.clone()
             } else {
                 Vec::new()
             }

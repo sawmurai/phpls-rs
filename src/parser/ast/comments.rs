@@ -1,3 +1,5 @@
+use crate::parser::node::TypeRef;
+
 use super::super::node::Node;
 use super::super::token::{Token, TokenType};
 use super::super::Parser;
@@ -263,7 +265,7 @@ impl DocBlockScanner {
         })))
     }
 
-    fn collect_type_ref(&mut self, allow_this: bool) -> Option<Node> {
+    fn collect_type_ref(&mut self, allow_this: bool) -> Option<TypeRef> {
         let mut type_ref_parts = Vec::new();
         let current_start = (self.line, self.col);
 
@@ -285,9 +287,19 @@ impl DocBlockScanner {
                     current_start.0,
                     current_start.1,
                 )),
+                Some('[') => {
+                    self.advance();
+                    if let Some(']') = self.advance() {
+                        if !type_ref_parts.is_empty() {
+                            return Some(TypeRef::many(type_ref_parts));
+                        } else {
+                            return None;
+                        }
+                    }
+                }
                 _ => {
                     if !type_ref_parts.is_empty() {
-                        return Some(Node::TypeRef(type_ref_parts.into()));
+                        return Some(TypeRef::one(type_ref_parts));
                     } else {
                         return None;
                     }

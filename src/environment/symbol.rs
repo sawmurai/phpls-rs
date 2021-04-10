@@ -649,13 +649,7 @@ impl Symbol {
         let resolved_datatypes = self
             .data_types
             .iter()
-            .filter_map(|dt| {
-                if let Some(tr) = dt.type_ref.as_ref() {
-                    resolver.resolve_type_ref(tr, arena, &ctx, false)
-                } else {
-                    None
-                }
-            })
+            .filter_map(|dt| resolver.resolve_type_ref(&dt.type_ref, arena, &ctx, false))
             .collect::<Vec<NodeId>>();
 
         resolved_datatypes.iter().for_each(|dt| {
@@ -695,9 +689,7 @@ impl Symbol {
         if let Some(inherits_from) = self.inherits_from.as_ref() {
             inherits_from
                 .iter()
-                .filter_map(|r| {
-                    resolver.resolve_type_ref(&r.type_ref.as_ref().unwrap(), &arena, &ctx, false)
-                })
+                .filter_map(|r| resolver.resolve_type_ref(&r.type_ref, &arena, &ctx, false))
                 .for_each(|node| {
                     parents.insert(arena[node].get().normalized_name(), node);
                 })

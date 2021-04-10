@@ -171,14 +171,22 @@ impl<'a> NameResolver<'a> {
     /// The use case for this is variable shadowing and defining arguments of an
     /// arrow function in another scope that already defined a variable with the same
     /// name.
-    pub fn declare_or_overwrite_local(&mut self, file: NodeId, token: &Token, t: NodeId) {
+    pub fn declare_or_overwrite_local(
+        &mut self,
+        file: NodeId,
+        token: &Token,
+        t: NodeId,
+        add_ref: bool,
+    ) {
         if let Some(top_scope) = self.local_scopes.last_mut() {
             if let Some(label) = token.label.as_ref() {
                 top_scope.insert(label.clone(), t);
             }
         }
 
-        self.reference_local(file, token, &t);
+        if add_ref {
+            self.reference_local(file, token, &t);
+        }
     }
 
     /// Resolve fully qualified
@@ -410,7 +418,9 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 NextAction::Abort
             }
-            AstNode::ClassStatement { name, .. } | AstNode::TraitStatement { name, .. } => {
+            AstNode::ClassStatement { name, .. }
+            | AstNode::TraitStatement { name, .. }
+            | AstNode::Interface { name, .. } => {
                 // Register $this in the current scope
                 if let Some(current_class) =
                     self.resolver
@@ -461,16 +471,14 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             AstNode::DocCommentVar { name, types, .. } => {
                 let mut data_types = Vec::new();
                 if let Some(types) = types {
-                    for t in types {
-                        if let Some(type_ref) = get_type_ref(t) {
-                            if let Some(node) = self
-                                .resolver
-                                .resolve_type_ref(&type_ref, arena, &parent, true)
-                            {
-                                data_types.push(SymbolReference::node(type_ref.clone(), node));
-                            } else {
-                                data_types.push(SymbolReference::type_ref(type_ref.clone()));
-                            }
+                    for type_ref in types {
+                        if let Some(node) = self
+                            .resolver
+                            .resolve_type_ref(&type_ref, arena, &parent, true)
+                        {
+                            data_types.push(SymbolReference::node(type_ref.clone(), node));
+                        } else {
+                            data_types.push(SymbolReference::type_ref(type_ref.clone()));
                         }
                     }
                 }
@@ -509,7 +517,50 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 self.resolver.scope_container.append(child, arena);
                 self.resolver
-                    .declare_or_overwrite_local(self.file, var, child);
+                    .declare_or_overwrite_local(self.file, var, child, false);
+
+                NextAction::ProcessChildren(parent)
+            }
+            AstNode::ForEachStatement { collection, kv, .. } => {
+                let collection = if let AstNode::Variable(collection) = collection.as_ref() {
+                    if let Some(collection) = self.resolver.get_local(collection) {
+                        arena[collection].get()
+                    } else {
+                        // Not resolvable .. too bad
+                        return NextAction::ProcessChildren(parent);
+                    }
+                } else {
+                    // Not a variable, so no easy way (yet) of determing the type. Later on we will have a
+                    // way of getting the return types of expressions
+                    return NextAction::ProcessChildren(parent);
+                };
+
+                if let AstNode::ArrayElement { value, .. } = kv.as_ref() {
+                    if let AstNode::Variable(item) = value.as_ref() {
+                        let data_types = collection
+                            .data_types
+                            .iter()
+                            .filter_map(|reference| {
+                                if reference.type_ref.is_multiple() {
+                                    Some(SymbolReference::node(
+                                        reference.type_ref.to_collection_item(),
+                                        reference.node.unwrap(),
+                                    ))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+
+                        let mut s = Symbol::from(item);
+                        s.data_types = data_types;
+                        let child = arena.new_node(s);
+
+                        self.resolver.scope_container.append(child, arena);
+                        self.resolver
+                            .declare_or_overwrite_local(self.file, item, child, false);
+                    }
+                }
 
                 NextAction::ProcessChildren(parent)
             }
@@ -524,7 +575,6 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         .children(arena)
                         .find_map(|child| {
                             let argument = arena[child].get();
-
                             if let Some(name) = name.label.as_ref() {
                                 if argument.name().eq(name) {
                                     return Some(child);
@@ -539,20 +589,29 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     let resolved_references = current_argument_symbol
                         .data_types
                         .iter()
-                        .filter_map(|reference| reference.type_ref.as_ref())
-                        .map(|tr| (tr, self.resolver.resolve_type_ref(tr, arena, &parent, true)))
+                        .map(|tr| {
+                            (
+                                tr,
+                                self.resolver
+                                    .resolve_type_ref(&tr.type_ref, arena, &parent, true),
+                            )
+                        })
                         .map(|(tr, node)| {
                             if let Some(node) = node {
-                                SymbolReference::node(tr.to_owned(), node)
+                                SymbolReference::node(tr.type_ref.to_owned(), node)
                             } else {
-                                SymbolReference::type_ref(tr.to_owned())
+                                SymbolReference::type_ref(tr.type_ref.to_owned())
                             }
                         });
 
                     arena[current_argument].get_mut().data_types = resolved_references.collect();
 
-                    self.resolver
-                        .declare_or_overwrite_local(self.file, name, current_argument);
+                    self.resolver.declare_or_overwrite_local(
+                        self.file,
+                        name,
+                        current_argument,
+                        true,
+                    );
 
                     if let Some(doc_comment) = doc_comment {
                         if let AstNode::DocCommentParam { name, .. } = doc_comment.as_ref() {
@@ -664,7 +723,9 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
     fn after(&mut self, node: &AstNode, _arena: &mut Arena<Symbol>, parent: NodeId) {
         match node {
-            AstNode::ClassStatement { .. } | AstNode::TraitStatement { .. } => {
+            AstNode::ClassStatement { .. }
+            | AstNode::TraitStatement { .. }
+            | AstNode::Interface { .. } => {
                 self.resolver.leave_class();
                 self.resolver.scope_container = parent;
             }
@@ -803,10 +864,14 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                                 Visibility::Public
                                             },
                                         );
-                                    } else if let Some(type_ref) = reference.type_ref.as_ref() {
-                                        if let Some(resolved_data_type) = self
-                                            .resolver
-                                            .resolve_type_ref(type_ref, arena, &node, true)
+                                    } else {
+                                        if let Some(resolved_data_type) =
+                                            self.resolver.resolve_type_ref(
+                                                &reference.type_ref,
+                                                arena,
+                                                &node,
+                                                true,
+                                            )
                                         {
                                             break 'root_node (
                                                 Some(resolved_data_type),
@@ -871,6 +936,25 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     } else {
                         return None;
                     }
+                }
+                AstNode::Field { array, .. } => {
+                    if let AstNode::Variable(collection) = array.as_ref() {
+                        if let Some(var) = self.resolver.get_local(collection) {
+                            self.resolver.reference_local(self.file, &collection, &var);
+
+                            for reference in &arena[var].get().data_types {
+                                if reference.type_ref.is_multiple() {
+                                    if let Some(referenced_node) = reference.node {
+                                        break 'root_node (
+                                            Some(referenced_node),
+                                            Visibility::Public,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return None;
                 }
                 _ => {
                     node.children().iter().for_each(|c| {
@@ -951,28 +1035,27 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                     match child_symbol.kind {
                         PhpSymbolKind::Property | PhpSymbolKind::Method => {
                             for data_type in &child_symbol.data_types {
-                                if let Some(type_ref) = data_type.type_ref.as_ref() {
-                                    let first_type = type_ref.root_token_type();
-                                    if TokenType::TypeSelf == first_type
-                                        || TokenType::Static == first_type
+                                let first_type = data_type.type_ref.root_token_type();
+                                if TokenType::TypeSelf == first_type
+                                    || TokenType::Static == first_type
+                                {
+                                    continue 'link_loop;
+                                }
+
+                                if "$this" == data_type.type_ref.root().unwrap() {
+                                    continue 'link_loop;
+                                }
+
+                                if TokenType::Parent == first_type {
+                                    if let Some(root_parent) = arena[root_node]
+                                        .get()
+                                        .get_unique_parent(root_node, self.resolver, arena)
                                     {
+                                        root_node = root_parent;
+
                                         continue 'link_loop;
-                                    }
-
-                                    if "$this" == type_ref.root().unwrap() {
-                                        continue 'link_loop;
-                                    }
-
-                                    if TokenType::Parent == first_type {
-                                        if let Some(root_parent) = arena[root_node]
-                                            .get()
-                                            .get_unique_parent(root_node, self.resolver, arena)
-                                        {
-                                            root_node = root_parent;
-
-                                            continue 'link_loop;
-                                        } else {
-                                            self.resolver.diagnostic(
+                                    } else {
+                                        self.resolver.diagnostic(
                                                 file_name.to_owned(),
                                                 link.range(),
                                                 String::from(
@@ -981,19 +1064,20 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                                 DiagnosticSeverity::Warning
                                             );
 
-                                            return None;
-                                        }
+                                        return None;
                                     }
+                                }
 
-                                    if let Some(resolved_type) = self
-                                        .resolver
-                                        .resolve_type_ref(&type_ref, arena, &root_node, true)
-                                    {
-                                        root_node = resolved_type;
+                                if let Some(resolved_type) = self.resolver.resolve_type_ref(
+                                    &data_type.type_ref,
+                                    arena,
+                                    &root_node,
+                                    true,
+                                ) {
+                                    root_node = resolved_type;
 
-                                        // Got a match, stop and proceeed with the next link
-                                        continue 'link_loop;
-                                    }
+                                    // Got a match, stop and proceeed with the next link
+                                    continue 'link_loop;
                                 }
                             }
 
@@ -1484,6 +1568,94 @@ mod tests {
                 "my_parent"
             ],
             references!(state, "index.php")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_type_of_array_items_via_vardoc() {
+        let mut state = BackendState::default();
+
+        let sources = vec![
+            (
+                "index.php",
+                "<?php
+                /** @var P[] $list */
+                $list = [];
+                
+                foreach ($list as $item) {
+                    $item->findMe();
+                }
+
+                $list[2]->findMe();
+                ",
+            ),
+            ("lp.php", "<?php class P { public function findMe() { }}"),
+        ];
+
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+        }
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
+        }
+
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
+        assert_reference_names!(
+            vec!["P", "list", "list", "list", "item", "item", "findMe", "list", "findMe",],
+            references!(state, "index.php")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_type_of_interface_method_arguments() {
+        let mut state = BackendState::default();
+
+        let sources = vec![
+            (
+                "if1.php",
+                "<?php
+                interface TestInterface { public function rofl(Test2 $param): RetVal;}
+                ",
+            ),
+            ("Test2.php", "<?php class Test2 { }"),
+            ("RetVal.php", "<?php class RetVal { }"),
+        ];
+
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+        }
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
+        }
+
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
+        assert_reference_names!(
+            vec!["TestInterface", "rofl", "Test2", "param", "RetVal"],
+            references!(state, "if1.php")
         );
     }
 }

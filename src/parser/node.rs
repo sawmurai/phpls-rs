@@ -3,30 +3,64 @@ use std::{iter::Skip, slice::Iter};
 use super::token::{Token, TokenType};
 
 #[derive(Debug, PartialEq, Clone, Default)]
-pub struct TypeRef(Vec<Token>);
+pub struct TypeRef {
+    kind: Vec<Token>,
+
+    /// Indicator that we are dealing with an array of that type
+    /// This is used when parsing phpDoc comments a la Class[] or Array<Class>
+    multiple: bool,
+}
 
 pub type NodeRange = ((u32, u32), (u32, u32));
 
 impl TypeRef {
+    pub fn one(kind: Vec<Token>) -> Self {
+        Self {
+            kind,
+            multiple: false,
+        }
+    }
+
+    pub fn many(kind: Vec<Token>) -> Self {
+        Self {
+            kind,
+            multiple: true,
+        }
+    }
+
+    pub fn to_collection_item(&self) -> Self {
+        Self {
+            kind: self.kind.clone(),
+            multiple: false,
+        }
+    }
+
     pub fn append(orig: &Self, appendix: &Self) -> Self {
         let combined = orig
-            .0
+            .kind
             .iter()
-            .chain(appendix.0.iter())
+            .chain(appendix.kind.iter())
             .map(|token| token.clone())
             .collect();
-        Self(combined)
+        Self {
+            kind: combined,
+            ..*orig
+        }
+    }
+
+    pub fn is_multiple(&self) -> bool {
+        return self.multiple;
     }
 
     pub fn range(&self) -> NodeRange {
         (
-            self.0.first().unwrap().range().0,
-            self.0.last().unwrap().range().1,
+            self.kind.first().unwrap().range().0,
+            self.kind.last().unwrap().range().1,
         )
     }
 
     pub fn is_fully_qualified(&self) -> bool {
-        if let Some(first) = self.0.first() {
+        if let Some(first) = self.kind.first() {
             return first.t == TokenType::NamespaceSeparator;
         }
 
@@ -35,8 +69,8 @@ impl TypeRef {
 
     /// Return true of the token is an identifier of a built in type
     pub fn is_builtin(&self) -> bool {
-        if self.0.len() == 1 {
-            match self.0[0].t {
+        if self.kind.len() == 1 {
+            match self.kind[0].t {
                 TokenType::TypeString
                 | TokenType::TypeSelf
                 | TokenType::Static
@@ -78,9 +112,9 @@ impl TypeRef {
         }
 
         if self.is_fully_qualified() {
-            Some(self.0[1].to_string())
+            Some(self.kind[1].to_string())
         } else {
-            Some(self.0[0].to_string())
+            Some(self.kind[0].to_string())
         }
     }
 
@@ -88,22 +122,22 @@ impl TypeRef {
     /// This returns Ns2\Class
     pub fn stem<'a>(&'a self) -> Skip<Iter<'_, Token>> {
         if self.is_fully_qualified() {
-            self.0.iter().skip(2)
+            self.kind.iter().skip(2)
         } else {
-            self.0.iter().skip(1)
+            self.kind.iter().skip(1)
         }
     }
 
     pub fn root_token_type(&self) -> TokenType {
-        self.0.first().unwrap().t.clone()
+        self.kind.first().unwrap().t.clone()
     }
 
     pub fn root_token<'a>(&'a self) -> &'a Token {
-        self.0.first().unwrap()
+        self.kind.first().unwrap()
     }
 
     pub fn tip<'a>(&'a self) -> Option<&'a str> {
-        if let Some(last) = self.0.iter().last() {
+        if let Some(last) = self.kind.iter().last() {
             if let Some(label) = last.label.as_ref() {
                 return Some(label);
             }
@@ -113,7 +147,7 @@ impl TypeRef {
     }
 
     pub fn to_fqdn(&self) -> String {
-        self.0
+        self.kind
             .iter()
             .map(|t| t.to_string())
             .collect::<Vec<String>>()
@@ -121,7 +155,7 @@ impl TypeRef {
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.kind.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -131,7 +165,8 @@ impl TypeRef {
 
 impl From<&TypeRef> for String {
     fn from(s: &TypeRef) -> Self {
-        s.0.iter()
+        s.kind
+            .iter()
             .map(|t| t.to_string())
             .collect::<Vec<String>>()
             .join("")
@@ -140,13 +175,19 @@ impl From<&TypeRef> for String {
 
 impl Into<TypeRef> for Vec<Token> {
     fn into(self) -> TypeRef {
-        TypeRef(self)
+        TypeRef {
+            kind: self,
+            multiple: false,
+        }
     }
 }
 
 impl Into<TypeRef> for [Token; 0] {
     fn into(self) -> TypeRef {
-        TypeRef(self.into())
+        TypeRef {
+            kind: self.into(),
+            multiple: false,
+        }
     }
 }
 
@@ -167,27 +208,24 @@ pub enum Node {
     DocCommentParam {
         name: Token,
 
-        // Node::TypeRef
-        types: Option<Vec<Node>>,
+        types: Option<Vec<TypeRef>>,
 
         description: String,
     },
     DocCommentProperty {
         name: Token,
-        types: Option<Vec<Node>>,
+        types: Option<Vec<TypeRef>>,
         description: String,
     },
     DocCommentVar {
         name: Token,
 
-        // Node::TypeRef
-        types: Option<Vec<Node>>,
+        types: Option<Vec<TypeRef>>,
 
         description: String,
     },
     DocCommentReturn {
-        // Node::TypeRef
-        types: Option<Vec<Node>>,
+        types: Option<Vec<TypeRef>>,
 
         description: String,
     },
