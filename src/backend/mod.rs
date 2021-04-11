@@ -472,9 +472,7 @@ impl Backend {
         let mut visitor = NameResolveVisitor::new(&mut resolver, enclosing_file);
         let iter = ast.iter();
         for node in iter {
-            //eprintln!("[reindex] calling traverse()");
             traverse(node, &mut visitor, &mut state.arena, enclosing_file);
-            //eprintln!("[reindex] calling traverse() ended");
         }
 
         for notification in visitor.diagnostics() {
