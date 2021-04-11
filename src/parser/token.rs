@@ -208,6 +208,94 @@ pub enum TokenType {
     AttributeStart,
 }
 
+impl TokenType {
+    // Via https://www.php.net/manual/en/language.operators.precedence.php
+    pub fn binding_powers(&self) -> (u8, u8) {
+        match self {
+            // Grouping
+            TokenType::OpenParenthesis => (5, 255),
+            TokenType::CloseParenthesis => (255, 5),
+
+            TokenType::New | TokenType::Clone => (0, 201),
+
+            TokenType::Power => (190, 191),
+
+            TokenType::Silencer
+            | TokenType::BitwiseNegation
+            | TokenType::BoolCast
+            | TokenType::BadCast
+            | TokenType::IntCast
+            | TokenType::StringCast
+            | TokenType::ArrayCast
+            | TokenType::ObjectCast
+            | TokenType::DoubleCast
+            | TokenType::UnsetCast => (0, 181),
+            // Left and right binding. Maybe we can and determine
+            // the side within the parser?
+            TokenType::Increment | TokenType::Decrement => (180, 181),
+
+            TokenType::InstanceOf => (171, 170),
+
+            TokenType::ExclamationMark | TokenType::Negation => (0, 161),
+
+            // Expressions
+            TokenType::Modulo | TokenType::Multiplication | TokenType::Division => (151, 150),
+
+            TokenType::Plus | TokenType::Minus | TokenType::Concat => (141, 140),
+
+            TokenType::RightShift | TokenType::LeftShift => (131, 130),
+
+            TokenType::Greater
+            | TokenType::Smaller
+            | TokenType::GreaterOrEqual
+            | TokenType::SmallerOrEqual => (120, 121),
+
+            TokenType::IsNotIdentical
+            | TokenType::IsIdentical
+            | TokenType::SpaceShip
+            | TokenType::IsEqual
+            | TokenType::IsNotEqual
+            | TokenType::IsNotEqualAlt => (110, 111),
+
+            TokenType::BinaryAnd => (101, 100),
+            TokenType::BinaryXor => (99, 98),
+            TokenType::BinaryOr => (97, 96),
+
+            TokenType::LogicAnd => (91, 90),
+            TokenType::LogicOr => (87, 86),
+            TokenType::Coalesce => (84, 85),
+
+            // Ternary
+            TokenType::QuestionMark | TokenType::Colon => (80, 81),
+
+            // Modification
+            TokenType::Assignment
+            | TokenType::BinaryAndAssignment
+            | TokenType::BinaryOrAssignment
+            | TokenType::ModuloAssignment
+            | TokenType::ConcatAssignment
+            | TokenType::XorAssignment
+            | TokenType::RightShiftAssignment
+            | TokenType::LeftShiftAssignment
+            | TokenType::CoalesceAssignment
+            | TokenType::PowerAssignment
+            | TokenType::PlusAssign
+            | TokenType::MinusAssign
+            | TokenType::MulAssign
+            | TokenType::DivAssign => (70, 71),
+
+            TokenType::YieldFrom => (60, 61),
+            TokenType::Yield => (50, 51),
+            TokenType::Print => (40, 41),
+
+            // Logic
+            TokenType::LogicXor => (21, 20),
+
+            _ => (0, 0),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token {
     pub col: u32,
