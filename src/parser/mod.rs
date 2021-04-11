@@ -846,58 +846,10 @@ mod tests {
     fn test_parses_deeply_nested_assignments() {
         let code_semicolon = r#"
         <?php
-// Taken from the doctrine source
-if ($entityName === null) {
-$this->identityMap                    =
-$this->entityIdentifiers              =
-$this->originalEntityData             =
-$this->entityChangeSets               =
-$this->entityStates                   =
-$this->scheduledForSynchronization    =
-$this->entityInsertions               =
-$this->entityUpdates                  =
-$this->entityDeletions                =
-$this->nonCascadedNewDetectedEntities =
-$this->collectionDeletions            =
-$this->collectionUpdates              =
-$this->extraUpdates                   =
-$this->readOnlyObjects                =
-$this->visitedCollections             =
-$this->eagerLoadingEntities           =$this->entityIdentifiers              =
-$this->originalEntityData             =
-$this->entityChangeSets               =
-$this->entityStates                   =
-$this->scheduledForSynchronization    =
-$this->entityInsertions               =
-$this->entityUpdates                  =
-$this->entityDeletions                =
-$this->nonCascadedNewDetectedEntities =
-$this->collectionDeletions            =
-$this->collectionUpdates              =
-$this->extraUpdates                   =
-$this->readOnlyObjects                =
-$this->visitedCollections             =
-$this->eagerLoadingEntities           =$this->entityIdentifiers              =
-$this->originalEntityData             =
-$this->entityChangeSets               =
-$this->entityStates                   =
-$this->scheduledForSynchronization    =
-$this->entityInsertions               =
-$this->entityUpdates                  =
-$this->entityDeletions                =
-$this->nonCascadedNewDetectedEntities =
-$this->collectionDeletions            =
-$this->collectionUpdates              =
-$this->extraUpdates                   =
-$this->readOnlyObjects                =
-$this->visitedCollections             =
-$this->eagerLoadingEntities           =
-$this->orphanRemovals                 = [];
-} else {
-$this->clearIdentityMapForEntityName($entityName);
-$this->clearEntityInsertionsForEntityName($entityName);
-}
-        
+ $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = 
+ $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = 
+ $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = 
+ $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = $x->p = [];       
 "#;
 
         let mut scanner = Scanner::new(code_semicolon);
