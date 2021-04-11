@@ -20,11 +20,30 @@ pub(crate) fn variable(parser: &mut Parser) -> ExpressionResult {
         });
     }
 
+    // Collect the list of aliases and return the actual variable at the end
+    let mut list = vec![variable];
+    let mut root = loop {
+        let variable = parser.consume_or_ff_before(
+            TokenType::Variable,
+            &[TokenType::Semicolon, TokenType::ScriptEnd],
+        )?;
+
+        if variable.label.is_some() {
+            break Node::Variable(variable);
+        }
+
+        list.push(variable);
+    };
+
+    for link in list.drain(..).rev() {
+        root = Node::AliasedVariable {
+            variable: link,
+            expr: Box::new(root),
+        };
+    }
+
     // Aliased variable $$$$a
-    Ok(Node::AliasedVariable {
-        variable,
-        expr: Box::new(expressions::primary(parser)?),
-    })
+    Ok(root)
 }
 
 pub(crate) fn global_variables(parser: &mut Parser) -> ExpressionResult {
@@ -126,4 +145,21 @@ pub(crate) fn lexical_variable(parser: &mut Parser) -> ExpressionResult {
         reference: parser.consume_or_ignore(TokenType::BinaryAnd),
         variable: parser.consume(TokenType::Variable)?,
     })
+}
+
+#[cfg(test)]
+mod test {
+    use crate::parser::scanner::Scanner;
+    use crate::parser::Parser;
+
+    #[test]
+    fn test_parses_aliased_variables() {
+        let code_semicolon = "<?php $$$$$$a = 2;";
+
+        let mut scanner = Scanner::new(code_semicolon);
+        let tokens = scanner.scan().unwrap();
+        let ast_result = Parser::ast(tokens.clone()).unwrap();
+
+        assert!(ast_result.1.is_empty());
+    }
 }

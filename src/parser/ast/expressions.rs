@@ -38,7 +38,7 @@ pub(crate) fn expression(parser: &mut Parser) -> ExpressionResult {
     expr
 }
 
-pub(crate) fn logic(parser: &mut Parser) -> ExpressionResult {
+fn logic(parser: &mut Parser) -> ExpressionResult {
     let mut expr = equality(parser)?;
 
     let potential_matches = vec![TokenType::LogicOr, TokenType::LogicAnd, TokenType::LogicXor];
@@ -58,7 +58,7 @@ pub(crate) fn logic(parser: &mut Parser) -> ExpressionResult {
     Ok(expr)
 }
 
-pub(crate) fn equality(parser: &mut Parser) -> ExpressionResult {
+fn equality(parser: &mut Parser) -> ExpressionResult {
     let mut expr = comparison(parser)?;
 
     let potential_matches = vec![
@@ -86,7 +86,7 @@ pub(crate) fn equality(parser: &mut Parser) -> ExpressionResult {
     Ok(expr)
 }
 
-pub(crate) fn comparison(parser: &mut Parser) -> ExpressionResult {
+fn comparison(parser: &mut Parser) -> ExpressionResult {
     let mut expr = assignment(parser)?;
 
     let potential_matches = vec![
@@ -115,7 +115,7 @@ pub(crate) fn comparison(parser: &mut Parser) -> ExpressionResult {
 /// operator which says we are looking at an assignment. Then checks, if the already parsed l-value is something that values
 /// can be assigned to. If it is, parse the r-value as another expression and wrap all up in an `Assignment`-expression. If not,
 /// return an error.
-pub(crate) fn assignment(parser: &mut Parser) -> ExpressionResult {
+fn assignment(parser: &mut Parser) -> ExpressionResult {
     let expr = addition(parser)?;
 
     if parser.next_token_one_of(&[
@@ -157,7 +157,7 @@ pub(crate) fn assignment(parser: &mut Parser) -> ExpressionResult {
     Ok(expr)
 }
 
-pub(crate) fn addition(parser: &mut Parser) -> ExpressionResult {
+fn addition(parser: &mut Parser) -> ExpressionResult {
     let mut expr = multiplication(parser)?;
 
     let potential_matches = vec![
@@ -185,7 +185,7 @@ pub(crate) fn addition(parser: &mut Parser) -> ExpressionResult {
     Ok(expr)
 }
 
-pub(crate) fn multiplication(parser: &mut Parser) -> ExpressionResult {
+fn multiplication(parser: &mut Parser) -> ExpressionResult {
     let mut expr = unary(parser)?;
 
     let potential_matches = vec![
@@ -212,7 +212,7 @@ pub(crate) fn multiplication(parser: &mut Parser) -> ExpressionResult {
     Ok(expr)
 }
 
-pub(crate) fn unary(parser: &mut Parser) -> ExpressionResult {
+fn unary(parser: &mut Parser) -> ExpressionResult {
     if parser.next_token_one_of(&[
         TokenType::Negation,
         TokenType::Minus,
