@@ -70,6 +70,25 @@ pub struct Parser {
 }
 
 impl Parser {
+    pub fn new(mut tokens: Vec<Token>) -> Self {
+        tokens.reverse();
+
+        let eof = if let Some(eof) = tokens.first() {
+            (eof.line, eof.col)
+        } else {
+            (0, 0)
+        };
+
+        Parser {
+            doc_comments: Vec::new(),
+            tokens,
+            errors: Vec::new(),
+            context: Context::Out,
+            eof,
+            end_of_prev_token: (0, 0),
+        }
+    }
+
     /// Parses the entire token stream and returns an abstract syntax tree representation and a vector of
     /// accumulated parse errors.
     ///
@@ -80,27 +99,11 @@ impl Parser {
     /// scanner.scan()?;
     /// let Ok(ast, errors) = Parser::ast(scanner.tokens);
     /// ```
-    pub fn ast(mut tokens: Vec<Token>) -> AstResult {
+    pub fn ast(tokens: Vec<Token>) -> AstResult {
         if tokens.is_empty() {
             return Ok((Vec::new(), Vec::new()));
         }
-
-        tokens.reverse();
-
-        let eof = if let Some(eof) = tokens.first() {
-            (eof.line, eof.col)
-        } else {
-            (0, 0)
-        };
-
-        let mut parser = Parser {
-            doc_comments: Vec::new(),
-            tokens,
-            errors: Vec::new(),
-            context: Context::Out,
-            eof,
-            end_of_prev_token: (0, 0),
-        };
+        let mut parser = Parser::new(tokens);
 
         let mut statements: Vec<Node> = Vec::new();
 
@@ -414,7 +417,7 @@ impl Parser {
                     let expr = if self.next_token_one_of(&[TokenType::Semicolon]) {
                         None
                     } else {
-                        Some(Box::new(expressions::expression(self)?))
+                        Some(Box::new(expressions::expression(self, 0)?))
                     };
 
                     let statement = Node::TokenStatement { token, expr };
@@ -715,6 +718,15 @@ impl Parser {
 
         false
     }
+
+    fn next_is_operator(&mut self) -> bool {
+        if let Some(next) = self.peek() {
+            return next.t.infix_binding_power().is_some()
+                || next.t.prefix_binding_power().is_some();
+        }
+
+        false
+    }
 }
 
 #[cfg(test)]
@@ -822,6 +834,71 @@ mod tests {
         #[Attribute]
         class TheOtherAttribute {}
 ";
+
+        let mut scanner = Scanner::new(code_semicolon);
+        let tokens = scanner.scan().unwrap();
+        let ast_result = Parser::ast(tokens.clone());
+
+        assert!(ast_result.unwrap().1.is_empty());
+    }
+
+    #[test]
+    fn test_parses_deeply_nested_assignments() {
+        let code_semicolon = r#"
+        <?php
+// Taken from the doctrine source
+if ($entityName === null) {
+$this->identityMap                    =
+$this->entityIdentifiers              =
+$this->originalEntityData             =
+$this->entityChangeSets               =
+$this->entityStates                   =
+$this->scheduledForSynchronization    =
+$this->entityInsertions               =
+$this->entityUpdates                  =
+$this->entityDeletions                =
+$this->nonCascadedNewDetectedEntities =
+$this->collectionDeletions            =
+$this->collectionUpdates              =
+$this->extraUpdates                   =
+$this->readOnlyObjects                =
+$this->visitedCollections             =
+$this->eagerLoadingEntities           =$this->entityIdentifiers              =
+$this->originalEntityData             =
+$this->entityChangeSets               =
+$this->entityStates                   =
+$this->scheduledForSynchronization    =
+$this->entityInsertions               =
+$this->entityUpdates                  =
+$this->entityDeletions                =
+$this->nonCascadedNewDetectedEntities =
+$this->collectionDeletions            =
+$this->collectionUpdates              =
+$this->extraUpdates                   =
+$this->readOnlyObjects                =
+$this->visitedCollections             =
+$this->eagerLoadingEntities           =$this->entityIdentifiers              =
+$this->originalEntityData             =
+$this->entityChangeSets               =
+$this->entityStates                   =
+$this->scheduledForSynchronization    =
+$this->entityInsertions               =
+$this->entityUpdates                  =
+$this->entityDeletions                =
+$this->nonCascadedNewDetectedEntities =
+$this->collectionDeletions            =
+$this->collectionUpdates              =
+$this->extraUpdates                   =
+$this->readOnlyObjects                =
+$this->visitedCollections             =
+$this->eagerLoadingEntities           =
+$this->orphanRemovals                 = [];
+} else {
+$this->clearIdentityMapForEntityName($entityName);
+$this->clearEntityInsertionsForEntityName($entityName);
+}
+        
+"#;
 
         let mut scanner = Scanner::new(code_semicolon);
         let tokens = scanner.scan().unwrap();

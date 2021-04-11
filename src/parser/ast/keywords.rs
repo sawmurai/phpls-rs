@@ -59,7 +59,7 @@ pub(crate) fn die_statement(parser: &mut Parser) -> ExpressionResult {
         (None, cp)
     } else {
         (
-            Some(Box::new(expressions::expression(parser)?)),
+            Some(Box::new(expressions::expression(parser, 0)?)),
             parser.consume(TokenType::CloseParenthesis)?,
         )
     };
@@ -76,9 +76,9 @@ pub(crate) fn die_statement(parser: &mut Parser) -> ExpressionResult {
 pub(crate) fn define_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Define)?;
     let op = parser.consume(TokenType::OpenParenthesis)?;
-    let name = Box::new(expressions::expression(parser)?);
+    let name = Box::new(expressions::expression(parser, 0)?);
     parser.consume(TokenType::Comma)?;
-    let value = Box::new(expressions::expression(parser)?);
+    let value = Box::new(expressions::expression(parser, 0)?);
 
     let is_caseinsensitive = if parser.consume_or_ignore(TokenType::Comma).is_some() {
         Some(parser.consume_one_of(&[TokenType::True, TokenType::False])?)
@@ -102,10 +102,10 @@ pub(crate) fn echo_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Echo)?;
     let mut expressions = Vec::new();
 
-    expressions.push(expressions::expression(parser)?);
+    expressions.push(expressions::expression(parser, 0)?);
 
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
-        expressions.push(expressions::expression(parser)?);
+        expressions.push(expressions::expression(parser, 0)?);
     }
 
     parser.consume_end_of_statement()?;
@@ -117,10 +117,10 @@ pub(crate) fn short_tag_echo_statement(parser: &mut Parser) -> ExpressionResult 
     let token = parser.consume(TokenType::ScriptStart(ScriptStartType::Echo))?;
     let mut expressions = Vec::new();
 
-    expressions.push(expressions::expression(parser)?);
+    expressions.push(expressions::expression(parser, 0)?);
 
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
-        expressions.push(expressions::expression(parser)?);
+        expressions.push(expressions::expression(parser, 0)?);
     }
 
     parser.consume_end_of_statement()?;
@@ -134,7 +134,7 @@ pub(crate) fn print_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Print)?;
     let mut expressions = Vec::new();
 
-    expressions.push(expressions::expression(parser)?);
+    expressions.push(expressions::expression(parser, 0)?);
 
     parser.consume_end_of_statement()?;
 

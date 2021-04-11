@@ -40,7 +40,7 @@
             "cwd": "${workspaceFolder}"
         },
         {
-            "type": "lldb",
+            "type": "lldb-vscode",
             "request": "launch",
             "name": "Debug unit tests in executable 'phpls-rs'",
             "cargo": {

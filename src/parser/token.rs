@@ -209,18 +209,19 @@ pub enum TokenType {
 }
 
 impl TokenType {
-    // Via https://www.php.net/manual/en/language.operators.precedence.php
-    pub fn binding_powers(&self) -> (u8, u8) {
+    pub fn postfix_binding_power(&self) -> Option<u8> {
         match self {
-            // Grouping
-            TokenType::OpenParenthesis => (5, 255),
-            TokenType::CloseParenthesis => (255, 5),
+            TokenType::Increment | TokenType::Decrement => Some(180),
+            _ => None,
+        }
+    }
 
-            TokenType::New | TokenType::Clone => (0, 201),
-
-            TokenType::Power => (190, 191),
-
+    pub fn prefix_binding_power(&self) -> Option<u8> {
+        match self {
+            TokenType::Increment | TokenType::Decrement => Some(180),
+            TokenType::Plus | TokenType::Minus => Some(140),
             TokenType::Silencer
+            | TokenType::Negation
             | TokenType::BitwiseNegation
             | TokenType::BoolCast
             | TokenType::BadCast
@@ -229,14 +230,20 @@ impl TokenType {
             | TokenType::ArrayCast
             | TokenType::ObjectCast
             | TokenType::DoubleCast
-            | TokenType::UnsetCast => (0, 181),
-            // Left and right binding. Maybe we can and determine
-            // the side within the parser?
-            TokenType::Increment | TokenType::Decrement => (180, 181),
+            | TokenType::Elipsis
+            | TokenType::UnsetCast => Some(181),
+            _ => None,
+        }
+    }
+
+    // Via https://www.php.net/manual/en/language.operators.precedence.php
+    pub fn infix_binding_power(&self) -> Option<(u8, u8)> {
+        let bp = match self {
+            TokenType::New | TokenType::Clone => (0, 201),
+
+            TokenType::Power => (190, 191),
 
             TokenType::InstanceOf => (171, 170),
-
-            TokenType::ExclamationMark | TokenType::Negation => (0, 161),
 
             // Expressions
             TokenType::Modulo | TokenType::Multiplication | TokenType::Division => (151, 150),
@@ -291,8 +298,10 @@ impl TokenType {
             // Logic
             TokenType::LogicXor => (21, 20),
 
-            _ => (0, 0),
-        }
+            _ => return None,
+        };
+
+        Some(bp)
     }
 }
 

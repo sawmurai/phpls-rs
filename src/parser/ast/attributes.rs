@@ -16,9 +16,9 @@ fn attribute(parser: &mut Parser) -> ExpressionResult {
     let ats = parser.consume(TokenType::AttributeStart)?;
 
     let mut expressions = Vec::with_capacity(5);
-    expressions.push(expressions::expression(parser)?);
+    expressions.push(expressions::expression(parser, 0)?);
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
-        expressions.push(expressions::expression(parser)?);
+        expressions.push(expressions::expression(parser, 0)?);
     }
 
     let cb = parser.consume(TokenType::CloseBrackets)?;

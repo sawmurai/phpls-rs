@@ -15,7 +15,7 @@ pub(crate) fn variable(parser: &mut Parser) -> ExpressionResult {
         return Ok(Node::DynamicVariable {
             variable,
             oc,
-            expr: Box::new(expressions::expression(parser)?),
+            expr: Box::new(expressions::expression(parser, 0)?),
             cc: parser.consume(TokenType::CloseCurly)?,
         });
     }
@@ -80,7 +80,7 @@ pub(crate) fn static_variables(parser: &mut Parser, token: Token) -> ExpressionR
             assignments.push(Node::StaticVariable {
                 variable,
                 assignment: Some(assignment),
-                value: Some(Box::new(expressions::expression(parser)?)),
+                value: Some(Box::new(expressions::expression(parser, 0)?)),
             });
         }
 
@@ -100,7 +100,7 @@ pub(crate) fn const_statement(parser: &mut Parser) -> ExpressionResult {
     constants.push(Node::Const {
         name: parser.consume_identifier()?,
         token: parser.consume(TokenType::Assignment)?,
-        value: Box::new(expressions::expression(parser)?),
+        value: Box::new(expressions::expression(parser, 0)?),
     });
 
     while parser.consume_or_ignore(TokenType::Semicolon).is_none() {
@@ -108,7 +108,7 @@ pub(crate) fn const_statement(parser: &mut Parser) -> ExpressionResult {
         constants.push(Node::Const {
             name: parser.consume_identifier()?,
             token: parser.consume(TokenType::Assignment)?,
-            value: Box::new(expressions::expression(parser)?),
+            value: Box::new(expressions::expression(parser, 0)?),
         });
     }
 

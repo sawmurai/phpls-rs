@@ -71,7 +71,7 @@ pub(crate) fn catch_block(parser: &mut Parser) -> ExpressionResult {
 
 pub(crate) fn throw_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Throw)?;
-    let expression = Box::new(expressions::expression(parser)?);
+    let expression = Box::new(expressions::expression(parser, 0)?);
 
     parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 

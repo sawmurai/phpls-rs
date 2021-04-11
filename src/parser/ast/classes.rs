@@ -138,7 +138,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
 
             parser.consume_or_ff_after(TokenType::Assignment, &[TokenType::Semicolon])?;
 
-            let value = Box::new(expressions::expression(parser)?);
+            let value = Box::new(expressions::expression(parser, 0)?);
             consts.push(Node::ClassConstant {
                 name,
                 value,
@@ -200,7 +200,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
         // The next variable
         let assignment = if parser.next_token_one_of(&[TokenType::Assignment]) {
             parser.next();
-            Some(Box::new(expressions::expression(parser)?))
+            Some(Box::new(expressions::expression(parser, 0)?))
         } else {
             None
         };
