@@ -61,12 +61,35 @@ pub(crate) fn expression(parser: &mut Parser, min_bp: u8) -> ExpressionResult {
 
             let op = parser.next().unwrap();
 
-            let rhs = expression(parser, rb)?;
-
-            lhs = Node::Binary {
-                token: op,
-                left: Box::new(lhs),
-                right: Box::new(rhs),
+            lhs = if op.t == TokenType::QuestionMark {
+                if let Some(colon) = parser.consume_or_ignore(TokenType::Colon) {
+                    let rhs = expression(parser, rb)?;
+                    Node::Ternary {
+                        check: Box::new(lhs),
+                        true_arm: None,
+                        colon,
+                        qm: op,
+                        false_arm: Box::new(rhs),
+                    }
+                } else {
+                    let mhs = expression(parser, 0)?;
+                    let colon = parser.consume(TokenType::Colon)?;
+                    let rhs = expression(parser, rb)?;
+                    Node::Ternary {
+                        check: Box::new(lhs),
+                        true_arm: Some(Box::new(mhs)),
+                        colon,
+                        qm: op,
+                        false_arm: Box::new(rhs),
+                    }
+                }
+            } else {
+                let rhs = expression(parser, rb)?;
+                Node::Binary {
+                    token: op,
+                    left: Box::new(lhs),
+                    right: Box::new(rhs),
+                }
             };
 
             continue;
@@ -307,6 +330,17 @@ mod tests {
     #[test]
     fn test_parses_assignment_chains() {
         let code = "<?php 1 = 2 = 3 = 4 = 5 = 6 = 7 = 8 = 9 = 10 = 11 = 12 = 13 = 14";
+
+        let mut scanner = Scanner::new(code);
+        let tokens = scanner.scan().unwrap();
+        let mut parser = Parser::new(tokens.iter().skip(1).map(|t| t.clone()).collect::<Vec<_>>());
+
+        dbg!(expression(&mut parser, 0).unwrap());
+    }
+
+    #[test]
+    fn test_parses_the_ternary() {
+        let code = "<?php true ? 'lol' : 'notsolol' ";
 
         let mut scanner = Scanner::new(code);
         let tokens = scanner.scan().unwrap();

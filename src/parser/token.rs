@@ -218,6 +218,8 @@ impl TokenType {
 
     pub fn prefix_binding_power(&self) -> Option<u8> {
         match self {
+            TokenType::BinaryAnd => Some(202),
+            TokenType::Clone => Some(201),
             TokenType::Increment | TokenType::Decrement => Some(180),
             TokenType::Plus | TokenType::Minus => Some(140),
             TokenType::Silencer
@@ -239,7 +241,7 @@ impl TokenType {
     // Via https://www.php.net/manual/en/language.operators.precedence.php
     pub fn infix_binding_power(&self) -> Option<(u8, u8)> {
         let bp = match self {
-            TokenType::New | TokenType::Clone => (0, 201),
+            TokenType::New => (0, 201),
 
             TokenType::Power => (190, 191),
 
@@ -273,7 +275,7 @@ impl TokenType {
             TokenType::Coalesce => (84, 85),
 
             // Ternary
-            TokenType::QuestionMark | TokenType::Colon => (80, 81),
+            TokenType::QuestionMark => (80, 81),
 
             // Modification
             TokenType::Assignment

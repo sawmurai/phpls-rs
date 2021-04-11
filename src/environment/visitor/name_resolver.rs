@@ -540,14 +540,14 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         let data_types = collection
                             .data_types
                             .iter()
-                            .filter_map(|reference| {
-                                if reference.type_ref.is_multiple() {
-                                    Some(SymbolReference::node(
+                            .map(|reference| {
+                                if reference.type_ref.is_multiple() && reference.node.is_some() {
+                                    SymbolReference::node(
                                         reference.type_ref.to_collection_item(),
                                         reference.node.unwrap(),
-                                    ))
+                                    )
                                 } else {
-                                    None
+                                    reference.clone()
                                 }
                             })
                             .collect();
