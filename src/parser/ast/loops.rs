@@ -79,7 +79,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> ExpressionResult {
 pub(crate) fn while_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::While)?;
     let op = parser.consume(TokenType::OpenParenthesis)?;
-    let condition = Box::new(expressions::expression(parser)?);
+    let condition = Box::new(expressions::expression(parser, 0)?);
     let cp = parser.consume(TokenType::CloseParenthesis)?;
     let body = Box::new(parser.alternative_block_or_statement(TokenType::EndWhile)?);
 
@@ -104,7 +104,7 @@ pub(crate) fn while_statement(parser: &mut Parser) -> ExpressionResult {
 pub(crate) fn foreach_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Foreach)?;
     let op = parser.consume(TokenType::OpenParenthesis)?;
-    let collection = Box::new(expressions::expression(parser)?);
+    let collection = Box::new(expressions::expression(parser, 0)?);
 
     let as_token = parser.consume(TokenType::As)?;
     let kv = Box::new(arrays::array_pair(parser)?);
@@ -138,7 +138,7 @@ pub(crate) fn do_while_statement(parser: &mut Parser) -> ExpressionResult {
     let body = Box::new(parser.statement()?);
     let while_token = parser.consume(TokenType::While)?;
     let op = parser.consume(TokenType::OpenParenthesis)?;
-    let condition = Box::new(expressions::expression(parser)?);
+    let condition = Box::new(expressions::expression(parser, 0)?);
     let cp = parser.consume(TokenType::CloseParenthesis)?;
     parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 

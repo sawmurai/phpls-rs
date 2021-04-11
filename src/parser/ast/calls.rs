@@ -24,7 +24,7 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                     object: Box::new(expr),
                     arrow: os,
                     oc: Some(oc),
-                    member: Box::new(expressions::expression(parser)?),
+                    member: Box::new(expressions::expression(parser, 0)?),
                     cc: Some(parser.consume(TokenType::CloseCurly)?),
                 };
 
@@ -111,7 +111,7 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
                 None => Node::Field {
                     array: Box::new(expr),
                     ob,
-                    index: Some(Box::new(expressions::expression(parser)?)),
+                    index: Some(Box::new(expressions::expression(parser, 0)?)),
                     cb: parser.consume(TokenType::CloseBrackets)?,
                 },
             };
@@ -119,15 +119,8 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
             expr = Node::Field {
                 array: Box::new(expr),
                 ob: oc,
-                index: Some(Box::new(expressions::expression(parser)?)),
+                index: Some(Box::new(expressions::expression(parser, 0)?)),
                 cb: parser.consume(TokenType::CloseCurly)?,
-            };
-        } else if let Some(assignment) = parser.consume_or_ignore(TokenType::Assignment) {
-            // Something like static::$member = 1;
-            expr = Node::Binary {
-                left: Box::new(expr),
-                token: assignment,
-                right: Box::new(expressions::expression(parser)?),
             };
         } else {
             break;
@@ -151,17 +144,17 @@ fn finish_call(parser: &mut Parser, expr: Node) -> ExpressionResult {
                 let named = Node::NamedParameter {
                     colon: parser.consume(TokenType::Colon)?,
                     name,
-                    expr: Box::new(expressions::expression(parser)?),
+                    expr: Box::new(expressions::expression(parser, 0)?),
                 };
                 parameters.push(named);
 
             // Otherwise we give the name back and proceed knowing its not a named parameter
             } else {
                 parser.tokens.push(name);
-                parameters.push(expressions::expression(parser)?);
+                parameters.push(expressions::expression(parser, 0)?);
             }
         } else {
-            parameters.push(expressions::expression(parser)?);
+            parameters.push(expressions::expression(parser, 0)?);
         }
 
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {

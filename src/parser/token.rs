@@ -208,6 +208,105 @@ pub enum TokenType {
     AttributeStart,
 }
 
+impl TokenType {
+    pub fn postfix_binding_power(&self) -> Option<u8> {
+        match self {
+            TokenType::Increment | TokenType::Decrement => Some(180),
+            _ => None,
+        }
+    }
+
+    pub fn prefix_binding_power(&self) -> Option<u8> {
+        match self {
+            TokenType::BinaryAnd => Some(202),
+            TokenType::Clone => Some(201),
+            TokenType::Increment | TokenType::Decrement => Some(180),
+            TokenType::Plus | TokenType::Minus => Some(140),
+            TokenType::Silencer
+            | TokenType::Negation
+            | TokenType::BitwiseNegation
+            | TokenType::BoolCast
+            | TokenType::BadCast
+            | TokenType::IntCast
+            | TokenType::StringCast
+            | TokenType::ArrayCast
+            | TokenType::ObjectCast
+            | TokenType::DoubleCast
+            | TokenType::Elipsis
+            | TokenType::UnsetCast => Some(181),
+            _ => None,
+        }
+    }
+
+    // Via https://www.php.net/manual/en/language.operators.precedence.php
+    pub fn infix_binding_power(&self) -> Option<(u8, u8)> {
+        let bp = match self {
+            TokenType::New => (0, 201),
+
+            TokenType::Power => (190, 191),
+
+            TokenType::InstanceOf => (171, 170),
+
+            // Expressions
+            TokenType::Modulo | TokenType::Multiplication | TokenType::Division => (151, 150),
+
+            TokenType::Plus | TokenType::Minus | TokenType::Concat => (141, 140),
+
+            TokenType::RightShift | TokenType::LeftShift => (131, 130),
+
+            TokenType::Greater
+            | TokenType::Smaller
+            | TokenType::GreaterOrEqual
+            | TokenType::SmallerOrEqual => (120, 121),
+
+            TokenType::IsNotIdentical
+            | TokenType::IsIdentical
+            | TokenType::SpaceShip
+            | TokenType::IsEqual
+            | TokenType::IsNotEqual
+            | TokenType::IsNotEqualAlt => (110, 111),
+
+            TokenType::BinaryAnd => (101, 100),
+            TokenType::BinaryXor => (99, 98),
+            TokenType::BinaryOr => (97, 96),
+
+            TokenType::LogicAnd => (91, 90),
+            TokenType::LogicOr => (87, 86),
+            TokenType::Coalesce => (84, 85),
+
+            // Ternary
+            TokenType::QuestionMark => (80, 81),
+
+            // Modification
+            TokenType::Assignment
+            | TokenType::BinaryAndAssignment
+            | TokenType::BinaryOrAssignment
+            | TokenType::ModuloAssignment
+            | TokenType::ConcatAssignment
+            | TokenType::XorAssignment
+            | TokenType::RightShiftAssignment
+            | TokenType::LeftShiftAssignment
+            | TokenType::CoalesceAssignment
+            | TokenType::PowerAssignment
+            | TokenType::PlusAssign
+            | TokenType::MinusAssign
+            | TokenType::MulAssign
+            | TokenType::DivAssign => (70, 71),
+
+            TokenType::YieldFrom => (60, 61),
+            TokenType::Yield => (50, 51),
+            TokenType::Print => (40, 41),
+
+            // Logic
+            TokenType::LogicXor => (21, 20),
+
+            _ => return None,
+        };
+
+        Some(bp)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token {
     pub col: u32,

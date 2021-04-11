@@ -20,7 +20,7 @@ pub(crate) fn if_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::If)?;
 
     let op = parser.consume(TokenType::OpenParenthesis)?;
-    let condition = Box::new(expressions::expression(parser)?);
+    let condition = Box::new(expressions::expression(parser, 0)?);
     let cp = parser.consume(TokenType::CloseParenthesis)?;
 
     // Alternative syntax
@@ -53,7 +53,7 @@ pub(crate) fn if_statement(parser: &mut Parser) -> ExpressionResult {
 
             let mut statements = Vec::new();
             let op = parser.consume(TokenType::OpenParenthesis)?;
-            let condition = Box::new(expressions::expression(parser)?);
+            let condition = Box::new(expressions::expression(parser, 0)?);
             let cp = parser.consume(TokenType::CloseParenthesis)?;
             let colon = parser.consume(TokenType::Colon)?;
 
@@ -105,7 +105,7 @@ pub(crate) fn if_statement(parser: &mut Parser) -> ExpressionResult {
     let mut elseif_branches = Vec::new();
     while let Some(token) = parser.consume_or_ignore(TokenType::ElseIf) {
         let op = parser.consume(TokenType::OpenParenthesis)?;
-        let condition = Box::new(expressions::expression(parser)?);
+        let condition = Box::new(expressions::expression(parser, 0)?);
         let cp = parser.consume(TokenType::CloseParenthesis)?;
 
         elseif_branches.push(Node::IfBranch {
@@ -146,7 +146,7 @@ pub(crate) fn if_statement(parser: &mut Parser) -> ExpressionResult {
 pub(crate) fn switch_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Switch)?;
     let op = parser.consume(TokenType::OpenParenthesis)?;
-    let expr = Box::new(expressions::expression(parser)?);
+    let expr = Box::new(expressions::expression(parser, 0)?);
     let cp = parser.consume(TokenType::CloseParenthesis)?;
     let body = Box::new(switch_body(parser)?);
 
@@ -207,16 +207,14 @@ pub(crate) fn case_list(parser: &mut Parser) -> Result<Vec<Option<Node>>> {
             }) => {
                 cases_current_branch.push(None);
                 parser.next();
-                parser
-                    .consume_one_of(&[TokenType::Colon, TokenType::Semicolon])?;
+                parser.consume_one_of(&[TokenType::Colon, TokenType::Semicolon])?;
             }
             Some(Token {
                 t: TokenType::Case, ..
             }) => {
                 parser.next();
-                cases_current_branch.push(Some(expressions::expression(parser)?));
-                parser
-                    .consume_one_of(&[TokenType::Colon, TokenType::Semicolon])?;
+                cases_current_branch.push(Some(expressions::expression(parser, 0)?));
+                parser.consume_one_of(&[TokenType::Colon, TokenType::Semicolon])?;
             }
             _ => {
                 break;

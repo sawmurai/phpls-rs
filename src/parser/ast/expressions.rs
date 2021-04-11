@@ -4,7 +4,7 @@ use super::{super::node::Node, attributes::attributes_block};
 use super::{arrays, calls, classes, functions, keywords, types, variables};
 
 pub(crate) fn expression_statement(parser: &mut Parser) -> ExpressionResult {
-    let value = expression(parser)?;
+    let value = expression(parser, 0)?;
 
     Ok(Node::ExpressionStatement {
         expression: Box::new(value),
@@ -12,246 +12,94 @@ pub(crate) fn expression_statement(parser: &mut Parser) -> ExpressionResult {
 }
 
 /// Parses an expression. This can be anything that evaluates to a value. A function call, a comparison or even an assignment
-pub(crate) fn expression(parser: &mut Parser) -> ExpressionResult {
-    let expr = logic(parser);
 
-    if let Some(qm) = parser.consume_or_ignore(TokenType::QuestionMark) {
-        if let Some(colon) = parser.consume_or_ignore(TokenType::Colon) {
-            return Ok(Node::Ternary {
-                check: Box::new(expr?),
-                qm,
-                true_arm: None,
-                colon,
-                false_arm: Box::new(expression(parser)?),
-            });
+/// Pratt parser which is heavily inspired by this awesome
+/// blogpost: https://matklad.github.io/2020/04/13/simple-but-powerful-pratt-parsing.html
+pub(crate) fn expression(parser: &mut Parser, min_bp: u8) -> ExpressionResult {
+    // Start with the first left hand side, which can either be an operator
+    // or an operand
+    let mut lhs = if let Some(token) = parser.peek() {
+        if let Some(rb) = token.t.prefix_binding_power() {
+            let token = parser.next().unwrap();
+            let rhs = expression(parser, rb)?;
+            Node::Unary {
+                token,
+                expr: Box::new(rhs),
+            }
+        // Also no parenthesis, so its an operand
         } else {
-            return Ok(Node::Ternary {
-                check: Box::new(expr?),
-                qm,
-                true_arm: Some(Box::new(expression(parser)?)),
-                colon: parser.consume(TokenType::Colon)?,
-                false_arm: Box::new(expression(parser)?),
-            });
+            calls::call(parser)?
         }
-    }
+    } else {
+        return Err(Error::Eof);
+    };
 
-    expr
-}
+    while parser.next_is_operator() {
+        let op = parser.peek().unwrap();
 
-pub(crate) fn logic(parser: &mut Parser) -> ExpressionResult {
-    let mut expr = equality(parser)?;
+        // is the next one a postfix operator?
+        if let Some(lb) = op.t.postfix_binding_power() {
+            if lb < min_bp {
+                break;
+            }
 
-    let potential_matches = vec![TokenType::LogicOr, TokenType::LogicAnd, TokenType::LogicXor];
-    // Todo: Make this an if and force && or || in between. Basically add a new non-terminal
-    while parser.next_token_one_of(&potential_matches) {
-        // Unwrap should be fine since the condition already checks that there is a next element
-        let next = parser.next().unwrap();
-        let right = equality(parser)?;
+            let token = parser.next().unwrap();
 
-        expr = Node::Binary {
-            left: Box::new(expr),
-            token: next,
-            right: Box::new(right),
-        };
-    }
+            lhs = Node::PostUnary {
+                token,
+                expr: Box::new(lhs),
+            };
 
-    Ok(expr)
-}
-
-pub(crate) fn equality(parser: &mut Parser) -> ExpressionResult {
-    let mut expr = comparison(parser)?;
-
-    let potential_matches = vec![
-        TokenType::IsNotEqual,
-        TokenType::IsNotEqualAlt,
-        TokenType::IsEqual,
-        TokenType::IsNotIdentical,
-        TokenType::IsIdentical,
-        TokenType::Coalesce,
-        TokenType::InstanceOf,
-    ];
-    // Todo: Make this an if and force && or || in between. Basically add a new non-terminal
-    while parser.next_token_one_of(&potential_matches) {
-        // Unwrap should be fine since the condition already checks that there is a next element
-        let next = parser.next().unwrap();
-        let right = comparison(parser)?;
-
-        expr = Node::Binary {
-            left: Box::new(expr),
-            token: next,
-            right: Box::new(right),
-        };
-    }
-
-    Ok(expr)
-}
-
-pub(crate) fn comparison(parser: &mut Parser) -> ExpressionResult {
-    let mut expr = assignment(parser)?;
-
-    let potential_matches = vec![
-        TokenType::Greater,
-        TokenType::GreaterOrEqual,
-        TokenType::Smaller,
-        TokenType::SmallerOrEqual,
-        TokenType::SpaceShip,
-    ];
-
-    while parser.next_token_one_of(&potential_matches) {
-        let next = parser.next().unwrap();
-        let right = assignment(parser)?;
-
-        expr = Node::Binary {
-            left: Box::new(expr),
-            token: next,
-            right: Box::new(right),
-        };
-    }
-
-    Ok(expr)
-}
-
-/// Parses an assignment. First parses the l-value as a normal expression. Then determines if it is followed by an assignment
-/// operator which says we are looking at an assignment. Then checks, if the already parsed l-value is something that values
-/// can be assigned to. If it is, parse the r-value as another expression and wrap all up in an `Assignment`-expression. If not,
-/// return an error.
-pub(crate) fn assignment(parser: &mut Parser) -> ExpressionResult {
-    let expr = addition(parser)?;
-
-    if parser.next_token_one_of(&[
-        TokenType::Assignment,
-        TokenType::BinaryAndAssignment,
-        TokenType::BinaryOrAssignment,
-        TokenType::ModuloAssignment,
-        TokenType::ConcatAssignment,
-        TokenType::XorAssignment,
-        TokenType::RightShiftAssignment,
-        TokenType::LeftShiftAssignment,
-        TokenType::ModuloAssignment,
-        TokenType::ConcatAssignment,
-        TokenType::XorAssignment,
-        TokenType::RightShiftAssignment,
-        TokenType::LeftShiftAssignment,
-        TokenType::PowerAssignment,
-        TokenType::CoalesceAssignment,
-        TokenType::PlusAssign,
-        TokenType::MinusAssign,
-        TokenType::MulAssign,
-        TokenType::DivAssign,
-    ]) {
-        // Past the assignment token
-        let operator = parser.next().unwrap();
-        let value = assignment(parser)?;
-
-        if expr.is_lvalue() {
-            return Ok(Node::Binary {
-                left: Box::new(expr),
-                token: operator,
-                right: Box::new(value),
-            });
-        } else {
-            return Err(Error::RValueInWriteContext { token: operator });
+            continue;
         }
+
+        // If not, is it an infix operator?
+        if let Some((lb, rb)) = op.t.infix_binding_power() {
+            if lb < min_bp {
+                break;
+            }
+
+            let op = parser.next().unwrap();
+
+            lhs = if op.t == TokenType::QuestionMark {
+                if let Some(colon) = parser.consume_or_ignore(TokenType::Colon) {
+                    let rhs = expression(parser, rb)?;
+                    Node::Ternary {
+                        check: Box::new(lhs),
+                        true_arm: None,
+                        colon,
+                        qm: op,
+                        false_arm: Box::new(rhs),
+                    }
+                } else {
+                    let mhs = expression(parser, 0)?;
+                    let colon = parser.consume(TokenType::Colon)?;
+                    let rhs = expression(parser, rb)?;
+                    Node::Ternary {
+                        check: Box::new(lhs),
+                        true_arm: Some(Box::new(mhs)),
+                        colon,
+                        qm: op,
+                        false_arm: Box::new(rhs),
+                    }
+                }
+            } else {
+                let rhs = expression(parser, rb)?;
+                Node::Binary {
+                    token: op,
+                    left: Box::new(lhs),
+                    right: Box::new(rhs),
+                }
+            };
+
+            continue;
+        }
+
+        // If its neither a postfix nor an infix operator we are done.
+        break;
     }
 
-    Ok(expr)
-}
-
-pub(crate) fn addition(parser: &mut Parser) -> ExpressionResult {
-    let mut expr = multiplication(parser)?;
-
-    let potential_matches = vec![
-        TokenType::Minus,
-        TokenType::Plus,
-        TokenType::LeftShift,
-        TokenType::RightShift,
-        TokenType::BinaryAnd,
-        TokenType::BinaryOr,
-        TokenType::BinaryXor,
-        TokenType::Modulo,
-    ];
-
-    while parser.next_token_one_of(&potential_matches) {
-        let next = parser.next().unwrap();
-        let right = multiplication(parser)?;
-
-        expr = Node::Binary {
-            left: Box::new(expr),
-            token: next,
-            right: Box::new(right),
-        };
-    }
-
-    Ok(expr)
-}
-
-pub(crate) fn multiplication(parser: &mut Parser) -> ExpressionResult {
-    let mut expr = unary(parser)?;
-
-    let potential_matches = vec![
-        TokenType::Multiplication,
-        TokenType::Power,
-        TokenType::Division,
-        // TODO: Make sure precendence is the same, otherwise split
-        TokenType::Concat,
-        TokenType::BinaryOr,
-        TokenType::BinaryAnd,
-    ];
-
-    while parser.next_token_one_of(&potential_matches) {
-        let next = parser.next().unwrap();
-        let right = unary(parser)?;
-
-        expr = Node::Binary {
-            left: Box::new(expr),
-            token: next.clone(),
-            right: Box::new(right),
-        };
-    }
-
-    Ok(expr)
-}
-
-pub(crate) fn unary(parser: &mut Parser) -> ExpressionResult {
-    if parser.next_token_one_of(&[
-        TokenType::Negation,
-        TokenType::Minus,
-        TokenType::Plus,
-        TokenType::Increment,
-        TokenType::Decrement,
-        TokenType::BoolCast,
-        TokenType::IntCast,
-        TokenType::StringCast,
-        TokenType::ArrayCast,
-        TokenType::ObjectCast,
-        TokenType::DoubleCast,
-        TokenType::UnsetCast,
-        TokenType::Elipsis,
-        TokenType::Clone,
-        TokenType::Silencer,
-        TokenType::BinaryAnd,
-        TokenType::BitwiseNegation,
-    ]) {
-        let next = parser.next().unwrap();
-        let right = unary(parser)?;
-
-        return Ok(Node::Unary {
-            token: next,
-            expr: Box::new(right),
-        });
-    }
-
-    let primary = calls::call(parser)?;
-
-    if parser.next_token_one_of(&[TokenType::Increment, TokenType::Decrement]) {
-        let next = parser.next().unwrap();
-
-        return Ok(Node::PostUnary {
-            token: next,
-            expr: Box::new(primary),
-        });
-    }
-    Ok(primary)
+    Ok(lhs)
 }
 
 pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
@@ -349,7 +197,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     ]) {
         return Ok(Node::FileInclude {
             token: include,
-            resource: Box::new(expression(parser)?),
+            resource: Box::new(expression(parser, 0)?),
         });
     }
 
@@ -361,7 +209,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
 
     if parser.next_token_one_of(&[TokenType::OpenParenthesis]) {
         parser.consume_or_ff_after(TokenType::OpenParenthesis, &[TokenType::OpenParenthesis])?;
-        let expr = expression(parser)?;
+        let expr = expression(parser, 0)?;
         parser.consume_or_ff_after(TokenType::CloseParenthesis, &[TokenType::Semicolon])?;
 
         return Ok(Node::Grouping(Box::new(expr)));
@@ -435,7 +283,7 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     if let Some(from) = parser.consume_or_ignore(TokenType::YieldFrom) {
         return Ok(Node::YieldFrom {
             token: from,
-            expr: Box::new(expression(parser)?),
+            expr: Box::new(expression(parser, 0)?),
         });
     }
 
@@ -449,4 +297,55 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
     }
 
     Err(Error::Eof {})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expression;
+    use crate::parser::scanner::Scanner;
+    use crate::parser::Parser;
+
+    #[test]
+    fn test_parses_basic_math() {
+        let code = "<?php 1 + 2 +3";
+
+        let mut scanner = Scanner::new(code);
+        let tokens = scanner.scan().unwrap();
+        let mut parser = Parser::new(tokens.iter().skip(1).map(|t| t.clone()).collect::<Vec<_>>());
+
+        dbg!(expression(&mut parser, 0).unwrap());
+    }
+
+    #[test]
+    fn test_parses_grouping() {
+        let code = "<?php (1 + 2) * 3";
+
+        let mut scanner = Scanner::new(code);
+        let tokens = scanner.scan().unwrap();
+        let mut parser = Parser::new(tokens.iter().skip(1).map(|t| t.clone()).collect::<Vec<_>>());
+
+        dbg!(expression(&mut parser, 0).unwrap());
+    }
+
+    #[test]
+    fn test_parses_assignment_chains() {
+        let code = "<?php 1 = 2 = 3 = 4 = 5 = 6 = 7 = 8 = 9 = 10 = 11 = 12 = 13 = 14";
+
+        let mut scanner = Scanner::new(code);
+        let tokens = scanner.scan().unwrap();
+        let mut parser = Parser::new(tokens.iter().skip(1).map(|t| t.clone()).collect::<Vec<_>>());
+
+        dbg!(expression(&mut parser, 0).unwrap());
+    }
+
+    #[test]
+    fn test_parses_the_ternary() {
+        let code = "<?php true ? 'lol' : 'notsolol' ";
+
+        let mut scanner = Scanner::new(code);
+        let tokens = scanner.scan().unwrap();
+        let mut parser = Parser::new(tokens.iter().skip(1).map(|t| t.clone()).collect::<Vec<_>>());
+
+        dbg!(expression(&mut parser, 0).unwrap());
+    }
 }

@@ -50,7 +50,7 @@ pub(crate) fn old_array(parser: &mut Parser) -> ExpressionResult {
 
 pub(crate) fn array_pair(parser: &mut Parser) -> ExpressionResult {
     // At this point key might as well be the value
-    let key = expressions::expression(parser)?;
+    let key = expressions::expression(parser, 0)?;
 
     if let Some(arrow) = parser.consume_or_ignore(TokenType::DoubleArrow) {
         // TODO: Raise warning if key is access by reference ... this no works
@@ -70,7 +70,7 @@ pub(crate) fn array_pair(parser: &mut Parser) -> ExpressionResult {
             Ok(Node::ArrayElement {
                 key: Some(Box::new(key)),
                 arrow: Some(arrow),
-                value: Box::new(expressions::expression(parser)?),
+                value: Box::new(expressions::expression(parser, 0)?),
             })
         }
     } else {

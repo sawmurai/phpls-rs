@@ -33,7 +33,7 @@ pub(crate) fn argument_list(
         let has_default = parser.consume_or_ignore(TokenType::Assignment);
 
         let default_value = if has_default.is_some() {
-            Some(Box::new(expressions::expression(parser)?))
+            Some(Box::new(expressions::expression(parser, 0)?))
         } else {
             None
         };
@@ -192,7 +192,7 @@ pub(crate) fn arrow_function(
     let return_type = return_type(parser)?;
 
     let arrow = parser.consume(TokenType::DoubleArrow)?;
-    let body = Box::new(expressions::expression(parser)?);
+    let body = Box::new(expressions::expression(parser, 0)?);
 
     Ok(Node::ArrowFunction {
         is_static,
@@ -248,12 +248,12 @@ pub(crate) fn anonymous_function(
 /// Parses all the parameters of a call
 pub(crate) fn non_empty_parameter_list(parser: &mut Parser) -> ExpressionListResult {
     let mut arguments = Vec::new();
-    arguments.push(expressions::expression(parser)?);
+    arguments.push(expressions::expression(parser, 0)?);
 
     parser.consume_or_ignore(TokenType::Comma);
 
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
-        arguments.push(expressions::expression(parser)?);
+        arguments.push(expressions::expression(parser, 0)?);
 
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
             break;
@@ -270,7 +270,7 @@ pub(crate) fn non_empty_parameter_list(parser: &mut Parser) -> ExpressionListRes
 pub(crate) fn parameter_list(parser: &mut Parser) -> ExpressionListResult {
     let mut arguments = Vec::new();
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
-        arguments.push(expressions::expression(parser)?);
+        arguments.push(expressions::expression(parser, 0)?);
 
         if parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
             break;
@@ -291,7 +291,7 @@ pub(crate) fn return_statement(parser: &mut Parser) -> ExpressionResult {
             expression: None,
         })
     } else {
-        let value = Box::new(expressions::expression(parser)?);
+        let value = Box::new(expressions::expression(parser, 0)?);
 
         parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
