@@ -361,6 +361,10 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
 /// * options - The formatter options
 pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions) -> String {
     match node {
+        Node::Grouping(grouped) => format_node(grouped, line, col, options),
+        Node::FileInclude { token, resource } => {
+            format!("{} {}", token, format_node(resource, line, col, options))
+        }
         Node::UseDeclaration {
             declaration, alias, ..
         } => {

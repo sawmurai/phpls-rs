@@ -22,13 +22,13 @@ use tokio::task;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
-    ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    Position, Range, ReferenceParams, RenameParams, RenameProviderCapability, ServerCapabilities,
-    SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
-    WorkspaceCapability, WorkspaceEdit, WorkspaceFolderCapability,
-    WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
+    DocumentFormattingParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
+    DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, Location, Position, Range, ReferenceParams, RenameParams,
+    RenameProviderCapability, ServerCapabilities, SymbolInformation, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Url, WorkspaceCapability, WorkspaceEdit,
+    WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
 };
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
@@ -44,6 +44,7 @@ mod did_close;
 mod did_open;
 mod document_highlight;
 mod document_symbol;
+mod formatting;
 mod goto_definition;
 mod hover;
 mod symbol;
@@ -596,6 +597,7 @@ impl LanguageServer for Backend {
                     commands: vec!["dummy.do_something".to_string()],
                     work_done_progress_options: Default::default(),
                 }),
+                document_formatting_provider: Some(true),
                 workspace: Some(WorkspaceCapability {
                     workspace_folders: Some(WorkspaceFolderCapability {
                         supported: Some(true),
@@ -853,6 +855,11 @@ impl LanguageServer for Backend {
 
     async fn completion_resolve(&self, params: CompletionItem) -> Result<CompletionItem> {
         Ok(params)
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let state = self.state.lock().await;
+        return formatting::formatting(&state, params);
     }
 }
 
