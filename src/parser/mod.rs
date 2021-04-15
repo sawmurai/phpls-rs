@@ -244,6 +244,8 @@ impl Parser {
 
         let terminator = self.consume(expected_terminator)?;
 
+        self.consume(TokenType::Semicolon)?;
+
         Ok(Node::AlternativeBlock {
             colon,
             statements,

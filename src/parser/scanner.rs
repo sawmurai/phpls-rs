@@ -525,8 +525,13 @@ impl Scanner {
                             }) = self.tokens.last()
                             {
                                 // It was! Replace that one with a type cast
-                                self.tokens.pop();
+                                let pos = self.tokens.pop().unwrap();
                                 self.push_token(cast_to);
+
+                                // Fix start of token for the now added token
+                                let last = self.tokens.last_mut().unwrap();
+                                last.line = pos.line;
+                                last.col = pos.col;
 
                                 continue;
 

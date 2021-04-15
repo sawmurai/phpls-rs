@@ -422,7 +422,7 @@ fn trait_usage_alteration_group(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::formatter::{format, FormatterOptions};
+    use crate::formatter::{format_file, FormatterOptions};
     use crate::parser::{
         scanner::Scanner,
         token::{Token, TokenType},
@@ -476,14 +476,14 @@ mod tests {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 class Test {
     public static function test() {
-
     }
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -502,12 +502,13 @@ class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 class Test {
     public const ROFL = 'test';
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -527,13 +528,14 @@ class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 class Test {
     public const ROFL = 'test',
                  COPTER = 2;
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -552,12 +554,13 @@ class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 class Test {
     public $rofl = 1;
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -577,14 +580,14 @@ class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 abstract class Test {
     public static function test() {
-
     }
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -604,14 +607,14 @@ abstract class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 final class Test {
     public static function test() {
-
     }
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -630,12 +633,12 @@ final class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 class Test extends ParentC implements Treatable {
-
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -653,7 +656,8 @@ class Aliased_Talker {
         B::test as private;
         unique as protected stillUnique;
     }
-}";
+}
+";
         let mut scanner = Scanner::new(original);
         scanner.scan().unwrap();
 
@@ -666,7 +670,7 @@ class Aliased_Talker {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
         let expected = "\
 class Aliased_Talker {
     use Some;
@@ -677,7 +681,8 @@ class Aliased_Talker {
         B::test as private;
         unique as protected stillUnique;
     }
-}";
+}
+";
         assert_eq!(expected, formatted);
     }
 
@@ -695,12 +700,11 @@ class Aliased_Talker {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $o = new class {
     public static function test() {
-
     }
 };
 "
@@ -723,12 +727,11 @@ $o = new class {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $o = new class extends ParentC implements Treatable {
     public static function test() {
-
     }
 };
 "
@@ -751,12 +754,11 @@ $o = new class extends ParentC implements Treatable {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $o = new class($variable) {
     public static function test() {
-
     }
 };
 "
@@ -778,12 +780,13 @@ $o = new class($variable) {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 interface Treatable {
     public function callMe();
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -804,12 +807,13 @@ interface Treatable {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 interface Treatable extends OtherInterface {
     public function callMe();
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);

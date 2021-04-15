@@ -220,6 +220,7 @@ impl TokenType {
         match self {
             TokenType::BinaryAnd => Some(202),
             TokenType::Clone => Some(201),
+            TokenType::New => Some(201),
             TokenType::Increment | TokenType::Decrement => Some(180),
             TokenType::Plus | TokenType::Minus => Some(140),
             TokenType::Silencer
@@ -241,8 +242,6 @@ impl TokenType {
     // Via https://www.php.net/manual/en/language.operators.precedence.php
     pub fn infix_binding_power(&self) -> Option<(u8, u8)> {
         let bp = match self {
-            TokenType::New => (0, 201),
-
             TokenType::Power => (190, 191),
 
             TokenType::InstanceOf => (171, 170),
@@ -304,6 +303,10 @@ impl TokenType {
         };
 
         Some(bp)
+    }
+
+    pub fn is_infix_operator(&self) -> bool {
+        self.infix_binding_power().is_some()
     }
 }
 
@@ -445,19 +448,26 @@ impl Token {
     }
 
     pub fn end(&self) -> (u32, u32) {
-        (self.line, self.col + self.len())
+        let me = self.to_string();
+
+        if self.label.is_some() {
+            let lines = me.lines().collect::<Vec<&str>>();
+
+            if lines.len() == 1 {
+                (self.line, self.col + me.len() as u32)
+            } else {
+                (
+                    self.line + (lines.len() - 1) as u32,
+                    lines.last().unwrap().len() as _,
+                )
+            }
+        } else {
+            (self.line, self.col + me.len() as u32)
+        }
     }
 
     pub fn range(&self) -> ((u32, u32), (u32, u32)) {
         (self.start(), self.end())
-    }
-
-    fn len(&self) -> u32 {
-        /*if let Some(label) = self.label.as_ref() {
-            return (label.len()) as u32;
-        }*/
-
-        self.to_string().len() as u32
     }
 
     pub fn is_on(&self, line: u32, col: u32) -> bool {
@@ -484,6 +494,14 @@ impl Token {
                 | TokenType::HexNumber
                 | TokenType::LongNumber
         )
+    }
+
+    pub fn gap_to(&self, next: &Token) -> (u32, u32) {
+        if self.line == next.line {
+            (0, next.start().1 - self.end().1)
+        } else {
+            (next.start().0 - self.end().0, next.start().1)
+        }
     }
 }
 

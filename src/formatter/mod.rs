@@ -1,9 +1,20 @@
 use crate::parser::node::Node;
+use std::cmp::min;
 
 macro_rules! push_if_some {
     ($token:expr, $parts:ident) => {
         if let Some(token) = $token {
             $parts.push(format!("{} ", token));
+        }
+    };
+}
+
+macro_rules! str_if_some {
+    ($token:expr) => {
+        if let Some(token) = $token {
+            token.to_string()
+        } else {
+            String::from("")
         }
     };
 }
@@ -55,6 +66,12 @@ pub struct FormatterOptions {
     pub indent: usize,
 }
 
+pub fn format_file(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> String {
+    let result = format(ast, line, col, options);
+
+    format!("{}\n", result.trim_end())
+}
+
 /// Formats an array of nodes
 ///
 /// # Arguments
@@ -63,10 +80,22 @@ pub struct FormatterOptions {
 /// * line - The current start line
 /// * col - The current column / indentation level
 /// * options - The formatter options
-pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> String {
+fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> String {
     let mut parts = Vec::new();
 
+    let mut prev_line_end: u32 = 0;
     for node in ast {
+        let range = node.range();
+        // The gap between this nodes start and the prev nodes end. The prev_line_end init with 0
+        // should already prevent a gap at the beginning of a block. Do we want this?
+        if prev_line_end != 0 && range.0 .0 > prev_line_end {
+            let gap = (range.0 .0 - prev_line_end - 1) as usize;
+
+            parts.push("\n".repeat(min(gap, 1)));
+        }
+
+        prev_line_end = range.1 .0;
+
         match node {
             Node::NamedFunctionDefinitionStatement {
                 name,
@@ -95,10 +124,11 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
             } => {
                 parts.push(" ".repeat(col));
                 parts.push(format!(
-                    "{} {}{} {}",
+                    "{} {}{} \n{}{}",
                     token,
                     name,
                     optional_ident_list!(" extends ", "", extends, line, col, options),
+                    " ".repeat(col),
                     format_node(body, line, col, options)
                 ))
             }
@@ -119,11 +149,12 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 push_if_some!(is_abstract, parts);
 
                 parts.push(format!(
-                    "{} {}{}{} {}",
+                    "{} {}{}{} \n{}{}",
                     token,
                     name,
                     optional_ident!(" extends ", "", extends, line, col, options),
                     optional_ident_list!(" implements ", "", implements, line, col, options),
+                    " ".repeat(col),
                     format_node(body, line, col, options)
                 ))
             }
@@ -153,7 +184,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
 
                 parts.push(format!("{} ", token));
                 parts.push(printed_consts.join(",\n "));
-                parts.push(";".to_string());
+                parts.push(";\n".to_string());
             }
             Node::Property { name, value } => {
                 parts.push(name.to_string());
@@ -178,7 +209,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 push_if_some!(is_static, parts);
                 parts.push(format(properties, line, col, options));
 
-                parts.push(";".to_string());
+                parts.push(";\n".to_string());
             }
             Node::MethodDefinitionStatement {
                 token,
@@ -200,7 +231,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 push_if_some!(is_abstract, parts);
 
                 parts.push(format!(
-                    "{} {}{}",
+                    "{} {}{}\n",
                     token,
                     name,
                     format_node(function, line, col, options)
@@ -267,7 +298,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 cc,
                 alterations,
             } => parts.push(format!(
-                "{} {}\n{}{}{}",
+                "{} {}\n{}{}{}\n",
                 alteration_group_type_refs
                     .iter()
                     .map(|n| format_node(n, line, col, options))
@@ -286,6 +317,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
             Node::TypeRef(..) => parts.push(format_node(node, line, col, options)),
 
             Node::ExpressionStatement { expression } => {
+                parts.push(" ".repeat(col));
                 parts.push(format_node(expression, line, col, options));
                 parts.push(";\n".to_string());
             }
@@ -300,7 +332,32 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                     parts.push(" ".to_string());
                     parts.push(format_node(expression, line, col, options));
                 }
-                parts.push(";".to_string());
+                parts.push(";\n".to_string());
+            }
+
+            Node::UseFunctionStatement { imports, .. } => {
+                parts.push(" ".repeat(col));
+                parts.push("use function ".to_owned());
+                parts.push(
+                    imports
+                        .iter()
+                        .map(|n| format_node(n, line, col, options))
+                        .collect::<Vec<String>>()
+                        .join(", "),
+                );
+                parts.push(";\n".to_string());
+            }
+            Node::UseConstStatement { token, imports } => {
+                parts.push(" ".repeat(col));
+                parts.push("use const ".to_owned());
+                parts.push(
+                    imports
+                        .iter()
+                        .map(|n| format_node(n, line, col, options))
+                        .collect::<Vec<String>>()
+                        .join(", "),
+                );
+                parts.push(";\n".to_string());
             }
             Node::UseStatement { token, imports } => {
                 parts.push(" ".repeat(col));
@@ -337,6 +394,183 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
             Node::UseDeclaration { declaration, .. } => {
                 parts.push(format_node(declaration, line, col, options));
             }
+
+            Node::IfStatement {
+                if_branch,
+                elseif_branches,
+                else_branch,
+            } => parts.push(format!(
+                "{}{} {} {}\n",
+                " ".repeat(col),
+                format_node(if_branch, line, col, options),
+                elseif_branches
+                    .iter()
+                    .map(|i| format_node(i, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(""),
+                if let Some(else_branch) = else_branch {
+                    format_node(else_branch, line, col, options)
+                } else {
+                    String::from("")
+                }
+            )),
+            Node::StaticVariablesStatement {
+                token,
+                assignments: vars,
+            }
+            | Node::GlobalVariablesStatement { token, vars } => parts.push(format!(
+                "{} {}",
+                token,
+                vars.iter()
+                    .map(|var| format_node(var, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            )),
+
+            Node::SwitchCase {
+                token,
+                op,
+                expr,
+                cp,
+                body,
+            } => parts.push(format!(
+                "switch ({}) {}\n",
+                format_node(expr, line, col, options),
+                format_node(body, line, col, options)
+            )),
+
+            Node::TryCatch {
+                token,
+                try_block,
+                catch_blocks,
+                finally_block,
+            } => parts.push(format!(
+                "{}try {}{} {}\n",
+                " ".repeat(col),
+                format_node(try_block, line, col, options),
+                catch_blocks
+                    .iter()
+                    .map(|cb| format_node(cb, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(""),
+                if let Some(finally_block) = finally_block {
+                    format_node(finally_block, line, col, options)
+                } else {
+                    String::from("")
+                }
+            )),
+
+            Node::NamespaceStatement { token, type_ref } => parts.push(format!(
+                "\n{} {};\n",
+                token,
+                format_node(type_ref, line, col, options)
+            )),
+            Node::NamespaceBlock {
+                token,
+                type_ref,
+                block,
+            } => parts.push(if let Some(type_ref) = type_ref {
+                format!(
+                    "{} {} {}\n",
+                    token,
+                    format_node(type_ref, line, col, options),
+                    format_node(block, col + options.indent, line, options)
+                )
+            } else {
+                format!(
+                    "{} {}\n",
+                    token,
+                    format_node(block, col + options.indent, line, options)
+                )
+            }),
+
+            Node::WhileStatement {
+                condition, body, ..
+            } => parts.push(format!(
+                "{}while ({}) {}\n",
+                " ".repeat(col),
+                format_node(condition, line, col, options),
+                format_node(body, line, col, options)
+            )),
+            Node::DoWhileStatement {
+                do_token,
+                op,
+                cp,
+                while_token,
+                condition,
+                body,
+            } => parts.push(format!(
+                "{}do {} while ({});\n",
+                " ".repeat(col),
+                format_node(body, line, col, options),
+                format_node(condition, line, col, options),
+            )),
+            Node::ForStatement {
+                token,
+                init,
+                condition,
+                step,
+                body,
+            } => parts.push(format!(
+                "{}for ({}; {}; {}) {}\n",
+                " ".repeat(col),
+                init.iter()
+                    .map(|i| format_node(i, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(", "),
+                condition
+                    .iter()
+                    .map(|c| format_node(c, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(", "),
+                step.iter()
+                    .map(|s| format_node(s, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(", "),
+                format_node(body, line, col, options)
+            )),
+            Node::ForEachStatement {
+                token,
+                op,
+                collection,
+                as_token,
+                kv,
+                cp,
+                body,
+            } => parts.push(format!(
+                "{}foreach ({} as {}) {}\n",
+                " ".repeat(col),
+                format_node(collection, line, col, options),
+                format_node(kv, line, col, options),
+                format_node(body, line, col, options)
+            )),
+            Node::TokenStatement { token, expr } => {
+                parts.push(" ".repeat(col));
+                parts.push(token.to_string());
+                parts.push(";".to_owned())
+            }
+
+            Node::Static { token, expr }
+            | Node::EchoStatement {
+                token,
+                expressions: expr,
+            }
+            | Node::ConstStatement {
+                token,
+                constants: expr,
+            }
+            | Node::PrintStatement {
+                token,
+                expressions: expr,
+            } => parts.push(format!(
+                "{}{} {};\n",
+                " ".repeat(col),
+                token,
+                expr.iter()
+                    .map(|parameter| format_node(parameter, line, col, options))
+                    .collect::<Vec<String>>()
+                    .join(", "),
+            )),
             _ => unimplemented!("{:?}", node),
         }
     }
@@ -352,9 +586,9 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
 /// * line - The current start line
 /// * col - The current column / indentation level
 /// * options - The formatter options
-pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions) -> String {
+fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions) -> String {
     match node {
-        Node::Grouping(grouped) => format_node(grouped, line, col, options),
+        Node::Grouping(grouped) => format!("({})", format_node(grouped, line, col, options)),
         Node::FileInclude { token, resource } => {
             format!("{} {}", token, format_node(resource, line, col, options))
         }
@@ -400,13 +634,11 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
                 format_node(value, line, col, options)
             )
         }
-        Node::Block { oc, cc, statements } => {
+        Node::Block { statements, .. } => {
             format!(
-                "{}\n{}\n{}{}",
-                oc,
+                "{{\n{}{}}}",
                 format(statements, line, col + options.indent, options),
                 " ".repeat(col),
-                cc
             )
         }
         Node::FunctionDefinitionStatement {
@@ -436,11 +668,12 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             // Interfaces and abstract methods do not have a body
             if let Some(body) = body {
                 format!(
-                    "{}{}{}{} {}",
+                    "{}{}{}{}\n{}{}",
                     op,
                     arguments,
                     cp,
                     return_type,
+                    " ".repeat(col),
                     format_node(body, line, col, options)
                 )
             } else {
@@ -558,14 +791,22 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
         }
         Node::Binary { left, right, token } => {
             format!(
-                "{}{} {} {}",
-                " ".repeat(col),
+                "{} {} {}",
                 format_node(left, line, col, options),
                 token,
                 format_node(right, line, col, options)
             )
         }
-        Node::New { token, class } => {
+        Node::New { token, class }
+        | Node::Clone {
+            token,
+            object: class,
+        }
+        | Node::YieldFrom { token, expr: class }
+        | Node::ThrowStatement {
+            token,
+            expression: class,
+        } => {
             format!("{} {}", token, format_node(class, line, col, options))
         }
         Node::Class {
@@ -664,21 +905,16 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             }
         }
         Node::Call {
-            callee,
-            cp,
-            parameters,
-            op,
+            callee, parameters, ..
         } => {
             format!(
-                "{}{}{}{}",
+                "{}({})",
                 format_node(callee, line, col, options),
-                op,
                 parameters
                     .iter()
                     .map(|p| format_node(p, line, col, options))
                     .collect::<Vec<String>>()
                     .join(", "),
-                cp,
             )
         }
         Node::DataType {
@@ -758,6 +994,501 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
                 format_node(expr, line, col, options)
             )
         }
+        Node::Unary { token, expr } => {
+            format!("{} {}", token, format_node(expr, line, col, options))
+        }
+
+        Node::DocComment {
+            comment,
+            return_type,
+            description,
+            is_deprecated,
+            params,
+            var_docs,
+            properties,
+        } => comment.to_string(),
+        Node::PostUnary { expr, token } => {
+            format!("{}{}", format_node(expr, line, col, options), token)
+        }
+        Node::Const { name, token, value } => format!(
+            "{} {} = {}",
+            token,
+            name,
+            format_node(value, line, col, options)
+        ),
+        Node::Ternary {
+            check,
+            qm,
+            true_arm,
+            colon,
+            false_arm,
+        } => {
+            if let Some(ta) = true_arm {
+                format!(
+                    "{} {} {} {} {}",
+                    format_node(check, line, col, options),
+                    qm,
+                    format_node(ta, line, col, options),
+                    colon,
+                    format_node(false_arm, line, col, options)
+                )
+            } else {
+                format!(
+                    "{} {} {} {}",
+                    format_node(check, line, col, options),
+                    qm,
+                    colon,
+                    format_node(false_arm, line, col, options)
+                )
+            }
+        }
+        Node::LexicalVariable {
+            reference,
+            variable,
+        } => format!("{}{}", str_if_some!(reference), variable),
+        Node::AliasedVariable { variable, expr } => {
+            format!("{}{}", variable, format_node(expr, line, col, options))
+        }
+        Node::DynamicVariable {
+            variable,
+            oc,
+            expr,
+            cc,
+        } => format!(
+            "{}{}{}{}",
+            variable,
+            oc,
+            format_node(expr, line, col, options),
+            cc
+        ),
+        Node::StaticVariable {
+            variable,
+            assignment,
+            value,
+        } => {
+            if let Some(value) = value {
+                format!("{} = {}", variable, format_node(value, line, col, options))
+            } else {
+                format!("{}", variable)
+            }
+        }
+        Node::OldArray {
+            token,
+            op,
+            elements,
+            cp,
+        }
+        | Node::List {
+            token,
+            op,
+            elements,
+            cp,
+        } => format!(
+            "{}{}{}{}",
+            token,
+            op,
+            elements
+                .iter()
+                .map(|element| format_node(element, line, col, options))
+                .collect::<Vec<String>>()
+                .join(", "),
+            cp,
+        ),
+        Node::Isset {
+            isset,
+            op,
+            parameters,
+            cp,
+        } => format!(
+            "{}{}{}{}",
+            isset,
+            op,
+            parameters
+                .iter()
+                .map(|parameter| format_node(parameter, line, col, options))
+                .collect::<Vec<String>>()
+                .join(", "),
+            cp
+        ),
+
+        Node::DieStatement {
+            token,
+            op,
+            expr,
+            cp,
+        } => {
+            if let Some(expr) = expr {
+                format!(
+                    "{}{}{}{}",
+                    token,
+                    op,
+                    format_node(expr, line, col, options),
+                    cp,
+                )
+            } else {
+                format!("{}{}{}", token, op, cp,)
+            }
+        }
+        Node::UnsetStatement {
+            token,
+            op,
+            vars,
+            cp,
+        } => format!(
+            "{}{}{}{}",
+            token,
+            op,
+            vars.iter()
+                .map(|var| format_node(var, line, col, options))
+                .collect::<Vec<String>>()
+                .join(", "),
+            cp,
+        ),
+        Node::Empty {
+            empty,
+            op,
+            parameters,
+            cp,
+        } => format!(
+            "{}{}{}{}",
+            empty,
+            op,
+            parameters
+                .iter()
+                .map(|parameter| format_node(parameter, line, col, options))
+                .collect::<Vec<String>>()
+                .join(", "),
+            cp,
+        ),
+
+        Node::Exit {
+            exit: token,
+            op,
+            parameters,
+            cp,
+        }
+        | Node::HaltCompiler {
+            hc: token,
+            op,
+            parameters,
+            cp,
+        }
+        | Node::Die {
+            die: token,
+            op,
+            parameters,
+            cp,
+        } => {
+            if let Some(parameters) = parameters {
+                format!(
+                    "{}({})",
+                    token,
+                    parameters
+                        .iter()
+                        .map(|parameter| format_node(parameter, line, col, options))
+                        .collect::<Vec<String>>()
+                        .join(", "),
+                )
+            } else {
+                format!("{} ", token)
+            }
+        }
+
+        Node::Yield { token, expr } => {
+            if let Some(expr) = expr {
+                format!("{} {}", token, format_node(expr, line, col, options))
+            } else {
+                token.to_string()
+            }
+        }
+        Node::UseConst {
+            token,
+            constant: thing,
+            aliased,
+            alias,
+        }
+        | Node::UseFunction {
+            token,
+            function: thing,
+            aliased,
+            alias,
+        } => {
+            let mut result = String::new();
+
+            if let Some(token) = token {
+                result.push_str(&token.to_string());
+                result.push(' ');
+            }
+            if let Some(aliased) = aliased.as_ref() {
+                result.push_str(&format!(
+                    "{} {} {}",
+                    format_node(thing, col, line, options),
+                    aliased,
+                    alias.as_ref().unwrap()
+                ));
+            } else {
+                result.push_str(&format!("{}", format_node(thing, col, line, options)));
+            }
+
+            result
+        }
+        Node::GotoStatement { token, label } => format!("{}{}", token, label),
+        Node::LabelStatement { label, colon } => format!("{}{}", label, colon),
+        Node::DeclareStatement {
+            directive,
+            value,
+            assignment,
+            op,
+            cp,
+            token,
+        } => format!("{}{}{}{}{}", token, op, directive, assignment, cp),
+        Node::DefineStatement {
+            name,
+            value,
+            op,
+            cp,
+            token,
+            is_caseinsensitive,
+        } => {
+            if let Some(is_caseinsensitive) = is_caseinsensitive {
+                format!(
+                    "{}{},{},{}{}",
+                    op,
+                    format_node(name, line, col, options),
+                    format_node(value, line, col, options),
+                    is_caseinsensitive,
+                    cp
+                )
+            } else {
+                format!(
+                    "{}{},{}{}",
+                    op,
+                    format_node(value, line, col, options),
+                    format_node(name, line, col, options),
+                    cp
+                )
+            }
+        }
+        Node::AlternativeBlock {
+            colon,
+            statements,
+            terminator,
+        } => format!(
+            ":\n{}\n{}{};",
+            statements
+                .iter()
+                .map(|i| format_node(i, line, col + options.indent, options))
+                .collect::<Vec<String>>()
+                .join(", "),
+            " ".repeat(col),
+            terminator
+        ),
+        Node::IfBranch {
+            token,
+            condition,
+            body,
+            ..
+        } => format!(
+            "{} ({}) {}",
+            token,
+            format_node(condition, line, col, options),
+            format_node(body, line, col, options),
+        ),
+        Node::ElseBranch { token, body } => {
+            format!("else {}", format_node(body, line, col, options),)
+        }
+        Node::SwitchBranch { cases, body } => {
+            let caselist = cases
+                .iter()
+                .map(|n| {
+                    if let Some(n) = n {
+                        format!(
+                            "{}case {}:",
+                            " ".repeat(col),
+                            format_node(n, line, col + options.indent, options)
+                        )
+                    } else {
+                        format!("{}default:", " ".repeat(col),)
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join("\n");
+
+            format!(
+                "{}\n{}",
+                caselist,
+                format(body, line, col + options.indent, options),
+            )
+        }
+        Node::SwitchBody {
+            start,
+            branches,
+            end,
+        } => format!(
+            "{}\n{}{}{}",
+            start,
+            " ".repeat(col),
+            branches
+                .iter()
+                .map(|i| format_node(i, line, col + options.indent, options))
+                .collect::<Vec<String>>()
+                .join("\n"),
+            end,
+        ),
+        Node::CatchBlock {
+            token,
+            op,
+            types,
+            var,
+            cp,
+            body,
+        } => format!(
+            " catch ({} {}) {}",
+            types
+                .iter()
+                .map(|i| format_node(i, line, col, options))
+                .collect::<Vec<String>>()
+                .join(" | "),
+            var,
+            format_node(body, line, col, options)
+        ),
+        Node::FinallyBlock { token, body } => {
+            dbg!(body);
+            format!("finally {}", format_node(body, line, col, options))
+        }
+
         _ => unimplemented!("{:?}", node),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::parser::scanner::Scanner;
+    use crate::parser::Parser;
+
+    fn ast(source: &str) -> Vec<Node> {
+        let mut scanner = Scanner::new(&format!("<?php\n{}", source));
+
+        scanner.scan().unwrap();
+
+        Parser::ast(scanner.tokens).unwrap().0
+    }
+
+    #[test]
+    fn test_formats_conditionals() {
+        let src = "\
+if ($a == 1) {
+    echo '1';
+} elseif ($a == 2) {
+    echo '2';
+} else {
+    echo '3';
+}
+
+switch ($rofl) {
+    case 1:
+    case 2:
+        doIt();
+        break;
+    default:
+        echo 'oh oh';
+        return;
+}
+";
+
+        let opt = FormatterOptions {
+            indent: 4,
+            max_line_length: 0,
+        };
+        assert_eq!(src, format_file(&ast(src), 0, 0, &opt));
+    }
+
+    #[test]
+    fn test_formats_try_catch() {
+        let src = "\
+try {
+    echo 'hello my friend';
+} catch (TestException | RoflExeption $e) {
+    echo 'Well, this failed!';
+} catch (OhOhException $e) {
+    echo 'even worse!';
+} finally {
+    cleanUp();
+    cleanUp();
+}
+";
+
+        let opt = FormatterOptions {
+            indent: 4,
+            max_line_length: 0,
+        };
+        assert_eq!(src, format_file(&ast(src), 0, 0, &opt));
+    }
+
+    #[test]
+    fn test_formats_loops() {
+        let src = "\
+while (true) {
+    echo 'still there';
+}
+
+for ($i = 0, $y = 2; $y > $i; $y++) {
+    echo 'going strong';
+}
+
+do {
+    nothing();
+} while ($gogogogo);
+
+foreach ($rofl as $copter => $sropter) {
+    nothing();
+}
+";
+
+        let opt = FormatterOptions {
+            indent: 4,
+            max_line_length: 0,
+        };
+        assert_eq!(src, format_file(&ast(src), 0, 0, &opt));
+    }
+
+    #[test]
+    fn test_formats_namespace_blocks() {
+        let src = "\
+namespace Lol;
+
+namespace {
+}
+
+namespace Rofl {
+}
+
+namespace Rofl\\Copter {
+}
+";
+
+        let opt = FormatterOptions {
+            indent: 4,
+            max_line_length: 0,
+        };
+        assert_eq!(src, format_file(&ast(src), 0, 0, &opt));
+    }
+
+    #[test]
+    fn test_respects_one_additional_line_between_statements() {
+        let src = "\
+echo 'test';
+
+
+echo 'test2';
+";
+
+        let opt = FormatterOptions {
+            indent: 4,
+            max_line_length: 0,
+        };
+        assert_eq!(src, format_file(&ast(src), 0, 0, &opt));
     }
 }

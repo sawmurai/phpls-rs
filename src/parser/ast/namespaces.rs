@@ -250,7 +250,7 @@ pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::formatter::{format, FormatterOptions};
+    use crate::formatter::{format_file, FormatterOptions};
     use crate::parser::node::Node;
     use crate::parser::scanner::Scanner;
     use crate::parser::token::Token;
@@ -303,7 +303,7 @@ mod tests {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
         let expected = "\
 use Rofl\\Copter, Copter\\Rofl as Something, Some\\{
     NamespaceOne,

@@ -278,11 +278,9 @@ pub enum Node {
         assignment: Option<Token>,
         value: Option<Box<Node>>,
     },
-    Operator(Token),
     Identifier(Token),
 
     // Formerly known path
-    QualifiedNamespaceName(Vec<Node>),
     Grouping(Box<Node>),
 
     Array {
