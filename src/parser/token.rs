@@ -690,6 +690,9 @@ impl Display for Token {
 
         let dis = match self.t {
             // Variables without a label are aliased variables like $$varname
+            TokenType::LineComment => {
+                format!("//{}", self.label.as_ref().unwrap_or(&String::from("")))
+            }
             TokenType::Variable => format!("${}", self.label.as_ref().unwrap_or(&String::from(""))),
             TokenType::Identifier => self.label.as_ref().unwrap().to_string(),
             TokenType::MultilineComment => {

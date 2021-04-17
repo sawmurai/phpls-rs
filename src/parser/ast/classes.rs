@@ -479,8 +479,10 @@ mod tests {
         let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-class Test {
-    public static function test() {
+class Test
+{
+    public static function test()
+    {
     }
 }
 "
@@ -505,7 +507,8 @@ class Test {
         let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-class Test {
+class Test
+{
     public const ROFL = 'test';
 }
 "
@@ -531,7 +534,8 @@ class Test {
         let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-class Test {
+class Test
+{
     public const ROFL = 'test',
                  COPTER = 2;
 }
@@ -557,7 +561,8 @@ class Test {
         let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-class Test {
+class Test
+{
     public $rofl = 1;
 }
 "
@@ -583,8 +588,10 @@ class Test {
         let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-abstract class Test {
-    public static function test() {
+abstract class Test
+{
+    public static function test()
+    {
     }
 }
 "
@@ -610,8 +617,10 @@ abstract class Test {
         let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-final class Test {
-    public static function test() {
+final class Test
+{
+    public static function test()
+    {
     }
 }
 "
@@ -636,7 +645,8 @@ final class Test {
         let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-class Test extends ParentC implements Treatable {
+class Test extends ParentC implements Treatable
+{
 }
 "
         .to_owned();
@@ -647,7 +657,8 @@ class Test extends ParentC implements Treatable {
     #[test]
     fn test_parses_class_with_traits() {
         let original = "<?php
-class Aliased_Talker {
+class Aliased_Talker
+{
     use Some;
     use A, B {
         B::smallTalk insteadof A;
@@ -672,7 +683,8 @@ class Aliased_Talker {
 
         let formatted = format_file(&ast, 0, 0, &options);
         let expected = "\
-class Aliased_Talker {
+class Aliased_Talker
+{
     use Some;
     use A, B {
         B::smallTalk insteadof A;
@@ -704,7 +716,8 @@ class Aliased_Talker {
 
         let expected = "\
 $o = new class {
-    public static function test() {
+    public static function test()
+    {
     }
 };
 "
@@ -731,7 +744,8 @@ $o = new class {
 
         let expected = "\
 $o = new class extends ParentC implements Treatable {
-    public static function test() {
+    public static function test()
+    {
     }
 };
 "
@@ -758,7 +772,8 @@ $o = new class extends ParentC implements Treatable {
 
         let expected = "\
 $o = new class($variable) {
-    public static function test() {
+    public static function test()
+    {
     }
 };
 "
@@ -783,7 +798,8 @@ $o = new class($variable) {
         let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-interface Treatable {
+interface Treatable 
+{
     public function callMe();
 }
 "
@@ -810,7 +826,8 @@ interface Treatable {
         let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-interface Treatable extends OtherInterface {
+interface Treatable extends OtherInterface 
+{
     public function callMe();
 }
 "

@@ -149,7 +149,7 @@ fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> 
                 push_if_some!(is_abstract, parts);
 
                 parts.push(format!(
-                    "{} {}{}{} \n{}{}",
+                    "{} {}{}{}\n{}{}",
                     token,
                     name,
                     optional_ident!(" extends ", "", extends, line, col, options),
@@ -1456,7 +1456,7 @@ foreach ($rofl as $copter => $sropter) {
 
     #[test]
     fn test_formats_namespace_blocks() {
-        let src = "\
+        let src = "
 namespace Lol;
 
 namespace {
@@ -1480,7 +1480,6 @@ namespace Rofl\\Copter {
     fn test_respects_one_additional_line_between_statements() {
         let src = "\
 echo 'test';
-
 
 echo 'test2';
 ";

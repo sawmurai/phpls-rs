@@ -474,6 +474,7 @@ impl Parser {
                 TokenType::MultilineComment => {
                     self.doc_comments.push(next);
                 }
+                TokenType::LineComment => continue,
                 _ => return Some(next),
             }
         }
@@ -488,6 +489,8 @@ impl Parser {
                 return None;
             } else if last.t == TokenType::MultilineComment {
                 self.doc_comments.push(last);
+            } else if last.t == TokenType::LineComment {
+                continue;
             } else {
                 self.tokens.push(last);
 

@@ -67,7 +67,8 @@ mod tests {
 
         let expected = "\
 #[Sample([1, 2, 3])]
-class Test {
+class Test
+{
 }
 "
         .to_owned();
@@ -97,7 +98,8 @@ class Test {
 
         let expected = "\
 #[Sample]
-class Test {
+class Test
+{
 }
 "
         .to_owned();
@@ -126,9 +128,11 @@ class Test {
 
         let expected = "\
 
-class Test {
+class Test
+{
     #[Sample([1, 2, 3])]
-    public function rofl() {
+    public function rofl()
+    {
     }
 }
 "
@@ -158,7 +162,8 @@ class Test {
 
         let expected = "\
 
-class Test {
+class Test
+{
     #[Sample([1, 2, 3])]
     public $rofl;
 }
@@ -189,7 +194,8 @@ class Test {
 
         let expected = "\
 
-class Test {
+class Test
+{
     #[Sample([1, 2, 3])]
     public const ROFL = '';
 }
@@ -220,7 +226,8 @@ class Test {
 
         let expected = "\
 
-class Test {
+class Test
+{
     #[Sample([1, 2, 3])]
     #[Sample2([1, 2, 3]), Sample3([1, 2, 3])]
     public $rofl;
@@ -252,7 +259,8 @@ class Test {
 
         let expected = "\
 
-function test(#[Attr('lol')] string $theAttr) {
+function test(#[Attr('lol')] string $theAttr)
+{
 }
 "
         .to_owned();
@@ -282,7 +290,8 @@ function test(#[Attr('lol')] string $theAttr) {
 
         let expected = "\
 #[Attr('lol')]
-function test(string $theAttr) {
+function test(string $theAttr)
+{
 }
 "
         .to_owned();

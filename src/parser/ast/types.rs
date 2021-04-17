@@ -167,7 +167,8 @@ mod tests {
         let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-function func(string | int $param): string | int {
+function func(string | int $param): string | int
+{
     return $param;
 }
 "

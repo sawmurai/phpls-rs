@@ -392,11 +392,15 @@ impl Scanner {
                         self.advance();
                         self.push_token(TokenType::AttributeStart);
                     }
-                    _ => self.advance_until_after_line_comment(),
+                    _ => {
+                        self.advance();
+                        self.consume_line_comment();
+                    }
                 },
                 '/' => match self.peek() {
                     Some('/') => {
-                        self.advance_until_after_line_comment();
+                        self.advance();
+                        self.consume_line_comment();
 
                         //self.push_token(TokenType::LineComment);
                     }
@@ -858,13 +862,15 @@ impl Scanner {
 
     /// Advances until after the end of the line comment, which can either be the script end or
     /// a newline
-    fn advance_until_after_line_comment(&mut self) {
+    fn consume_line_comment(&mut self) {
+        let mut comment = String::new();
         while let Some(c) = self.advance() {
             match c {
                 '\n' | '\r' => break,
                 '?' => {
                     if let Some(&'>') = self.peek() {
                         self.advance();
+                        self.push_named_token(TokenType::LineComment, &comment);
                         self.push_token(TokenType::ScriptEnd);
                         self.context = Context::OutScript;
                         break;
@@ -872,6 +878,8 @@ impl Scanner {
                 }
                 _ => {}
             }
+
+            comment.push(c);
         }
     }
 
@@ -1359,7 +1367,7 @@ for ($i = 0; $i < 100; $i++) {}",
 
         assert_eq!(
             token_list!(scanner.tokens),
-            "<?php echo 'blubb' ; /** some multiline comment */ echo 'blabb' ; ?>"
+            "<?php echo 'blubb' ; /** some multiline comment */ echo 'blabb' ; //  ?>"
         );
     }
     #[test]
@@ -1368,7 +1376,7 @@ for ($i = 0; $i < 100; $i++) {}",
 
         scanner.scan().unwrap();
 
-        assert_eq!(token_list!(scanner.tokens), "<?php ?>");
+        assert_eq!(token_list!(scanner.tokens), "<?php // Line comment  ?>");
     }
 
     #[test]
