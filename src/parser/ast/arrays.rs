@@ -93,11 +93,11 @@ mod tests {
     #[test]
     fn test_parses_an_array() {
         let mut tokens = vec![
-            Token::new(TokenType::OpenBrackets, 1, 1),
-            Token::named(TokenType::LongNumber, 1, 1, "10"),
-            Token::new(TokenType::Comma, 1, 1),
-            Token::named(TokenType::LongNumber, 1, 1, "12"),
-            Token::new(TokenType::CloseBrackets, 10, 10),
+            Token::new(TokenType::OpenBrackets, 1, 1, 0),
+            Token::named(TokenType::LongNumber, 1, 1, 0, "10"),
+            Token::new(TokenType::Comma, 1, 1, 0),
+            Token::named(TokenType::LongNumber, 1, 1, 0, "12"),
+            Token::new(TokenType::CloseBrackets, 10, 10, 0),
         ];
         tokens.reverse();
 
@@ -111,8 +111,8 @@ mod tests {
         };
 
         let expected = Node::Array {
-            ob: Token::new(TokenType::OpenBrackets, 1, 1),
-            cb: Token::new(TokenType::CloseBrackets, 10, 10),
+            ob: Token::new(TokenType::OpenBrackets, 1, 1, 0),
+            cb: Token::new(TokenType::CloseBrackets, 10, 10, 0),
             elements: vec![
                 Node::ArrayElement {
                     key: None,
@@ -121,6 +121,7 @@ mod tests {
                         TokenType::LongNumber,
                         1,
                         1,
+                        0,
                         "10",
                     ))),
                 },
@@ -131,6 +132,7 @@ mod tests {
                         TokenType::LongNumber,
                         1,
                         1,
+                        0,
                         "12",
                     ))),
                 },

@@ -269,12 +269,12 @@ mod tests {
         assert_eq!(1, ast.len());
         assert_eq!(
             Node::NamespaceStatement {
-                token: Token::new(TokenType::Namespace, 1, 8),
+                token: Token::new(TokenType::Namespace, 1, 8, 0),
                 type_ref: Box::new(Node::TypeRef(
                     vec![
-                        Token::named(TokenType::Identifier, 1, 18, "Rofl"),
-                        Token::new(TokenType::NamespaceSeparator, 1, 22),
-                        Token::named(TokenType::Identifier, 1, 23, "Copter")
+                        Token::named(TokenType::Identifier, 1, 18, 0, "Rofl"),
+                        Token::new(TokenType::NamespaceSeparator, 1, 22, 0),
+                        Token::named(TokenType::Identifier, 1, 23, 0, "Copter")
                     ]
                     .into()
                 ))

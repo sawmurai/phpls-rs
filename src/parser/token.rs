@@ -13,6 +13,8 @@ pub enum ScriptStartType {
 pub enum TokenType {
     Eof,
 
+    Linebreak,
+
     // Special tokentype that is used when the expected tokentype was not found
     Missing,
 
@@ -316,24 +318,27 @@ pub struct Token {
     pub line: u32,
     pub t: TokenType,
     pub label: Option<String>,
+    pub offset: Option<usize>,
 }
 
 impl Token {
-    pub fn new(t: TokenType, line: u32, col: u32) -> Self {
+    pub fn new(t: TokenType, line: u32, col: u32, offset: usize) -> Self {
         Token {
             t,
             col,
             line,
             label: None,
+            offset: Some(offset),
         }
     }
 
-    pub fn named(t: TokenType, line: u32, col: u32, label: &str) -> Self {
+    pub fn named(t: TokenType, line: u32, col: u32, offset: usize, label: &str) -> Self {
         Token {
             t,
             col,
             line,
             label: Some(label.to_owned()),
+            offset: Some(offset),
         }
     }
 
@@ -343,6 +348,7 @@ impl Token {
             line: pos_of_prev.0,
             col: pos_of_prev.1,
             label: None,
+            offset: None,
         }
     }
 
@@ -441,6 +447,10 @@ impl Token {
             | TokenType::Identifier
             | TokenType::Generator
         )
+    }
+
+    pub fn is_comment(&self) -> bool {
+        matches!(self.t, TokenType::LineComment | TokenType::MultilineComment)
     }
 
     pub fn start(&self) -> (u32, u32) {

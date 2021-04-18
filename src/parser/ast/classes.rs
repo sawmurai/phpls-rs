@@ -432,22 +432,22 @@ mod tests {
     #[test]
     fn test_parses_trait_that_uses_trait() {
         let mut tokens = vec![
-            Token::new(TokenType::Trait, 1, 1),
-            Token::named(TokenType::Identifier, 2, 1, "TestControllerTrait"),
-            Token::new(TokenType::OpenCurly, 3, 1),
-            Token::new(TokenType::Use, 4, 1),
-            Token::named(TokenType::Identifier, 5, 1, "ControllerTrait"),
-            Token::new(TokenType::OpenCurly, 6, 1),
-            Token::named(TokenType::Identifier, 7, 1, "generateUrl"),
-            Token::new(TokenType::As, 8, 1),
-            Token::new(TokenType::Public, 9, 1),
-            Token::new(TokenType::Semicolon, 10, 1),
-            Token::named(TokenType::Identifier, 11, 1, "redirect"),
-            Token::new(TokenType::As, 12, 1),
-            Token::named(TokenType::Identifier, 13, 1, "roflcopter"),
-            Token::new(TokenType::Semicolon, 14, 1),
-            Token::new(TokenType::CloseCurly, 15, 1),
-            Token::new(TokenType::CloseCurly, 16, 1),
+            Token::new(TokenType::Trait, 1, 1, 0),
+            Token::named(TokenType::Identifier, 2, 1, 0, "TestControllerTrait"),
+            Token::new(TokenType::OpenCurly, 3, 1, 0),
+            Token::new(TokenType::Use, 4, 1, 0),
+            Token::named(TokenType::Identifier, 5, 1, 0, "ControllerTrait"),
+            Token::new(TokenType::OpenCurly, 6, 1, 0),
+            Token::named(TokenType::Identifier, 7, 1, 0, "generateUrl"),
+            Token::new(TokenType::As, 8, 1, 0),
+            Token::new(TokenType::Public, 9, 1, 0),
+            Token::new(TokenType::Semicolon, 10, 1, 0),
+            Token::named(TokenType::Identifier, 11, 1, 0, "redirect"),
+            Token::new(TokenType::As, 12, 1, 0),
+            Token::named(TokenType::Identifier, 13, 1, 0, "roflcopter"),
+            Token::new(TokenType::Semicolon, 14, 1, 0),
+            Token::new(TokenType::CloseCurly, 15, 1, 0),
+            Token::new(TokenType::CloseCurly, 16, 1, 0),
         ];
         tokens.reverse();
 

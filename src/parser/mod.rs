@@ -474,7 +474,7 @@ impl Parser {
                 TokenType::MultilineComment => {
                     self.doc_comments.push(next);
                 }
-                TokenType::LineComment => continue,
+                TokenType::LineComment | TokenType::Linebreak => continue,
                 _ => return Some(next),
             }
         }
@@ -489,7 +489,7 @@ impl Parser {
                 return None;
             } else if last.t == TokenType::MultilineComment {
                 self.doc_comments.push(last);
-            } else if last.t == TokenType::LineComment {
+            } else if last.t == TokenType::LineComment || last.t == TokenType::Linebreak {
                 continue;
             } else {
                 self.tokens.push(last);
@@ -795,6 +795,7 @@ mod tests {
                 line: 3,
                 t: TokenType::Missing,
                 label: None,
+                offset: None,
             },
         };
 
