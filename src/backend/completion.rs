@@ -11,7 +11,7 @@ use tower_lsp::lsp_types::{CompletionItem, CompletionParams, CompletionResponse,
 fn get_trigger(context: Option<CompletionContext>) -> Option<char> {
     if let Some(context) = context {
         if let Some(tc) = context.trigger_character {
-            tc.chars().nth(0)
+            tc.chars().next()
         } else {
             None
         }
@@ -86,10 +86,8 @@ pub(crate) fn completion(
                                 };
                             }
 
-                            // If the symbol is a class we try to add a namespace as a text edit
-                            let ns = if let Some(ns) = symbol.namespace.as_ref() {
-                                ns
-                            } else {
+                            // If the symbo is defined in the global namespace we just return it
+                            if symbol.namespace.is_none() {
                                 return symbol.completion_item(sn, &state.arena);
                             };
 
@@ -101,15 +99,11 @@ pub(crate) fn completion(
                             let fqdn = symbol.fqdn();
                             // Check if the current file already has that import. if yes we are good
                             let line = if let Some(imports) = current_file.imports.as_ref() {
-                                if imports
-                                    .all()
-                                    .find(|import| import.full_name() == fqdn)
-                                    .is_some()
-                                {
+                                if imports.all().any(|import| import.full_name() == fqdn) {
                                     return symbol.completion_item(sn, &state.arena);
                                 } else {
                                     // add use to the end of the imports
-                                    if let Some(first_import) = imports.all().nth(0) {
+                                    if let Some(first_import) = imports.all().next() {
                                         first_import.path.range().0 .0
                                     } else {
                                         3

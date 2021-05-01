@@ -201,7 +201,7 @@ impl Backend {
             .iter()
             .filter_map(|(k, _)| {
                 if k.contains("/vendor/") {
-                    return None;
+                    None
                 } else {
                     Some(k.clone())
                 }
@@ -320,9 +320,10 @@ impl Backend {
                         };
 
                         if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-                            match tx.send((EnvFs::normalize_path(&path), ast, range, errors)) {
-                                Err(e) => eprintln!("{:?}", e),
-                                _ => (),
+                            if let Err(e) =
+                                tx.send((EnvFs::normalize_path(&path), ast, range, errors))
+                            {
+                                eprintln!("{:?}", e);
                             };
                         }
                     }
@@ -445,7 +446,7 @@ impl Backend {
         container: Option<&mut ReferenceMap>,
     ) -> io::Result<()> {
         let enclosing_file = if let Some(file) = state.files.get(path) {
-            file.clone()
+            *file
         } else {
             eprintln!("Dafuq! {}", path);
 
@@ -521,9 +522,9 @@ impl Backend {
             diagnostics.clear();
             diagnostics.extend(errors.iter().map(Diagnostic::from));
 
-            state.opened_files.insert(path.to_string(), (ast, range));
+            state.opened_files.insert(path, (ast, range));
 
-            if let Err(_) = reindex_result {
+            if reindex_result.is_err() {
                 return;
             }
         }
@@ -759,7 +760,7 @@ impl LanguageServer for Backend {
                             }));
                         }
 
-                        return None;
+                        None
                     })
                     .flatten()
                     .collect();

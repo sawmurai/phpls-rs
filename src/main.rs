@@ -69,12 +69,13 @@ async fn main() {
 
         return;
     }
+
     if let Some(dir) = matches.value_of("dir") {
         let ip: Vec<PathBuf> = ignore_patterns.iter().map(PathBuf::from).collect();
         if let Ok(paths) = environment::fs::reindex_folder(&PathBuf::from(dir), &ip) {
             paths
                 .iter()
-                .map(environment::fs::normalize_path)
+                .map(|pb| environment::fs::normalize_path(pb))
                 .for_each(|file| {
                     if let Err(e) = Backend::source_to_ast(&file) {
                         eprintln!("Error: {}", e);

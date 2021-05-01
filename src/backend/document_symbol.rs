@@ -10,7 +10,7 @@ pub(crate) fn document_symbol(
     let file_path = EnvFs::normalize_path(&params.text_document.uri.to_file_path().unwrap());
 
     let node_id = if let Some(node_id) = state.files.get(&file_path) {
-        node_id.clone()
+        node_id
     } else {
         return Ok(None);
     };

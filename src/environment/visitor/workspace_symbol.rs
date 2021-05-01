@@ -123,7 +123,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let s_name = name.to_string();
                 let range = get_range(node.range());
 
-                let namespace = self.namespace.as_ref().map(|ns| ns.clone());
+                let namespace = self.namespace.as_ref().cloned();
 
                 let mut data_types = vec![Reference::type_ref(vec![name.clone()].into())];
                 if let Some(implements) = implements {
@@ -185,7 +185,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let name = name.to_string();
                 let range = get_range(node.range());
 
-                let namespace = self.namespace.as_ref().map(|ns| ns.clone());
+                let namespace = self.namespace.as_ref().cloned();
 
                 let child = arena.new_node(Symbol {
                     namespace,
@@ -209,19 +209,15 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let selection_range = get_range(name.range());
                 let name = name.to_string();
                 let range = get_range(node.range());
-                let inherits_from = if let Some(extends) = extends {
-                    Some(
-                        extends
-                            .iter()
-                            .filter_map(get_type_ref)
-                            .map(Reference::type_ref)
-                            .collect(),
-                    )
-                } else {
-                    None
-                };
+                let inherits_from = extends.as_ref().map(|extends| {
+                    extends
+                        .iter()
+                        .filter_map(get_type_ref)
+                        .map(Reference::type_ref)
+                        .collect()
+                });
 
-                let namespace = self.namespace.as_ref().map(|ns| ns.clone());
+                let namespace = self.namespace.as_ref().cloned();
 
                 let child = arena.new_node(Symbol {
                     namespace,

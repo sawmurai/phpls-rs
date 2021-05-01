@@ -381,7 +381,7 @@ impl Symbol {
             .join(", ")
     }
 
-    pub fn name<'a>(&self) -> &str {
+    pub fn name(&self) -> &str {
         if self.name.starts_with('$') {
             &self.name[1..]
         } else {

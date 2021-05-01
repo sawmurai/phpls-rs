@@ -31,11 +31,7 @@ fn exec(
     if let Some(references) = state.symbol_references.get(file) {
         for (node, ranges) in references {
             // Does this symbol has a reference at the location we are looking?
-            if ranges
-                .iter()
-                .find(|r| in_range(position, &get_range(**r)))
-                .is_some()
-            {
+            if ranges.iter().any(|r| in_range(position, &get_range(*r))) {
                 // If it does, return with all of its references
                 if let Some(ranges) = references.get(&node) {
                     return Ok(Some(

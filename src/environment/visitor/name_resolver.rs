@@ -189,9 +189,7 @@ impl<'a> NameResolver<'a> {
 
     /// Resolve fully qualified
     pub fn resolve_fully_qualified(&mut self, name: &str) -> Option<NodeId> {
-        self.global_scope
-            .get(&name.to_lowercase())
-            .map(|node| *node)
+        self.global_scope.get(&name.to_lowercase()).copied()
     }
 
     /// Resolve a TypeRef `Some\Name\Space` to the node of the definition of that symbol

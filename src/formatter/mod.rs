@@ -70,7 +70,6 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
         match node {
             Node::NamedFunctionDefinitionStatement {
                 name,
-                by_ref,
                 function,
                 token,
                 attributes,
@@ -130,7 +129,6 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
             }
             Node::ClassConstantDefinitionStatement {
                 token,
-                doc_comment,
                 consts,
                 visibility,
                 attributes,
@@ -336,12 +334,7 @@ pub fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions)
                 parts.push("\n".to_string());
             }
 
-            Node::UseDeclaration {
-                declaration,
-                alias,
-                aliased,
-                ..
-            } => {
+            Node::UseDeclaration { declaration, .. } => {
                 parts.push(format_node(declaration, line, col, options));
             }
             _ => unimplemented!("{:?}", node),
@@ -456,7 +449,6 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
         }
         Node::ArrowFunction {
             is_static,
-            by_ref,
             token,
             op,
             arguments,
@@ -465,6 +457,7 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             return_type,
             body,
             attributes,
+            ..
         } => {
             let arguments = if let Some(arguments) = arguments {
                 arguments
@@ -488,10 +481,10 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             };
 
             let mut attributes_formatted = String::from("");
-            if attributes.len() > 0 {
+            if !attributes.is_empty() {
                 attributes_formatted
                     .push_str(&format(attributes, line, 0, options).trim().to_string());
-                attributes_formatted.push_str(" ");
+                attributes_formatted.push(' ');
             }
 
             format!(
@@ -510,7 +503,6 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
         Node::Function {
             op,
             cp,
-            by_ref,
             is_static,
             body,
             attributes,
@@ -518,6 +510,7 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             return_type,
             token,
             uses,
+            ..
         } => {
             let arguments = if let Some(arguments) = arguments {
                 arguments
@@ -541,10 +534,10 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             };
 
             let mut attributes_formatted = String::from("");
-            if attributes.len() > 0 {
+            if !attributes.is_empty() {
                 attributes_formatted
                     .push_str(&format(attributes, line, 0, options).trim().to_string());
-                attributes_formatted.push_str(" ");
+                attributes_formatted.push(' ');
             }
 
             format!(
@@ -583,7 +576,7 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             implements,
             attributes,
         } => {
-            let attributes = if attributes.len() > 0 {
+            let attributes = if !attributes.is_empty() {
                 format!(
                     "{} ",
                     format(attributes, line, 0, options).trim().to_string()
@@ -701,7 +694,7 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             if let Some(nullable) = nullable {
                 format!("{}{}", nullable, trs)
             } else {
-                format!("{}", trs)
+                trs.to_string()
             }
         }
         Node::FunctionArgument {
@@ -716,7 +709,7 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
         } => {
             let mut parts = Vec::new();
 
-            if attributes.len() > 0 {
+            if !attributes.is_empty() {
                 parts.push(format(attributes, line, 0, options).trim().to_string());
                 parts.push(String::from(" "));
             }

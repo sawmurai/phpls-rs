@@ -41,7 +41,7 @@ pub(crate) fn reindex_folder(dir: &Path, ignore: &[PathBuf]) -> io::Result<Vec<P
     Ok(files)
 }
 
-pub(crate) fn normalize_path(path: &PathBuf) -> String {
+pub(crate) fn normalize_path(path: &Path) -> String {
     path.to_str().unwrap().to_owned()
 }
 

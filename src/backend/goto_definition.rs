@@ -14,11 +14,7 @@ pub(crate) fn goto_definition(
 
     if let Some(references) = state.symbol_references.get(&file) {
         for (node, ranges) in references {
-            if ranges
-                .iter()
-                .find(|r| in_range(position, &get_range(**r)))
-                .is_some()
-            {
+            if ranges.iter().any(|r| in_range(position, &get_range(*r))) {
                 if let Some(location) = environment::symbol_location(&state.arena, node) {
                     return Ok(Some(GotoDefinitionResponse::Scalar(location)));
                 }
