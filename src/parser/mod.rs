@@ -319,38 +319,35 @@ impl Parser {
     fn statement(&mut self) -> ExpressionResult {
         // If we are currently not in PHP Land check if the next token starts the show
         // otherwise error
-        match self.context {
-            Context::Out => {
-                if let Some(token) = self.peek() {
-                    match token.t {
-                        TokenType::ScriptStart(ScriptStartType::Regular)
-                        | TokenType::ScriptStart(ScriptStartType::Short) => {
+        if let Context::Out = self.context {
+            if let Some(token) = self.peek() {
+                match token.t {
+                    TokenType::ScriptStart(ScriptStartType::Regular)
+                    | TokenType::ScriptStart(ScriptStartType::Short) => {
+                        self.context = Context::Script;
+                        self.next();
+                    }
+                    TokenType::ScriptStart(ScriptStartType::Echo) => {
+                        // TODO: Integrate this part into inline_html pretty pls
+                        let expr = keywords::short_tag_echo_statement(self);
+
+                        if self.next_token_one_of(&[
+                            TokenType::ScriptStart(ScriptStartType::Regular),
+                            TokenType::ScriptStart(ScriptStartType::Short),
+                        ]) {
                             self.context = Context::Script;
                             self.next();
                         }
-                        TokenType::ScriptStart(ScriptStartType::Echo) => {
-                            // TODO: Integrate this part into inline_html pretty pls
-                            let expr = keywords::short_tag_echo_statement(self);
 
-                            if self.next_token_one_of(&[
-                                TokenType::ScriptStart(ScriptStartType::Regular),
-                                TokenType::ScriptStart(ScriptStartType::Short),
-                            ]) {
-                                self.context = Context::Script;
-                                self.next();
-                            }
-
-                            return expr;
-                        }
-                        _ => {
-                            return Err(Error::UnexpectedTokenError {
-                                token: token.clone(),
-                            });
-                        }
+                        return expr;
+                    }
+                    _ => {
+                        return Err(Error::UnexpectedTokenError {
+                            token: token.clone(),
+                        });
                     }
                 }
             }
-            _ => (),
         }
 
         let attributes = attributes::attributes_block(self)?;
@@ -523,7 +520,7 @@ impl Parser {
 
         self.errors.push(Error::WrongTokenError {
             expected: vec![TokenType::Semicolon, TokenType::ScriptEnd],
-            token: wrong_token.clone(),
+            token: wrong_token,
         });
         Ok(())
     }
@@ -543,7 +540,7 @@ impl Parser {
         };
 
         self.errors.push(Error::WrongTokenError {
-            expected: vec![t.clone()],
+            expected: vec![t],
             token: bad_token.clone(),
         });
 
@@ -555,7 +552,7 @@ impl Parser {
             }
         }
 
-        return Ok(());
+        Ok(())
     }
 
     fn consume_or_ff_before(&mut self, t: TokenType, ff_to: &[TokenType]) -> Result<Token> {
@@ -571,7 +568,7 @@ impl Parser {
         };
 
         self.errors.push(Error::WrongTokenError {
-            expected: vec![t.clone()],
+            expected: vec![t],
             token: bad_token.clone(),
         });
 
@@ -584,7 +581,7 @@ impl Parser {
             self.next();
         }
 
-        return Ok(bad_token);
+        Ok(bad_token)
     }
 
     /// Consume a Some of token of type `t` or do nothing.
@@ -620,7 +617,7 @@ impl Parser {
             });
         }
 
-        return Ok(token);
+        Ok(token)
     }
 
     /// Consume an identifier or return an error
@@ -640,7 +637,7 @@ impl Parser {
             });
         }
 
-        return Ok(token);
+        Ok(token)
     }
 
     /// Consume a potential member of a class / an object or return an error
@@ -664,7 +661,7 @@ impl Parser {
             return token.is_identifier() || token.t == TokenType::Variable;
         }
 
-        return false;
+        false
     }
 
     fn next_is_identifier(&mut self) -> bool {
@@ -672,7 +669,7 @@ impl Parser {
             return token.is_identifier();
         }
 
-        return false;
+        false
     }
 
     // Consume a token of one of the types of `types` or return an error

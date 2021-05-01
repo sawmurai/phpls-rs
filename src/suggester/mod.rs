@@ -263,7 +263,7 @@ fn suggest_members_of_symbol(
     let current_class = symbol_under_cursor.ancestors(&arena).find(|n| {
         let s = arena[*n].get();
 
-        return s.kind == PhpSymbolKind::Class;
+        s.kind == PhpSymbolKind::Class
     });
 
     // Collect a list of all accessible members of this class and its parents
@@ -307,12 +307,7 @@ fn suggest_members_of_symbol(
                 return arena[*resolved_parent].parent();
             }
 
-            return resolver.resolve_type_ref(
-                &dt_reference.type_ref,
-                arena,
-                &symbol_under_cursor,
-                false,
-            );
+            resolver.resolve_type_ref(&dt_reference.type_ref, arena, &symbol_under_cursor, false)
         })
         .for_each(|node| {
             let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
@@ -354,7 +349,7 @@ fn suggest_members_of_symbol(
             );
         });
 
-    return suggestions;
+    suggestions
 }
 
 fn suggest_keywords(arena: &Arena<Symbol>, symbol_under_cursor: NodeId) -> Vec<Suggestion> {
@@ -387,13 +382,13 @@ pub fn get_suggestions_at(
     trigger: Option<char>,
     pos: Position,
     symbol_under_cursor: NodeId,
-    ast: &Vec<AstNode>,
+    ast: &[AstNode],
     arena: &Arena<Symbol>,
     global_symbols: &HashMap<String, NodeId>,
     references: &FileReferenceMap,
 ) -> Vec<Suggestion> {
     let (node, mut ancestors) = if let Some((node, mut ancestors)) =
-        ast.iter().filter_map(|n| find(n, &pos, Vec::new())).nth(0)
+        ast.iter().filter_map(|n| find(n, &pos, Vec::new())).next()
     {
         // Pop off the last item which is the node itself
         ancestors.pop();
@@ -403,8 +398,6 @@ pub fn get_suggestions_at(
     } else {
         return suggest_keywords(arena, symbol_under_cursor);
     };
-
-    let parent = Some(ancestors.last().unwrap().clone());
 
     match node {
         AstNode::UseTrait { type_ref, .. } => {
@@ -421,6 +414,7 @@ pub fn get_suggestions_at(
             return suggest_variables_of_scope(arena[symbol_under_cursor].parent().unwrap(), arena)
         }
         AstNode::Missing(..) | AstNode::Literal(..) | AstNode::Member { .. } => {
+            let parent = Some(*ancestors.last().unwrap());
             return suggest_members_of_symbol(
                 trigger,
                 node,
@@ -429,7 +423,7 @@ pub fn get_suggestions_at(
                 global_symbols,
                 symbol_under_cursor,
                 references,
-            )
+            );
         }
         _ => (),
     }
@@ -443,11 +437,8 @@ pub fn get_suggestions_at(
                 break;
             }
             AstNode::Block { .. } => {
-                match ancestors.last() {
-                    Some(AstNode::ClassStatement { .. }) => {
-                        is_class_block = true;
-                    }
-                    _ => (),
+                if let Some(AstNode::ClassStatement { .. }) = ancestors.last() {
+                    is_class_block = true;
                 }
 
                 break;

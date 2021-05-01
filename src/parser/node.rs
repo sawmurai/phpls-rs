@@ -49,7 +49,7 @@ impl TypeRef {
     }
 
     pub fn is_multiple(&self) -> bool {
-        return self.multiple;
+        self.multiple
     }
 
     pub fn range(&self) -> NodeRange {
@@ -64,7 +64,7 @@ impl TypeRef {
             return first.t == TokenType::NamespaceSeparator;
         }
 
-        return false;
+        false
     }
 
     /// Return true of the token is an identifier of a built in type
@@ -120,7 +120,7 @@ impl TypeRef {
 
     /// Ns1\Ns2\Class
     /// This returns Ns2\Class
-    pub fn stem<'a>(&'a self) -> Skip<Iter<'_, Token>> {
+    pub fn stem<'a>(&'_ self) -> Skip<Iter<'_, Token>> {
         if self.is_fully_qualified() {
             self.kind.iter().skip(2)
         } else {
@@ -132,18 +132,18 @@ impl TypeRef {
         self.kind.first().unwrap().t.clone()
     }
 
-    pub fn root_token<'a>(&'a self) -> &'a Token {
+    pub fn root_token<'a>(&'_ self) -> &'_ Token {
         self.kind.first().unwrap()
     }
 
-    pub fn tip<'a>(&'a self) -> Option<&'a str> {
+    pub fn tip<'a>(&'_ self) -> Option<&'_ str> {
         if let Some(last) = self.kind.iter().last() {
             if let Some(label) = last.label.as_ref() {
                 return Some(label);
             }
         }
 
-        return None;
+        None
     }
 
     pub fn to_fqdn(&self) -> String {
@@ -1704,15 +1704,11 @@ impl Node {
 
     // TODO: Add other boundaries
     pub fn scope_boundary(&self) -> bool {
-        match self {
-            Node::Function { .. } => true,
-
-            _ => false,
-        }
+        matches!(self, Node::Function { .. })
     }
 
     /// Returns all descendants of this node in a DFS manner
-    pub fn descendants<'a>(&'a self) -> Vec<&'a Node> {
+    pub fn descendants<'a>(&'_ self) -> Vec<&'_ Node> {
         let mut descendants = Vec::new();
 
         for c in self.children() {

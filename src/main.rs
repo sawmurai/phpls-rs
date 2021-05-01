@@ -57,7 +57,7 @@ async fn main() {
 
     let ignore_patterns: Vec<String> = matches
         .values_of("ignore-patterns")
-        .unwrap_or(clap::Values::default())
+        .unwrap_or_default()
         .map(|s| s.to_owned())
         .collect();
 
@@ -71,17 +71,15 @@ async fn main() {
     }
     if let Some(dir) = matches.value_of("dir") {
         let ip: Vec<PathBuf> = ignore_patterns.iter().map(PathBuf::from).collect();
-        match environment::fs::reindex_folder(&PathBuf::from(dir), &ip) {
-            Ok(paths) => {
-                paths
-                    .iter()
-                    .map(environment::fs::normalize_path)
-                    .for_each(|file| match Backend::source_to_ast(&file) {
-                        Err(e) => eprintln!("Error: {}", e),
-                        _ => (),
-                    });
-            }
-            Err(_) => (),
+        if let Ok(paths) = environment::fs::reindex_folder(&PathBuf::from(dir), &ip) {
+            paths
+                .iter()
+                .map(environment::fs::normalize_path)
+                .for_each(|file| {
+                    if let Err(e) = Backend::source_to_ast(&file) {
+                        eprintln!("Error: {}", e);
+                    }
+                });
         }
 
         return;
