@@ -106,6 +106,7 @@ impl DocBlockScanner {
                                 TokenType::Variable,
                                 identifer.0,
                                 identifer.1,
+                                0,
                                 &param_name,
                             ),
                             types: Some(type_refs),
@@ -189,6 +190,7 @@ impl DocBlockScanner {
                                 TokenType::Variable,
                                 identifier_start.0,
                                 identifier_start.1,
+                                0,
                                 &param_name,
                             ),
                             types: Some(type_refs),
@@ -242,6 +244,7 @@ impl DocBlockScanner {
                                 TokenType::Variable,
                                 identifier_start.0,
                                 identifier_start.1,
+                                0,
                                 &param_name,
                             ),
                             types: type_refs,
@@ -276,6 +279,7 @@ impl DocBlockScanner {
                     self.token_type(&identifier),
                     current_start.0,
                     current_start.1,
+                    0,
                     identifier,
                 ));
             }
@@ -286,6 +290,7 @@ impl DocBlockScanner {
                     TokenType::NamespaceSeparator,
                     current_start.0,
                     current_start.1,
+                    0,
                 )),
                 Some('[') => {
                     self.advance();

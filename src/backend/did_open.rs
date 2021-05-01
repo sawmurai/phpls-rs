@@ -6,13 +6,12 @@ pub(crate) fn did_open(state: &mut BackendState, params: &DidOpenTextDocumentPar
     let file_path = params.text_document.uri.to_file_path().unwrap();
 
     let path = EnvFs::normalize_path(&file_path);
+    let source = std::fs::read_to_string(file_path).unwrap();
+    state
+        .latest_version_of_file
+        .insert(path.clone(), source.clone());
 
     if !state.opened_files.contains_key(&path) {
-        let source = std::fs::read_to_string(file_path).unwrap();
-        state
-            .latest_version_of_file
-            .insert(path.clone(), source.clone());
-
         if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
             let diags = errors.iter().map(Diagnostic::from).collect();
             state.diagnostics.insert(path.to_owned(), diags);

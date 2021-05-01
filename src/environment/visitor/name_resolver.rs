@@ -1,10 +1,10 @@
 use super::{super::PhpSymbolKind, Symbol};
 use super::{workspace_symbol::get_type_ref, Visitor};
 use super::{workspace_symbol::get_type_refs, NextAction};
-use crate::environment::symbol::Visibility;
 use crate::environment::{scope::Reference as SymbolReference, Notification};
 use crate::parser::node::{Node as AstNode, NodeRange, TypeRef};
 use crate::parser::token::{Token, TokenType};
+use crate::{environment::symbol::Visibility, parser::node::ClassStatement};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 use tower_lsp::lsp_types::DiagnosticSeverity;
@@ -412,9 +412,20 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
 
                 NextAction::Abort
             }
-            AstNode::ClassStatement { name, .. }
-            | AstNode::TraitStatement { name, .. }
-            | AstNode::Interface { name, .. } => {
+            AstNode::ClassStatement(ClassStatement { name, .. }) => {
+                // Register $this in the current scope
+                if let Some(current_class) =
+                    self.resolver
+                        .resolve_type_ref(&vec![name.clone()].into(), arena, &parent, true)
+                {
+                    self.resolver.enter_class(current_class);
+
+                    NextAction::ProcessChildren(current_class)
+                } else {
+                    NextAction::Abort
+                }
+            }
+            AstNode::TraitStatement { name, .. } | AstNode::Interface { name, .. } => {
                 // Register $this in the current scope
                 if let Some(current_class) =
                     self.resolver
