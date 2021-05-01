@@ -877,6 +877,9 @@ impl Scanner {
                         self.context = Context::OutScript;
                         return;
                     }
+
+                    comment.push('?');
+                    continue;
                 }
                 _ => {}
             }

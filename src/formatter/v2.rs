@@ -20,9 +20,14 @@ impl Display for Chunk {
         let len = self.tokens.len();
 
         for (i, token) in self.tokens.iter().enumerate() {
+            let is_last = i == len - 1;
+            if token.t == TokenType::Linebreak {
+                continue;
+            }
+
             // Infix operators need a space to the operand
             if token.t.is_infix_operator()
-                || i != len - 1 && (self.spaced || token.t == TokenType::Semicolon)
+                || !is_last && (self.spaced || token.t == TokenType::Semicolon)
                 || self.space_after
             {
                 write!(f, "{} ", token)?;
@@ -42,6 +47,14 @@ impl Chunk {
         Self {
             tokens: tokens.into(),
             spaced: true,
+            space_after: false,
+        }
+    }
+
+    pub fn single(token: Token) -> Self {
+        Self {
+            tokens: vec![token],
+            spaced: false,
             space_after: false,
         }
     }
@@ -101,7 +114,8 @@ impl Display for Span {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(
             f,
-            "{}",
+            "{}{}",
+            " ".repeat(self.lvl as usize * 4),
             self.chunks
                 .iter()
                 .map(std::string::ToString::to_string)
@@ -224,6 +238,24 @@ fn prev_that(from: usize, tokens: &[Token], f: &dyn Fn(&Token) -> bool) -> usize
         .unwrap()
 }
 
+// Collect all chunks between the statement and the previous one. It basically
+// returns a vector of chunks, each containing a multiline comment
+fn pre_statement_span(token_offset: usize, tokens: &[Token], lvl: u8) -> Span {
+    let prev_non_comment = prev_that(token_offset, tokens, &|t| {
+        t.t != TokenType::MultilineComment
+    });
+
+    return Span::new(
+        tokens[prev_non_comment + 1..token_offset]
+            .iter()
+            .cloned()
+            .map(Chunk::single)
+            .collect(),
+        vec![],
+        lvl,
+    );
+}
+
 /// Turn the ast recursivly into a set of spansets. This requires reading the
 /// actual tokens from the tokenstream, as the tokenstream also contains comments!
 /// At the same time we need to traverse via the ast to know the context of
@@ -284,6 +316,75 @@ pub(crate) fn ast_to_spans(
     spans
 }
 
+// Walk down the binary (tree) and create chunks from it. The function also needs
+// to take linecomments into account and create mulitple spans whenever one
+// of those comments is encountered.
+#[inline]
+fn binary_to_spans(spans: &mut Vec<Span>, tokens: &[Token], left: &Node, right: &Node, lvl: u8) {
+    let mut chunks = Vec::new();
+    let mut subspans: Vec<Span> = Vec::new();
+
+    // Split the left side down into spans
+    let left_spans = node_to_spans(left, tokens, lvl);
+    if let Some(first) = left_spans.first() {
+        chunks.extend(first.chunks.clone());
+        subspans.push(first.clone());
+    }
+
+    // Basically the right edge of the left side
+    let rels = chunks.last().unwrap().right_offset();
+
+    let mut right_spans = node_to_spans(right, tokens, lvl);
+
+    // Take the first span on the right side to determine its left offset
+    if let Some(right_first) = right_spans.first_mut() {
+        // Now capture all in between. That includes comments and the operator
+        let lmt = right_first.left_offset();
+
+        let mut start = rels + 1;
+        loop {
+            // Try to find a line comment in the part between the left and the right side
+            // If a line comment is found, add it and everything before it as one separate span
+            if let Some(lc) = &tokens[start..lmt]
+                .iter()
+                .find(|t| t.t == TokenType::LineComment)
+            {
+                let lc_offset = lc.offset.unwrap() as usize;
+                let chunk = Chunk::unspaced(&tokens[start..=lc_offset]);
+
+                chunks.push(chunk.clone());
+                subspans.push(Span::leaf(vec![chunk], lvl));
+
+                spans.push(Span::new(chunks, subspans, lvl));
+
+                chunks = Vec::new();
+                subspans = Vec::new();
+
+                start = lc_offset + 1;
+            } else {
+                // Break and add the rest as one chunk
+                break;
+            }
+        }
+
+        // Add the rest by glueing it the left side of the right operand
+        let op_chunk = Chunk::unspaced(&tokens[start..lmt]);
+
+        right_first.left_extend(op_chunk);
+
+        chunks.extend(right_first.chunks.clone());
+
+        subspans.push(right_first.clone());
+        spans.push(Span::new(chunks, subspans, lvl));
+    }
+
+    // Add the rest of the right spans as individual spans. There are only multiple
+    // spans if the expression on the right could not be fit into one line (intermittent line comment)
+    for right in right_spans.iter().skip(1) {
+        spans.push(right.clone());
+    }
+}
+
 /// Convert a single node into a vec of spans
 fn node_to_spans(node: &Node, tokens: &[Token], lvl: u8) -> Vec<Span> {
     // Get all tokens that encompass the node
@@ -302,14 +403,18 @@ fn node_to_spans(node: &Node, tokens: &[Token], lvl: u8) -> Vec<Span> {
             let op_offset = op.offset.unwrap();
             let cp_offset = cp.offset.unwrap();
 
-            // Ok, we know which tokens are in a while, so we can collect ranges
+            // Start with all comments preceding this statement, then add the token chunk
+            let pre_span = pre_statement_span(token_offset, tokens, lvl);
+
+            // Add a chunk for the while token and the opening parenthesis
             let while_op = Chunk::new(&tokens[token_offset..=op_offset]);
 
             // Get all the stuff between the closing parenthesis and the start of the block, excluding the
-            // start of the block
+            // start of the block. We are searching for something that is not a newline or a comment. Searching
+            // for a { is not a good idea as the block might not have one
             let oc = tokens[cp_offset + 1..]
                 .iter()
-                .find(|t| !t.is_comment())
+                .find(|t| !t.is_comment() && t.t != TokenType::Linebreak)
                 .unwrap();
 
             // If the block starts with a { we glue it to this chunk
@@ -319,14 +424,17 @@ fn node_to_spans(node: &Node, tokens: &[Token], lvl: u8) -> Vec<Span> {
                 Chunk::unspaced(&tokens[cp_offset..oc.offset.unwrap()])
             };
 
-            let mut subspans = vec![Span::leaf(vec![while_op.clone()], lvl)];
+            let token_span = Span::leaf(vec![while_op.clone()], lvl);
+
+            let mut chunks = pre_span.chunks.clone();
+            chunks.push(while_op);
+
+            let mut subspans = vec![pre_span, token_span];
             let mut condition_spans = node_to_spans(condition, tokens, lvl + 1);
             let mut body_spans = node_to_spans(body, tokens, lvl + 1);
 
-            let mut chunks = Vec::new();
-            chunks.push(while_op.clone());
             if let Some(first) = condition_spans.first() {
-                // Internatlize span-spacing into chunks by attaching a space-right into each of the chunks, except for the last one.
+                // Internalize span-spacing into chunks by attaching a space-right into each of the chunks, except for the last one.
                 // TODO: Move this into a Span::chunks method that converts the internal chunks into externals, basically doing what the following block does.
                 if first.spaced {
                     let len = first.chunks.len();
@@ -355,35 +463,7 @@ fn node_to_spans(node: &Node, tokens: &[Token], lvl: u8) -> Vec<Span> {
         Node::Literal(token) => {
             spans.push(Span::leaf(vec![Chunk::unspaced(&[token.clone()])], lvl))
         }
-        Node::Binary { left, token, right } => {
-            let mut chunks = Vec::new();
-            let mut subspans: Vec<Span> = Vec::new();
-
-            // Split the left side down into spans
-            let left_span = node_to_spans(left, tokens, lvl);
-            if let Some(first) = left_span.first() {
-                chunks.extend(first.chunks.clone());
-                subspans.push(first.clone());
-            }
-
-            // Right most token
-            let rmt = chunks.last().unwrap().right_offset();
-
-            let mut right_span = node_to_spans(right, tokens, lvl);
-            if let Some(first) = right_span.first_mut() {
-                // op_chunk is the space from the end of the prev node all the way to the next one
-                // this should capture all comments in between
-                let lmt = first.left_offset();
-                let op_chunk = Chunk::unspaced(&tokens[rmt + 1..lmt]);
-
-                first.left_extend(op_chunk);
-
-                chunks.extend(first.chunks.clone());
-                subspans.push(first.clone());
-            }
-
-            spans.push(Span::new(chunks, subspans, lvl));
-        }
+        Node::Binary { left, right, .. } => binary_to_spans(&mut spans, tokens, left, right, lvl),
         Node::Variable(token) => {
             let chunk = Chunk::unspaced(&[token.clone()]);
 
@@ -393,32 +473,33 @@ fn node_to_spans(node: &Node, tokens: &[Token], lvl: u8) -> Vec<Span> {
             let mut inner_spans = node_to_spans(expression, tokens, lvl);
 
             if let Some(inner_span) = inner_spans.first_mut() {
-                let right_edge = inner_span.right_offset();
                 let left_edge = inner_span.left_offset();
-
-                // Get the start offset of the next non-comment, non-semicolon. This way we capture all
-                // the comments
-                let end_of_statement =
-                    next_that(right_edge, tokens, &|t| t.t == TokenType::Semicolon);
-
-                // Expand the span to either directly after the statement or after a line comment
-                let end_of_span = if tokens[end_of_statement + 1].t == TokenType::LineComment {
-                    end_of_statement + 1
-                } else {
-                    end_of_statement
-                };
 
                 let prev_non_comment =
                     prev_that(left_edge, tokens, &|t| t.t != TokenType::MultilineComment);
 
                 // Add all the comments from before this expression
                 inner_span.left_extend(Chunk::new(&tokens[prev_non_comment + 1..left_edge]));
-
-                // Add all the stuff to the end of the line
-                inner_span.right_extend(Chunk::new(&tokens[right_edge + 1..=end_of_span]));
-
-                spans.push(inner_span.clone());
             }
+
+            if let Some(inner_span) = inner_spans.last_mut() {
+                // Add all the stuff to the end of the line
+                let right_edge = inner_span.right_offset();
+
+                let end_of_statement =
+                    next_that(right_edge, tokens, &|t| t.t == TokenType::Semicolon);
+
+                let end_of_span = if tokens[end_of_statement + 1].t == TokenType::LineComment {
+                    end_of_statement + 1
+                } else {
+                    end_of_statement
+                };
+
+                // Expand the span to either directly after the statement or after a line comment
+                inner_span.right_extend(Chunk::new(&tokens[right_edge + 1..=end_of_span]));
+            }
+
+            spans.extend(inner_spans);
         }
         Node::Block {
             oc, cc, statements, ..
@@ -441,21 +522,11 @@ fn node_to_spans(node: &Node, tokens: &[Token], lvl: u8) -> Vec<Span> {
             let chunks = vec![Chunk::new(&tokens[cc_offset..start_of_next])];
             spans.push(Span::new(chunks, vec![], lvl - 1));
         }
-        _ => unimplemented!("{:?}", node),
+        _ => unimplemented!("{:#?}", node),
     }
 
     spans
 }
-
-// while ($rofl->copter() < 100) {
-//
-//}
-
-// $rofl->copter() < 100
-
-// {
-
-// }
 
 #[cfg(test)]
 mod test {
@@ -476,10 +547,13 @@ mod test {
     #[test]
     fn test_formats_while() {
         let src = "\
-while ($rofl == true) {
+// line comment before while
+/*d*/while ($rofl   == true ) {
     // 1st line comment
     /* c1 */true == /* c2 */true/* c3 */ && /* c4 */false == false /* c5 */; // c6
-    $a = 12 * /*lol*/ 1000 / 3000* 1000 / 3000* 1000 / 3000* 1000; 
+    $a = 12 * /*lol*/ 1000 
+    // What happens now?
+        / 3000* 1000 / 3000* 1000 / 3000* 1000; 
     // 2nd line comment
     // 2nd 2nd line comment
     /* cb */$a = 2; /*cc*/$b = 3; /*ddddd*/
@@ -489,18 +563,81 @@ while ($rofl == true) {
     // 3rd new line comment
 } // me as well??
 ";
+        let expected = "\
+// line comment before while
+/*d*/while ($rofl == true) {
+    // 1st line comment
+    /* c1 */true == /* c2 */true /* c3 */&& /* c4 */false == false/* c5 */; // c6
+    $a = 12 * /*lol*/1000 // What happens now?
+    / 3000 * 1000 / 3000 * 1000 / 3000 * 1000;
+    // 2nd line comment
+    // 2nd 2nd line comment
+    /* cb */$a = 2;
+    /*cc*/$b = 3;
+    /*ddddd*/
+    
+    $a = 1;
+    $a = 1;
+    // 3rd new line comment
+} // me as well??
+";
+        let (tokens, ast) = ast(src);
+
+        let first_offset = tokens.first().unwrap().offset.unwrap();
+        let last_offset = tokens.last().unwrap().offset.unwrap();
+        let actual = ast_to_spans(&ast, &tokens, 0, first_offset, last_offset)
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        assert_eq!(expected, actual);
+
+        //eprintln!(
+        //    "{:#?}",
+        //    ast_to_spans(&ast, &tokens, 0, first_offset, last_offset)
+        //);
+    }
+
+    #[test]
+    fn test_formats_expression() {
+        let src = "\
+// 1###
+$a = 1 * 1 * 1 * 1
+// 2###
+* 
+// oh oh
+1000  
+// 3### /** no single */
+// 4###
+/** single */
+/ 3000; // Behind
+";
+        let expected = "\
+// 1###
+$a = 1 * 1 * 1 * 1 // 2###
+* // oh oh
+1000 // 3### /** no single */
+// 4###
+/** single *// 3000; // Behind
+";
 
         let (tokens, ast) = ast(src);
 
         let first_offset = tokens.first().unwrap().offset.unwrap();
         let last_offset = tokens.last().unwrap().offset.unwrap();
 
-        //for _ in 1..1000 {
-        //    ast_to_spans(&ast, &tokens, 0, first_offset, last_offset);
-        //}
-        eprintln!(
-            "{:#?}",
-            ast_to_spans(&ast, &tokens, 0, first_offset, last_offset)
-        );
+        let actual = ast_to_spans(&ast, &tokens, 0, first_offset, last_offset)
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        assert_eq!(expected, actual);
+
+        //eprintln!(
+        //    "{:#?}",
+        //    ast_to_spans(&ast, &tokens, 1, first_offset, last_offset)
+        //);
     }
 }
