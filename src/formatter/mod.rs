@@ -1,6 +1,8 @@
 use crate::parser::node::Node;
 use std::cmp::min;
 
+pub mod expressions;
+pub mod loops;
 pub mod v2;
 
 macro_rules! push_if_some {
