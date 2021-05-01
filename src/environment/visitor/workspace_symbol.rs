@@ -3,8 +3,8 @@ use super::super::import::{collect_alterations, collect_uses};
 use super::NextAction;
 use super::Symbol;
 use super::Visitor;
-use crate::environment::scope::Reference;
 use crate::parser::node::Node as AstNode;
+use crate::{environment::scope::Reference, parser::node::ClassStatement};
 use crate::{
     environment::symbol::{FunctionParameter, PhpSymbolKind, Visibility},
     parser::node::TypeRef,
@@ -106,14 +106,14 @@ impl Visitor for WorkspaceSymbolVisitor {
 
                 NextAction::Abort
             }
-            AstNode::ClassStatement {
+            AstNode::ClassStatement(ClassStatement {
                 name,
                 extends,
                 implements,
                 doc_comment,
                 attributes,
                 ..
-            } => {
+            }) => {
                 let inherits_from = if let Some(extends) = extends {
                     get_type_ref(extends).map(|extends| vec![Reference::type_ref(extends)])
                 } else {

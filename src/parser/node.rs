@@ -11,6 +11,19 @@ pub struct TypeRef {
     multiple: bool,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct ClassStatement {
+    pub(crate) token: Token,
+    pub(crate) name: Token,
+    pub(crate) is_abstract: Option<Token>,
+    pub(crate) is_final: Option<Token>,
+    pub(crate) implements: Option<Vec<Node>>,
+    pub(crate) extends: Option<Box<Node>>,
+    pub(crate) body: Box<Node>,
+    pub(crate) doc_comment: Option<Box<Node>>,
+    pub(crate) attributes: Vec<Node>,
+}
+
 pub type NodeRange = ((u32, u32), (u32, u32));
 
 impl TypeRef {
@@ -579,17 +592,7 @@ pub enum Node {
         as_name: Option<Token>,
     },
     // Merge with Class?
-    ClassStatement {
-        token: Token,
-        name: Token,
-        is_abstract: Option<Token>,
-        is_final: Option<Token>,
-        implements: Option<Vec<Node>>,
-        extends: Option<Box<Node>>,
-        body: Box<Node>,
-        doc_comment: Option<Box<Node>>,
-        attributes: Vec<Node>,
-    },
+    ClassStatement(ClassStatement),
     TraitStatement {
         token: Token,
         name: Token,
@@ -988,28 +991,22 @@ impl Node {
 
                 children
             }
-            Node::ClassStatement {
-                extends,
-                implements,
-                body,
-                doc_comment,
-                ..
-            } => {
+            Node::ClassStatement(stmt) => {
                 let mut children: Vec<&Node> = Vec::new();
 
-                if let Some(doc_comment) = doc_comment {
+                if let Some(doc_comment) = stmt.doc_comment.as_ref() {
                     children.push(doc_comment);
                 }
 
-                if let Some(extends) = extends.as_ref() {
+                if let Some(extends) = stmt.extends.as_ref() {
                     children.push(extends);
                 }
 
-                if let Some(implements) = implements {
+                if let Some(implements) = stmt.implements.as_ref() {
                     children.extend((*implements).iter().collect::<Vec<&Node>>());
                 }
 
-                children.push(body);
+                children.push(stmt.body.as_ref());
 
                 children
             }
@@ -1515,22 +1512,15 @@ impl Node {
                     member.range()
                 }
             }
-            Node::ClassStatement {
-                doc_comment,
-                is_abstract,
-                is_final,
-                token,
-                body,
-                ..
-            } => {
-                if let Some(doc_comment) = doc_comment {
-                    (doc_comment.range().0, body.range().1)
-                } else if let Some(is_abstract) = is_abstract {
-                    (is_abstract.start(), body.range().1)
-                } else if let Some(is_final) = is_final {
-                    (is_final.start(), body.range().1)
+            Node::ClassStatement(stmt) => {
+                if let Some(doc_comment) = stmt.doc_comment.as_ref() {
+                    (doc_comment.range().0, stmt.body.range().1)
+                } else if let Some(is_abstract) = stmt.is_abstract.as_ref() {
+                    (is_abstract.start(), stmt.body.range().1)
+                } else if let Some(is_final) = stmt.is_final.as_ref() {
+                    (is_final.start(), stmt.body.range().1)
                 } else {
-                    (token.start(), body.range().1)
+                    (stmt.token.start(), stmt.body.range().1)
                 }
             }
             Node::TraitStatement { token, body, .. } => (token.start(), body.range().1),
@@ -1721,9 +1711,14 @@ impl Node {
 impl From<&Node> for String {
     fn from(node: &Node) -> Self {
         match node {
-            Node::ClassStatement {
-                token, name, body, ..
-            } => format!("{} {}{}", token, name, String::from(body.as_ref())),
+            Node::ClassStatement(stmt) => {
+                format!(
+                    "{} {}{}",
+                    stmt.token,
+                    stmt.name,
+                    String::from(stmt.body.as_ref())
+                )
+            }
             Node::Block { oc, cc, statements } => {
                 format!(
                     "{}{}{}",

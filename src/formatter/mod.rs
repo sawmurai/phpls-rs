@@ -1,12 +1,13 @@
 use crate::parser::node::Node;
 use std::cmp::min;
 
+pub mod classes;
 pub mod expressions;
 pub mod loops;
 pub mod v2;
 
 macro_rules! push_if_some {
-    ($token:expr, $parts:ident) => {
+    ($token:expr, $parts:expr) => {
         if let Some(token) = $token {
             $parts.push(format!("{} ", token));
         }
@@ -32,7 +33,7 @@ macro_rules! push_unpadded_if_some {
 }
 
 macro_rules! optional_ident_list {
-    ($prefix:expr, $postfix:expr, $list:ident, $line:expr, $col:expr, $options:expr) => {
+    ($prefix:expr, $postfix:expr, $list:expr, $line:expr, $col:expr, $options:expr) => {
         if let Some(list) = $list {
             format!(
                 "{}{}{}",
@@ -50,12 +51,12 @@ macro_rules! optional_ident_list {
 }
 
 macro_rules! optional_ident {
-    ($prefix:expr, $postfix:expr, $ident:ident, $line:expr, $col:expr, $options:expr) => {
+    ($prefix:expr, $postfix:expr, $ident:expr, $line:expr, $col:expr, $options:expr) => {
         if let Some(ident) = $ident {
             format!(
                 "{}{}{}",
                 $prefix,
-                format_node(ident, $line, $col, $options),
+                format_node(&ident, $line, $col, $options),
                 $postfix
             )
         } else {
@@ -136,30 +137,27 @@ fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> 
                     format_node(body, line, col, options)
                 ))
             }
-            Node::ClassStatement {
-                is_final,
-                is_abstract,
-                token,
-                name,
-                body,
-                extends,
-                implements,
-                attributes,
-                ..
-            } => {
-                parts.push(format(attributes, line, col, options));
+            Node::ClassStatement(stmt) => {
+                parts.push(format(&stmt.attributes, line, col, options));
                 parts.push(" ".repeat(col));
-                push_if_some!(is_final, parts);
-                push_if_some!(is_abstract, parts);
+                push_if_some!(stmt.is_final.as_ref(), parts);
+                push_if_some!(stmt.is_abstract.as_ref(), parts);
 
                 parts.push(format!(
                     "{} {}{}{}\n{}{}",
-                    token,
-                    name,
-                    optional_ident!(" extends ", "", extends, line, col, options),
-                    optional_ident_list!(" implements ", "", implements, line, col, options),
+                    stmt.token,
+                    stmt.name,
+                    optional_ident!(" extends ", "", stmt.extends.as_ref(), line, col, options),
+                    optional_ident_list!(
+                        " implements ",
+                        "",
+                        stmt.implements.as_ref(),
+                        line,
+                        col,
+                        options
+                    ),
                     " ".repeat(col),
-                    format_node(body, line, col, options)
+                    format_node(&stmt.body, line, col, options)
                 ))
             }
             Node::ClassConstantDefinitionStatement {

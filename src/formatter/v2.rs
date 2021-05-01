@@ -2,6 +2,7 @@
 
 use crate::{
     formatter::{
+        classes::class_stmt_to_spans,
         expressions::{binary_to_spans, expression_stmt_to_spans},
         loops,
     },
@@ -365,6 +366,7 @@ pub(crate) fn node_to_spans(node: &Node, tokens: &[Token], lvl: u8) -> Vec<Span>
             let chunks = vec![Chunk::new(&tokens[cc_offset..start_of_next])];
             spans.push(Span::new(chunks, vec![], lvl - 1));
         }
+        Node::ClassStatement(stmt) => class_stmt_to_spans(&mut spans, tokens, stmt, lvl),
         _ => unimplemented!("{:#?}", node),
     }
 

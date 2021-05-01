@@ -1,3 +1,5 @@
+use crate::parser::node::ClassStatement;
+
 use super::super::token::{Token, TokenType};
 use super::super::{ExpressionListResult, ExpressionResult, Parser};
 use super::{super::node::Node, attributes};
@@ -44,7 +46,7 @@ pub(crate) fn class_statement(
         None => None,
     };
 
-    Ok(Node::ClassStatement {
+    Ok(Node::ClassStatement(ClassStatement {
         token,
         name,
         is_abstract,
@@ -54,7 +56,7 @@ pub(crate) fn class_statement(
         body: Box::new(class_block(parser)?),
         doc_comment,
         attributes,
-    })
+    }))
 }
 
 pub(crate) fn anonymous_class(parser: &mut Parser, attributes: Vec<Node>) -> ExpressionResult {
