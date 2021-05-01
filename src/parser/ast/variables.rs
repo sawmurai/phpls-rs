@@ -48,8 +48,7 @@ pub(crate) fn variable(parser: &mut Parser) -> ExpressionResult {
 
 pub(crate) fn global_variables(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Global)?;
-    let mut vars = Vec::new();
-    vars.push(variable(parser)?);
+    let mut vars = vec![variable(parser)?];
 
     parser.consume_or_ignore(TokenType::Comma);
 
@@ -95,13 +94,12 @@ pub(crate) fn static_variables(parser: &mut Parser, token: Token) -> ExpressionR
 /// Parses a global variables definition
 pub(crate) fn const_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Const)?;
-    let mut constants = Vec::new();
 
-    constants.push(Node::Const {
+    let mut constants = vec![Node::Const {
         name: parser.consume_identifier()?,
         token: parser.consume(TokenType::Assignment)?,
         value: Box::new(expressions::expression(parser, 0)?),
-    });
+    }];
 
     while parser.consume_or_ignore(TokenType::Semicolon).is_none() {
         parser.consume_or_ff_after(TokenType::Comma, &[TokenType::Semicolon])?;
@@ -119,8 +117,7 @@ pub(crate) fn const_statement(parser: &mut Parser) -> ExpressionResult {
 pub(crate) fn non_empty_lexical_variables_list(parser: &mut Parser) -> ExpressionListResult {
     parser.consume_or_ff_after(TokenType::OpenParenthesis, &[TokenType::Semicolon])?;
 
-    let mut arguments = Vec::new();
-    arguments.push(lexical_variable(parser)?);
+    let mut arguments = vec![lexical_variable(parser)?];
 
     parser.consume_or_ignore(TokenType::Comma);
 

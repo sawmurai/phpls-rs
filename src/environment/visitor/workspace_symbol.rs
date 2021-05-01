@@ -11,6 +11,7 @@ use crate::{
 };
 use indextree::{Arena, NodeId};
 
+#[derive(Default)]
 pub struct WorkspaceSymbolVisitor {
     namespace: Option<String>,
 }
@@ -114,11 +115,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 ..
             } => {
                 let inherits_from = if let Some(extends) = extends {
-                    if let Some(extends) = get_type_ref(extends) {
-                        Some(vec![Reference::type_ref(extends)])
-                    } else {
-                        None
-                    }
+                    get_type_ref(extends).map(|extends| vec![Reference::type_ref(extends)])
                 } else {
                     None
                 };
@@ -126,11 +123,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let s_name = name.to_string();
                 let range = get_range(node.range());
 
-                let namespace = if let Some(ns) = self.namespace.as_ref() {
-                    Some(ns.clone())
-                } else {
-                    None
-                };
+                let namespace = self.namespace.as_ref().map(|ns| ns.clone());
 
                 let mut data_types = vec![Reference::type_ref(vec![name.clone()].into())];
                 if let Some(implements) = implements {
@@ -142,25 +135,19 @@ impl Visitor for WorkspaceSymbolVisitor {
                     );
                 }
 
-                let is_attribute = attributes
-                    .iter()
-                    .find(|attribute| {
-                        if let AstNode::Attribute { expressions, .. } = attribute {
-                            expressions
-                                .iter()
-                                .find(|expr| {
-                                    if let AstNode::TypeRef(tr) = expr {
-                                        tr.root_token().to_string() == "Attribute"
-                                    } else {
-                                        false
-                                    }
-                                })
-                                .is_some()
-                        } else {
-                            false
-                        }
-                    })
-                    .is_some();
+                let is_attribute = attributes.iter().any(|attribute| {
+                    if let AstNode::Attribute { expressions, .. } = attribute {
+                        expressions.iter().any(|expr| {
+                            if let AstNode::TypeRef(tr) = expr {
+                                tr.root_token().to_string() == "Attribute"
+                            } else {
+                                false
+                            }
+                        })
+                    } else {
+                        false
+                    }
+                });
 
                 let child = arena.new_node(Symbol {
                     namespace,
@@ -198,11 +185,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let name = name.to_string();
                 let range = get_range(node.range());
 
-                let namespace = if let Some(ns) = self.namespace.as_ref() {
-                    Some(ns.clone())
-                } else {
-                    None
-                };
+                let namespace = self.namespace.as_ref().map(|ns| ns.clone());
 
                 let child = arena.new_node(Symbol {
                     namespace,
@@ -238,11 +221,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     None
                 };
 
-                let namespace = if let Some(ns) = self.namespace.as_ref() {
-                    Some(ns.clone())
-                } else {
-                    None
-                };
+                let namespace = self.namespace.as_ref().map(|ns| ns.clone());
 
                 let child = arena.new_node(Symbol {
                     namespace,
@@ -548,11 +527,8 @@ impl Visitor for WorkspaceSymbolVisitor {
     }
 
     fn after(&mut self, node: &AstNode, _arena: &mut Arena<Symbol>, _parent: NodeId) {
-        match node {
-            AstNode::NamespaceBlock { .. } => {
-                self.namespace = None;
-            }
-            _ => (),
+        if let AstNode::NamespaceBlock { .. } = node {
+            self.namespace = None;
         }
     }
 }

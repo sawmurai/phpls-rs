@@ -1,7 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::Path, path::PathBuf};
 use tokio::io;
 
-pub(crate) fn reindex_folder(dir: &PathBuf, ignore: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
+pub(crate) fn reindex_folder(dir: &Path, ignore: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
 
     if dir.is_dir() {

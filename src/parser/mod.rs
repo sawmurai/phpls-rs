@@ -19,7 +19,7 @@ pub enum Error {
     UnexpectedTokenError { token: Token },
 
     #[snafu(display("Illegal offset type on line {}, col {}", (expr.range().0).0, (expr.range().0).1))]
-    IllegalOffsetType { expr: Node },
+    IllegalOffsetType { expr: Box<Node> },
 
     #[snafu(display("Can not use expression in write context on line {}, col {}", token.line, token.col))]
     RValueInWriteContext { token: Token },
@@ -541,7 +541,7 @@ impl Parser {
 
         self.errors.push(Error::WrongTokenError {
             expected: vec![t],
-            token: bad_token.clone(),
+            token: bad_token,
         });
 
         'outer: while let Some(next) = self.next() {

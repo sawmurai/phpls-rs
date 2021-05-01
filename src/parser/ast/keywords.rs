@@ -100,9 +100,7 @@ pub(crate) fn define_statement(parser: &mut Parser) -> ExpressionResult {
 
 pub(crate) fn echo_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Echo)?;
-    let mut expressions = Vec::new();
-
-    expressions.push(expressions::expression(parser, 0)?);
+    let mut expressions = vec![expressions::expression(parser, 0)?];
 
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
         expressions.push(expressions::expression(parser, 0)?);
@@ -115,9 +113,7 @@ pub(crate) fn echo_statement(parser: &mut Parser) -> ExpressionResult {
 
 pub(crate) fn short_tag_echo_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::ScriptStart(ScriptStartType::Echo))?;
-    let mut expressions = Vec::new();
-
-    expressions.push(expressions::expression(parser, 0)?);
+    let mut expressions = vec![expressions::expression(parser, 0)?];
 
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
         expressions.push(expressions::expression(parser, 0)?);
@@ -132,9 +128,7 @@ pub(crate) fn short_tag_echo_statement(parser: &mut Parser) -> ExpressionResult 
 
 pub(crate) fn print_statement(parser: &mut Parser) -> ExpressionResult {
     let token = parser.consume(TokenType::Print)?;
-    let mut expressions = Vec::new();
-
-    expressions.push(expressions::expression(parser, 0)?);
+    let expressions = vec![expressions::expression(parser, 0)?];
 
     parser.consume_end_of_statement()?;
 

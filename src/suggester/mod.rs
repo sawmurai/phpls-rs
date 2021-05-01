@@ -247,12 +247,10 @@ fn suggest_members_of_symbol(
     // through all references in the current file and finding a match on the parent position
     let resolved_parent = if let Some(resolved_parent) = resolved_parent.as_ref() {
         resolved_parent
-    } else if let Some((node, _)) = references.iter().find(|(_, ranges)| {
-        ranges
-            .iter()
-            .find(|r| in_range(&pos, &get_range(**r)))
-            .is_some()
-    }) {
+    } else if let Some((node, _)) = references
+        .iter()
+        .find(|(_, ranges)| ranges.iter().any(|r| in_range(&pos, &get_range(*r))))
+    {
         node
     } else {
         return vec![];

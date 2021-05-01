@@ -156,7 +156,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
             visibility,
             token,
             consts,
-            doc_comment: doc_comment.clone(),
+            doc_comment,
             attributes,
         };
 
@@ -220,7 +220,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
 
     parser.consume_or_ff_after(TokenType::Semicolon, &[TokenType::Semicolon])?;
 
-    return Ok(Node::PropertyDefinitionStatement {
+    Ok(Node::PropertyDefinitionStatement {
         properties: props,
         data_type,
         visibility,
@@ -228,7 +228,7 @@ pub(crate) fn class_block_statement(parser: &mut Parser) -> ExpressionResult {
         is_static,
         doc_comment,
         attributes,
-    });
+    })
 }
 
 /// Parses a class block, so basically the body that contains all the method definitions etc.
@@ -245,9 +245,8 @@ pub(crate) fn class_block(parser: &mut Parser) -> ExpressionResult {
     let mut statements = Vec::new();
 
     while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
-        match class_block_statement(parser) {
-            Ok(statement) => statements.push(statement),
-            Err(_) => {}
+        if let Ok(statement) = class_block_statement(parser) {
+            statements.push(statement);
         }
 
         if parser.peek().is_none() {
@@ -335,7 +334,7 @@ fn trait_usages(parser: &mut Parser) -> ExpressionListResult {
             return Ok(usages);
         }
 
-        if !parser.consume_or_ignore(TokenType::Comma).is_some() {
+        if parser.consume_or_ignore(TokenType::Comma).is_none() {
             break;
         }
     }

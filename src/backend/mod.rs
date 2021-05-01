@@ -180,7 +180,7 @@ impl Backend {
         file: &str,
     ) -> Option<(NodeId, String)> {
         let file = if let Some(node) = state.files.get(file) {
-            node.clone()
+            *node
         } else {
             return None;
         };
@@ -272,7 +272,7 @@ impl Backend {
 
         let handle = Handle::current();
         let mt = std::thread::spawn(move || {
-            return handle.spawn(async move {
+            handle.spawn(async move {
                 for (p, ast, range, errors) in rx {
                     let mut state = state.lock().await;
 
@@ -288,7 +288,7 @@ impl Backend {
                     let diags = errors.iter().map(Diagnostic::from).collect();
                     state.diagnostics.insert(p, diags);
                 }
-            });
+            })
         });
 
         let mut type_builder = TypesBuilder::new();
@@ -320,12 +320,7 @@ impl Backend {
                         };
 
                         if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-                            match tx.send((
-                                EnvFs::normalize_path(&PathBuf::from(path)),
-                                ast,
-                                range,
-                                errors,
-                            )) {
+                            match tx.send((EnvFs::normalize_path(&path), ast, range, errors)) {
                                 Err(e) => eprintln!("{:?}", e),
                                 _ => (),
                             };
@@ -526,11 +521,9 @@ impl Backend {
             diagnostics.clear();
             diagnostics.extend(errors.iter().map(Diagnostic::from));
 
-            state
-                .opened_files
-                .insert(path.to_string(), (ast.to_owned(), range));
+            state.opened_files.insert(path.to_string(), (ast, range));
 
-            if let Err(e) = reindex_result {
+            if let Err(_) = reindex_result {
                 return;
             }
         }
@@ -562,7 +555,7 @@ impl LanguageServer for Backend {
 
         let mut trigger_characters = ('a'..'z')
             .into_iter()
-            .map(|c| String::from(c))
+            .map(String::from)
             .collect::<Vec<String>>();
         trigger_characters.push(String::from("$"));
         trigger_characters.push(String::from("_"));
@@ -641,7 +634,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<Vec<SymbolInformation>>> {
         let state = self.state.lock().await;
 
-        return symbol::symbol(&state, params);
+        symbol::symbol(&state, params)
     }
 
     async fn document_symbol(
@@ -650,7 +643,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<DocumentSymbolResponse>> {
         let state = self.state.lock().await;
 
-        return document_symbol::document_symbol(&state, params);
+        document_symbol::document_symbol(&state, params)
     }
 
     async fn document_highlight(
@@ -659,7 +652,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<Vec<DocumentHighlight>>> {
         let state = self.state.lock().await;
 
-        return document_highlight::document_highlight(&state, params);
+        document_highlight::document_highlight(&state, params)
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
@@ -697,19 +690,15 @@ impl LanguageServer for Backend {
             .iter()
             .filter_map(|(file, refs)| {
                 // Find all refs that point to our symbol, across all files
-                if let Some(ranges) = refs.get(&suc) {
-                    Some(
-                        ranges
-                            .iter()
-                            .map(|range| Location {
-                                uri: Url::from_file_path(file).unwrap(),
-                                range: get_range(*range),
-                            })
-                            .collect::<Vec<Location>>(),
-                    )
-                } else {
-                    None
-                }
+                refs.get(&suc).map(|ranges| {
+                    ranges
+                        .iter()
+                        .map(|range| Location {
+                            uri: Url::from_file_path(file).unwrap(),
+                            range: get_range(*range),
+                        })
+                        .collect::<Vec<Location>>()
+                })
             })
             .fold(Vec::new(), |cur, mut tot: Vec<Location>| {
                 tot.extend(cur);
@@ -717,7 +706,7 @@ impl LanguageServer for Backend {
                 tot
             });
 
-        return Ok(Some(locations));
+        Ok(Some(locations))
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
@@ -793,7 +782,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<GotoDefinitionResponse>> {
         let state = self.state.lock().await;
 
-        return goto_definition::goto_definition(&state, params);
+        goto_definition::goto_definition(&state, params)
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
@@ -841,7 +830,7 @@ impl LanguageServer for Backend {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let state = self.state.lock().await;
-        return hover::hover(&state, params);
+        hover::hover(&state, params)
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -850,7 +839,7 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let state = self.state.lock().await;
-        return completion::completion(&state, params);
+        completion::completion(&state, params)
     }
 
     async fn completion_resolve(&self, params: CompletionItem) -> Result<CompletionItem> {
@@ -859,7 +848,7 @@ impl LanguageServer for Backend {
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let state = self.state.lock().await;
-        return formatting::formatting(&state, params);
+        formatting::formatting(&state, params)
     }
 }
 

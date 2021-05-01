@@ -108,9 +108,7 @@ fn symbol_import(parser: &mut Parser) -> ExpressionResult {
 /// use Some\Other, Some\Else, What\Ever
 /// ```
 fn symbol_imports(parser: &mut Parser) -> ExpressionListResult {
-    let mut imports = Vec::new();
-
-    imports.push(symbol_import(parser)?);
+    let mut imports = vec![symbol_import(parser)?];
 
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
         if !parser.next_token_one_of(&[

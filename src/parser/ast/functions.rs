@@ -38,12 +38,7 @@ pub(crate) fn argument_list(
             None
         };
 
-        let doc_comment = if let Some(doc_comment) = comments::param_comment_for(doc_comment, &name)
-        {
-            Some(Box::new(doc_comment))
-        } else {
-            None
-        };
+        let doc_comment = comments::param_comment_for(doc_comment, &name).map(Box::new);
 
         arguments.push(Node::FunctionArgument {
             argument_type,
@@ -247,8 +242,7 @@ pub(crate) fn anonymous_function(
 
 /// Parses all the parameters of a call
 pub(crate) fn non_empty_parameter_list(parser: &mut Parser) -> ExpressionListResult {
-    let mut arguments = Vec::new();
-    arguments.push(expressions::expression(parser, 0)?);
+    let mut arguments = vec![expressions::expression(parser, 0)?];
 
     parser.consume_or_ignore(TokenType::Comma);
 

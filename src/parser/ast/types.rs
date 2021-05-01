@@ -3,9 +3,7 @@ use super::super::token::{Token, TokenType};
 use super::super::{ExpressionListResult, ExpressionResult, Parser, Result};
 
 pub(crate) fn type_ref_list(parser: &mut Parser) -> ExpressionListResult {
-    let mut type_refs = Vec::new();
-
-    type_refs.push(non_empty_type_ref(parser)?);
+    let mut type_refs = vec![non_empty_type_ref(parser)?];
 
     while parser.consume_or_ignore(TokenType::Comma).is_some() {
         type_refs.push(non_empty_type_ref(parser)?);
@@ -97,9 +95,7 @@ pub(crate) fn non_empty_namespace_ref(parser: &mut Parser) -> Result<Vec<Token>>
 ///
 /// ```
 pub(crate) fn non_empty_type_ref_union(parser: &mut Parser) -> Result<Vec<Node>> {
-    let mut paths = Vec::new();
-
-    paths.push(non_empty_type_ref(parser)?);
+    let mut paths = vec![non_empty_type_ref(parser)?];
 
     while parser.consume_or_ignore(TokenType::BinaryOr).is_some() {
         paths.push(non_empty_type_ref(parser)?);

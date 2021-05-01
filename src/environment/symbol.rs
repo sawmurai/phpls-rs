@@ -140,7 +140,7 @@ pub struct SymbolAlias<'a> {
 }
 
 impl<'a> SymbolAlias<'a> {
-    pub fn new<'b>(symbol: NodeId, alias: &'a str, visibility: Visibility, origin: NodeId) -> Self {
+    pub fn new(symbol: NodeId, alias: &'a str, visibility: Visibility, origin: NodeId) -> Self {
         SymbolAlias {
             symbol,
             alias,
@@ -150,11 +150,8 @@ impl<'a> SymbolAlias<'a> {
     }
 
     /// Create an alias for a previous import which is now available under a new name
-    pub fn aliased<'b>(&self, alias: &'a str) -> Self {
-        Self {
-            alias,
-            ..self.clone()
-        }
+    pub fn aliased(&self, alias: &'a str) -> Self {
+        Self { alias, ..*self }
     }
 
     /// Pass this alias along, which means updating its origin. For example, if trait a inherits symbol x from trait b
@@ -384,8 +381,8 @@ impl Symbol {
             .join(", ")
     }
 
-    pub fn name<'a>(&'a self) -> &'a str {
-        if self.name.starts_with("$") {
+    pub fn name<'a>(&self) -> &str {
+        if self.name.starts_with('$') {
             &self.name[1..]
         } else {
             &self.name
@@ -400,7 +397,7 @@ impl Symbol {
         if let Some(namespace) = self.namespace.as_ref() {
             format!("{}\\{}", namespace, self.name())
         } else {
-            format!("{}", self.name())
+            self.name().to_string()
         }
     }
 
@@ -440,7 +437,7 @@ impl Symbol {
             }
         }
 
-        return my_node_id;
+        my_node_id
     }
 
     /// Collect all inherited symbols of all parents (interfaces have more than one parent)
@@ -496,10 +493,7 @@ impl Symbol {
                         .get_all_symbols(used_trait, resolver, arena)
                         .drain()
                         .for_each(|(name, node)| {
-                            all_children
-                                .entry(name.clone())
-                                .or_insert_with(|| Vec::new())
-                                .push(node);
+                            all_children.entry(name).or_insert_with(Vec::new).push(node);
                         });
                 }
             }
@@ -511,33 +505,30 @@ impl Symbol {
         // Step 2: Do all insteadofs
         if let Some(resolutions) = self.import_resolutions.as_ref() {
             for resolution in resolutions {
-                match resolution {
-                    TraitUseAlteration::InsteadOf {
-                        class,
-                        instead_ofs,
-                        member,
-                        ..
-                    } => {
-                        let loser_traits = instead_ofs
-                            .iter()
-                            .filter_map(|tr| resolver.resolve_type_ref(tr, arena, &ctx, false))
-                            .collect::<Vec<NodeId>>();
+                if let TraitUseAlteration::InsteadOf {
+                    class,
+                    instead_ofs,
+                    member,
+                    ..
+                } = resolution
+                {
+                    let loser_traits = instead_ofs
+                        .iter()
+                        .filter_map(|tr| resolver.resolve_type_ref(tr, arena, &ctx, false))
+                        .collect::<Vec<NodeId>>();
 
-                        if let Some(winner_trait) =
-                            resolver.resolve_type_ref(class, arena, &ctx, false)
-                        {
-                            let normalized_member = member.to_lowercase();
+                    if let Some(winner_trait) = resolver.resolve_type_ref(class, arena, &ctx, false)
+                    {
+                        let normalized_member = member.to_lowercase();
 
-                            if let Some(aliases) = all_children.get_mut(&normalized_member) {
-                                // Only keep the aliases that are either the winner or not in the list of losers
-                                aliases.retain(|alias| {
-                                    alias.origin == winner_trait
-                                        || !loser_traits.contains(&alias.origin)
-                                });
-                            }
+                        if let Some(aliases) = all_children.get_mut(&normalized_member) {
+                            // Only keep the aliases that are either the winner or not in the list of losers
+                            aliases.retain(|alias| {
+                                alias.origin == winner_trait
+                                    || !loser_traits.contains(&alias.origin)
+                            });
                         }
                     }
-                    _ => (),
                 }
             }
         }
@@ -545,77 +536,72 @@ impl Symbol {
         // Drain into result map
         let mut children = HashMap::new();
         all_children.drain().for_each(|(key, val)| {
-            children.insert(key, val.first().unwrap().clone());
+            children.insert(key, *val.first().unwrap());
         });
 
         if let Some(resolutions) = self.import_resolutions.as_ref() {
             // Step 3: Do all aliases and visibility modifiers
             for resolution in resolutions {
-                match resolution {
+                if let TraitUseAlteration::As {
+                    visibility,
+                    class,
+                    member,
+                    alias,
+                } = resolution
+                {
                     // class::member as private
                     // class::member as otherMember
                     // member as private
                     // member as OtherMember
-                    TraitUseAlteration::As {
-                        visibility,
-                        class,
-                        member,
-                        alias,
-                    } => {
-                        let normalized_member = &member.to_lowercase();
 
-                        let visibility = Visibility::from(visibility);
+                    let normalized_member = &member.to_lowercase();
 
-                        // Do we need to add a new alias for the remaining symbol named "member"?
-                        if let Some(alias) = alias {
-                            if let Some(label) = alias.label.as_ref() {
-                                let mut new_alias = if let Some(class) = class {
-                                    if let Some(resolved_class) =
-                                        resolver.resolve_type_ref(class, arena, &ctx, false)
-                                    {
-                                        if let Some(origs) =
-                                            orig_all_children.get(normalized_member)
+                    let visibility = Visibility::from(visibility);
+
+                    // Do we need to add a new alias for the remaining symbol named "member"?
+                    if let Some(alias) = alias {
+                        if let Some(label) = alias.label.as_ref() {
+                            let mut new_alias = if let Some(class) = class {
+                                if let Some(resolved_class) =
+                                    resolver.resolve_type_ref(class, arena, &ctx, false)
+                                {
+                                    if let Some(origs) = orig_all_children.get(normalized_member) {
+                                        if let Some(orig) =
+                                            origs.iter().find(|orig| orig.origin == resolved_class)
                                         {
-                                            if let Some(orig) = origs
-                                                .iter()
-                                                .find(|orig| orig.origin == resolved_class)
-                                            {
-                                                orig.aliased(label)
-                                            } else {
-                                                // Original name exists but not from the trait "class"
-                                                continue;
-                                            }
+                                            orig.aliased(label)
                                         } else {
-                                            // Original name never existed
+                                            // Original name exists but not from the trait "class"
                                             continue;
                                         }
                                     } else {
-                                        // The class can not be resolved, so the user is using a trait name that is
-                                        // not available
+                                        // Original name never existed
                                         continue;
                                     }
-                                } else if let Some(to_be_aliased) = children.get(normalized_member)
-                                {
-                                    to_be_aliased.aliased(label)
                                 } else {
-                                    // member does not exist
+                                    // The class can not be resolved, so the user is using a trait name that is
+                                    // not available
                                     continue;
-                                };
-
-                                if visibility != Visibility::None {
-                                    new_alias.visibility = visibility;
                                 }
+                            } else if let Some(to_be_aliased) = children.get(normalized_member) {
+                                to_be_aliased.aliased(label)
+                            } else {
+                                // member does not exist
+                                continue;
+                            };
 
-                                children.insert(label.to_lowercase(), new_alias);
+                            if visibility != Visibility::None {
+                                new_alias.visibility = visibility;
                             }
-                        // No additional alias, just a change in visibility
-                        } else if visibility != Visibility::None {
-                            if let Some(symbol_alias) = children.get_mut(normalized_member) {
-                                symbol_alias.visibility = visibility;
-                            }
+
+                            children.insert(label.to_lowercase(), new_alias);
+                        }
+                    // No additional alias, just a change in visibility
+                    } else if visibility != Visibility::None {
+                        if let Some(symbol_alias) = children.get_mut(normalized_member) {
+                            symbol_alias.visibility = visibility;
                         }
                     }
-                    _ => (),
                 }
             }
         }
@@ -674,7 +660,7 @@ impl Symbol {
         if parents.len() != 1 {
             None
         } else {
-            Some(parents.values().next().unwrap().clone())
+            Some(*parents.values().next().unwrap())
         }
     }
 

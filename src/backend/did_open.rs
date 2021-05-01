@@ -16,9 +16,7 @@ pub(crate) fn did_open(state: &mut BackendState, params: &DidOpenTextDocumentPar
         if let Ok((ast, range, errors)) = Backend::source_to_ast(&source) {
             let diags = errors.iter().map(Diagnostic::from).collect();
             state.diagnostics.insert(path.to_owned(), diags);
-            state
-                .opened_files
-                .insert(path.to_string(), (ast.to_owned(), range));
+            state.opened_files.insert(path.to_string(), (ast, range));
         } else {
             return;
         }
@@ -30,7 +28,7 @@ pub(crate) fn did_open(state: &mut BackendState, params: &DidOpenTextDocumentPar
         return;
     };
 
-    if let Err(e) = Backend::collect_references(&path, &ast, state, None) {
+    if let Err(_) = Backend::collect_references(&path, &ast, state, None) {
         return;
     }
 }

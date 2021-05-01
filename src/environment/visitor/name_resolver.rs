@@ -75,8 +75,8 @@ impl<'a> NameResolver<'a> {
     ) {
         self.diagnostics.push(Notification {
             file,
-            range,
             message,
+            range,
             severity,
         });
     }
@@ -118,11 +118,9 @@ impl<'a> NameResolver<'a> {
     pub fn get_local(&self, token: &Token) -> Option<NodeId> {
         // Resolve $this to current class
         if let Some(label) = token.label.as_ref() {
-            if token.t == TokenType::Variable {
-                if label == "this" {
-                    if let Some(current_class) = self.current_class {
-                        return Some(current_class);
-                    }
+            if token.t == TokenType::Variable && label == "this" {
+                if let Some(current_class) = self.current_class {
+                    return Some(current_class);
                 }
             }
 
@@ -191,11 +189,9 @@ impl<'a> NameResolver<'a> {
 
     /// Resolve fully qualified
     pub fn resolve_fully_qualified(&mut self, name: &str) -> Option<NodeId> {
-        if let Some(node) = self.global_scope.get(&name.to_lowercase()) {
-            Some(*node)
-        } else {
-            None
-        }
+        self.global_scope
+            .get(&name.to_lowercase())
+            .map(|node| *node)
     }
 
     /// Resolve a TypeRef `Some\Name\Space` to the node of the definition of that symbol
@@ -864,20 +860,14 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                                 Visibility::Public
                                             },
                                         );
-                                    } else {
-                                        if let Some(resolved_data_type) =
-                                            self.resolver.resolve_type_ref(
-                                                &reference.type_ref,
-                                                arena,
-                                                &node,
-                                                true,
-                                            )
-                                        {
-                                            break 'root_node (
-                                                Some(resolved_data_type),
-                                                Visibility::Public,
-                                            );
-                                        }
+                                    } else if let Some(resolved_data_type) = self
+                                        .resolver
+                                        .resolve_type_ref(&reference.type_ref, arena, &node, true)
+                                    {
+                                        break 'root_node (
+                                            Some(resolved_data_type),
+                                            Visibility::Public,
+                                        );
                                     }
                                 }
 

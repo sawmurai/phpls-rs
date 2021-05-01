@@ -242,7 +242,6 @@ pub fn collect_uses(node: &Node, prefix: &TypeRef) -> Vec<SymbolImport> {
             collected_uses.push(SymbolImport {
                 path: TypeRef::append(prefix, tokens),
                 alias: None,
-                ..SymbolImport::default()
             });
         }
         _ => {}

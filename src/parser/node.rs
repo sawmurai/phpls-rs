@@ -40,7 +40,7 @@ impl TypeRef {
             .kind
             .iter()
             .chain(appendix.kind.iter())
-            .map(|token| token.clone())
+            .cloned()
             .collect();
         Self {
             kind: combined,
@@ -120,7 +120,7 @@ impl TypeRef {
 
     /// Ns1\Ns2\Class
     /// This returns Ns2\Class
-    pub fn stem<'a>(&'_ self) -> Skip<Iter<'_, Token>> {
+    pub fn stem(&self) -> Skip<Iter<'_, Token>> {
         if self.is_fully_qualified() {
             self.kind.iter().skip(2)
         } else {
@@ -132,11 +132,11 @@ impl TypeRef {
         self.kind.first().unwrap().t.clone()
     }
 
-    pub fn root_token<'a>(&'_ self) -> &'_ Token {
+    pub fn root_token(&self) -> &Token {
         self.kind.first().unwrap()
     }
 
-    pub fn tip<'a>(&'_ self) -> Option<&'_ str> {
+    pub fn tip(&self) -> Option<&str> {
         if let Some(last) = self.kind.iter().last() {
             if let Some(label) = last.label.as_ref() {
                 return Some(label);
@@ -1708,7 +1708,7 @@ impl Node {
     }
 
     /// Returns all descendants of this node in a DFS manner
-    pub fn descendants<'a>(&'_ self) -> Vec<&'_ Node> {
+    pub fn descendants(&self) -> Vec<&Node> {
         let mut descendants = Vec::new();
 
         for c in self.children() {

@@ -1,9 +1,6 @@
 use super::BackendState;
 use crate::formatter::format;
-use crate::{
-    environment::{self, fs as EnvFs, get_range, in_range},
-    formatter::FormatterOptions,
-};
+use crate::{environment::fs as EnvFs, formatter::FormatterOptions};
 use lsp_types::{DocumentFormattingParams, TextEdit};
 use tower_lsp::jsonrpc::Result;
 
@@ -11,7 +8,7 @@ pub(crate) fn formatting(
     state: &BackendState,
     params: DocumentFormattingParams,
 ) -> Result<Option<Vec<TextEdit>>> {
-    let uri = params.text_document.uri.clone();
+    let uri = params.text_document.uri;
     let file_path = uri.to_file_path().unwrap();
     let path = EnvFs::normalize_path(&file_path);
 
