@@ -19,7 +19,7 @@ pub(crate) fn symbol(
             let symbol = state.arena[symbol].get();
 
             if symbol.normalized_name().starts_with(&query) {
-                if let Some(kind) = symbol.kind.to_symbol_kind() {
+                if let Some(kind) = symbol.kind.get_symbol_kind() {
                     let tags = if symbol.deprecated.is_some() {
                         Some(vec![SymbolTag::Deprecated])
                     } else {

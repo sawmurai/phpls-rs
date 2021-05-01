@@ -231,7 +231,7 @@ impl Default for Symbol {
 }
 
 impl PhpSymbolKind {
-    pub fn to_symbol_kind(&self) -> Option<SymbolKind> {
+    pub fn get_symbol_kind(&self) -> Option<SymbolKind> {
         let kind = match self {
             PhpSymbolKind::File => SymbolKind::File,
             PhpSymbolKind::Namespace => SymbolKind::Namespace,
@@ -728,7 +728,7 @@ impl Symbol {
             Some(children)
         };
 
-        let kind = self.kind.to_symbol_kind()?;
+        let kind = self.kind.get_symbol_kind()?;
 
         Some(DocumentSymbol {
             kind,
