@@ -24,9 +24,9 @@ impl SymbolImportBlock {
     }
 }
 
-impl Into<SymbolImportBlock> for Vec<SymbolImport> {
-    fn into(self) -> SymbolImportBlock {
-        SymbolImportBlock(self)
+impl From<Vec<SymbolImport>> for SymbolImportBlock {
+    fn from(block: Vec<SymbolImport>) -> SymbolImportBlock {
+        SymbolImportBlock(block)
     }
 }
 

@@ -28,7 +28,7 @@ pub(crate) fn did_open(state: &mut BackendState, params: &DidOpenTextDocumentPar
         return;
     };
 
-    if Backend::collect_references(&path, &ast, state, None).is_err() {
-        return;
+    if let Err(e) = Backend::collect_references(&path, &ast, state, None) {
+        eprintln!("Error collecting references {}", e);
     }
 }

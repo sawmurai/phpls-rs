@@ -694,7 +694,7 @@ pub fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOpti
             if let Some(nullable) = nullable {
                 format!("{}{}", nullable, trs)
             } else {
-                trs.to_string()
+                trs
             }
         }
         Node::FunctionArgument {

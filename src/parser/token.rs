@@ -696,10 +696,10 @@ impl Display for Token {
     }
 }
 
-impl Into<CompletionItem> for TokenType {
-    fn into(self) -> CompletionItem {
+impl From<TokenType> for CompletionItem {
+    fn from(tt: TokenType) -> CompletionItem {
         CompletionItem {
-            label: self.to_string(),
+            label: tt.to_string(),
             kind: Some(CompletionItemKind::Keyword),
             ..CompletionItem::default()
         }

@@ -173,19 +173,19 @@ impl From<&TypeRef> for String {
     }
 }
 
-impl Into<TypeRef> for Vec<Token> {
-    fn into(self) -> TypeRef {
+impl From<Vec<Token>> for TypeRef {
+    fn from(tokens: Vec<Token>) -> TypeRef {
         TypeRef {
-            kind: self,
+            kind: tokens,
             multiple: false,
         }
     }
 }
 
-impl Into<TypeRef> for [Token; 0] {
-    fn into(self) -> TypeRef {
+impl From<[Token; 0]> for TypeRef {
+    fn from(tokens: [Token; 0]) -> TypeRef {
         TypeRef {
-            kind: self.into(),
+            kind: tokens.into(),
             multiple: false,
         }
     }

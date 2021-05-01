@@ -20,7 +20,9 @@ pub(crate) fn did_change_watched_files(
         let content = std::fs::read_to_string(file_path).unwrap();
 
         if let Ok((ast, range, errors)) = Backend::source_to_ast(&content) {
-            Backend::collect_symbols(&path, &ast, &range, state);
+            if let Err(e) = Backend::collect_symbols(&path, &ast, &range, state) {
+                eprintln!("Error collecting symbols: {}", e);
+            }
 
             let diagnostics = state
                 .diagnostics

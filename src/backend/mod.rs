@@ -532,9 +532,8 @@ impl Backend {
         // Now reindex all the other currently opened files to update references
         let tasks = state.opened_files.clone();
         for (path, (ast, _)) in tasks {
-            match Backend::collect_references(&path, &ast, state, None) {
-                Err(err) => eprintln!("Error updating opened file after save of another: {}", err),
-                _ => (),
+            if let Err(e) = Backend::collect_references(&path, &ast, state, None) {
+                eprintln!("Error updating opened file after save of another: {}", e);
             }
         }
     }
