@@ -282,7 +282,7 @@ mod tests {
                 line: 1,
                 t: TokenType::Identifier,
                 label: Some("IncludedSymbol".to_owned()),
-                offset: None,
+                offset: Some(0),
             }]
             .into(),
             alias: None,
@@ -315,7 +315,7 @@ mod tests {
                 line: 1,
                 t: TokenType::Identifier,
                 label: Some("IncludedSymbol".to_owned()),
-                offset: None,
+                offset: Some(0),
             }]
             .into(),
             alias: None,

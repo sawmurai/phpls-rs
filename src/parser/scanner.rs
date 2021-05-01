@@ -1035,70 +1035,11 @@ mod tests {
     macro_rules! token_list {
         ($vec:expr) => {
             $vec.iter()
+                .filter(|t| t.t != TokenType::Linebreak && t.t != TokenType::LineComment)
                 .map(std::string::ToString::to_string)
                 .collect::<Vec<String>>()
                 .join(" ");
         };
-    }
-
-    #[test]
-    fn test_scans_expressions() {
-        let mut scanner = Scanner::new("<?php\n$a = 1 + 2;\n$a++;$b +\n1\n + 2\n;");
-        scanner.scan().unwrap();
-
-        assert_eq!(
-            scanner.tokens[0],
-            Token::new(TokenType::ScriptStart(ScriptStartType::Regular), 0, 0, 0)
-        );
-        assert_eq!(
-            scanner.tokens[1],
-            Token::named(TokenType::Variable, 1, 0, 0, "a")
-        );
-        assert_eq!(
-            scanner.tokens[2],
-            Token::new(TokenType::Assignment, 1, 3, 0)
-        );
-        assert_eq!(
-            scanner.tokens[3],
-            Token::named(TokenType::LongNumber, 1, 5, 0, "1")
-        );
-        assert_eq!(scanner.tokens[4], Token::new(TokenType::Plus, 1, 7, 0));
-        assert_eq!(
-            scanner.tokens[5],
-            Token::named(TokenType::LongNumber, 1, 9, 0, "2")
-        );
-        assert_eq!(
-            scanner.tokens[6],
-            Token::new(TokenType::Semicolon, 1, 10, 0)
-        );
-        assert_eq!(
-            scanner.tokens[7],
-            Token::named(TokenType::Variable, 2, 0, 0, "a")
-        );
-        assert_eq!(scanner.tokens[8], Token::new(TokenType::Increment, 2, 2, 0));
-        assert_eq!(scanner.tokens[9], Token::new(TokenType::Semicolon, 2, 4, 0));
-        assert_eq!(
-            scanner.tokens[10],
-            Token::named(TokenType::Variable, 2, 5, 0, "b")
-        );
-        assert_eq!(scanner.tokens[11], Token::new(TokenType::Plus, 2, 8, 0));
-        assert_eq!(
-            scanner.tokens[12],
-            Token::named(TokenType::LongNumber, 3, 0, 0, "1")
-        );
-        assert_eq!(scanner.tokens[13], Token::new(TokenType::Plus, 4, 1, 0));
-        assert_eq!(
-            scanner.tokens[14],
-            Token::named(TokenType::LongNumber, 4, 3, 0, "2")
-        );
-        assert_eq!(
-            scanner.tokens[15],
-            Token::new(TokenType::Semicolon, 5, 0, 0)
-        );
-        assert_eq!(
-            token_list!(scanner.tokens),
-            "<?php $a = 1 + 2 ; $a ++ ; $b + 1 + 2 ; "
-        );
     }
 
     #[test]
@@ -1112,210 +1053,8 @@ $object->{'\u{6771}\u{4eac}'} = 2020;
         scanner.scan().unwrap();
 
         assert_eq!(
-            scanner.tokens[0],
-            Token::new(TokenType::ScriptStart(ScriptStartType::Regular), 0, 0, 0)
-        );
-        assert_eq!(
-            scanner.tokens[1],
-            Token::named(TokenType::Variable, 1, 0, 0, "object")
-        );
-        assert_eq!(
-            scanner.tokens[2],
-            Token::new(TokenType::ObjectOperator, 1, 7, 0)
-        );
-        assert_eq!(scanner.tokens[3], Token::new(TokenType::OpenCurly, 1, 9, 0));
-        assert_eq!(
-            scanner.tokens[4],
-            Token::named(
-                TokenType::ConstantEncapsedString,
-                1,
-                10,
-                0,
-                "\u{6771}\u{4eac}"
-            )
-        );
-    }
-
-    #[test]
-    fn test_scans_empty_string_and_not_empty_string() {
-        let mut scanner = Scanner::new(
-            "<?php
-'abc' . '' . 'def';
-",
-        );
-
-        scanner.scan().unwrap();
-        assert_eq!(
-            scanner.tokens[1],
-            Token::named(TokenType::ConstantEncapsedString, 1, 0, 0, "abc")
-        );
-        assert_eq!(scanner.tokens[2], Token::new(TokenType::Concat, 1, 6, 0));
-        assert_eq!(
-            scanner.tokens[3],
-            Token::named(TokenType::ConstantEncapsedString, 1, 8, 0, "")
-        );
-        assert_eq!(scanner.tokens[4], Token::new(TokenType::Concat, 1, 11, 0));
-
-        assert_eq!(
-            scanner.tokens[5],
-            Token::named(TokenType::ConstantEncapsedString, 1, 13, 0, "def")
-        );
-    }
-
-    #[test]
-    fn test_scans_array() {
-        let mut scanner = Scanner::new(
-            "<?php
-['rofl' => 'copter'];",
-        );
-
-        scanner.scan().unwrap();
-        assert_eq!(
-            scanner.tokens[1],
-            Token::new(TokenType::OpenBrackets, 1, 0, 0)
-        );
-        assert_eq!(
-            scanner.tokens[2],
-            Token::named(TokenType::ConstantEncapsedString, 1, 1, 0, "rofl")
-        );
-        assert_eq!(
-            scanner.tokens[3],
-            Token::new(TokenType::DoubleArrow, 1, 8, 0)
-        );
-        assert_eq!(
-            scanner.tokens[4],
-            Token::named(TokenType::ConstantEncapsedString, 1, 11, 0, "copter")
-        );
-        assert_eq!(
-            scanner.tokens[5],
-            Token::new(TokenType::CloseBrackets, 1, 19, 0)
-        );
-    }
-
-    #[test]
-    fn test_scans_string_argument() {
-        let mut scanner = Scanner::new(
-            "<?php
-func('rofl');",
-        );
-
-        scanner.scan().unwrap();
-        assert_eq!(
-            scanner.tokens[1],
-            Token::named(TokenType::Identifier, 1, 0, 0, "func")
-        );
-        assert_eq!(
-            scanner.tokens[2],
-            Token::new(TokenType::OpenParenthesis, 1, 4, 0)
-        );
-        assert_eq!(
-            scanner.tokens[3],
-            Token::named(TokenType::ConstantEncapsedString, 1, 5, 0, "rofl")
-        );
-        assert_eq!(
-            scanner.tokens[4],
-            Token::new(TokenType::CloseParenthesis, 1, 11, 0)
-        );
-        assert_eq!(
-            scanner.tokens[5],
-            Token::new(TokenType::Semicolon, 1, 12, 0)
-        );
-    }
-
-    #[test]
-    fn test_scans_keywords() {
-        let mut scanner = Scanner::new(
-            "<?php
-while (true) {}",
-        );
-
-        scanner.scan().unwrap();
-
-        assert_eq!(scanner.tokens[1], Token::new(TokenType::While, 1, 0, 0));
-        assert_eq!(
-            scanner.tokens[2],
-            Token::new(TokenType::OpenParenthesis, 1, 6, 0)
-        );
-        assert_eq!(scanner.tokens[3], Token::new(TokenType::True, 1, 7, 0));
-        assert_eq!(
-            scanner.tokens[4],
-            Token::new(TokenType::CloseParenthesis, 1, 11, 0)
-        );
-        assert_eq!(
-            scanner.tokens[5],
-            Token::new(TokenType::OpenCurly, 1, 13, 0)
-        );
-        assert_eq!(
-            scanner.tokens[6],
-            Token::new(TokenType::CloseCurly, 1, 14, 0)
-        );
-    }
-
-    #[test]
-    fn test_scans_for_loop() {
-        let mut scanner = Scanner::new(
-            "<?php
-for ($i = 0; $i < 100; $i++) {}",
-        );
-
-        scanner.scan().unwrap();
-
-        assert_eq!(scanner.tokens[1], Token::new(TokenType::For, 1, 0, 0));
-        assert_eq!(
-            scanner.tokens[2],
-            Token::new(TokenType::OpenParenthesis, 1, 4, 0)
-        );
-        assert_eq!(
-            scanner.tokens[3],
-            Token::named(TokenType::Variable, 1, 5, 0, "i")
-        );
-        assert_eq!(
-            scanner.tokens[4],
-            Token::new(TokenType::Assignment, 1, 8, 0)
-        );
-        assert_eq!(
-            scanner.tokens[5],
-            Token::named(TokenType::LongNumber, 1, 10, 0, "0")
-        );
-        assert_eq!(
-            scanner.tokens[6],
-            Token::new(TokenType::Semicolon, 1, 11, 0)
-        );
-
-        assert_eq!(
-            scanner.tokens[7],
-            Token::named(TokenType::Variable, 1, 13, 0, "i")
-        );
-        assert_eq!(scanner.tokens[8], Token::new(TokenType::Smaller, 1, 16, 0));
-        assert_eq!(
-            scanner.tokens[9],
-            Token::named(TokenType::LongNumber, 1, 18, 0, "100")
-        );
-        assert_eq!(
-            scanner.tokens[10],
-            Token::new(TokenType::Semicolon, 1, 21, 0)
-        );
-
-        assert_eq!(
-            scanner.tokens[11],
-            Token::named(TokenType::Variable, 1, 23, 0, "i")
-        );
-        assert_eq!(
-            scanner.tokens[12],
-            Token::new(TokenType::Increment, 1, 25, 0)
-        );
-        assert_eq!(
-            scanner.tokens[13],
-            Token::new(TokenType::CloseParenthesis, 1, 27, 0)
-        );
-
-        assert_eq!(
-            scanner.tokens[14],
-            Token::new(TokenType::OpenCurly, 1, 29, 0)
-        );
-        assert_eq!(
-            scanner.tokens[15],
-            Token::new(TokenType::CloseCurly, 1, 30, 0)
+            token_list!(scanner.tokens),
+            "<?php $object -> { '\u{6771}\u{4eac}' } = 2020 ; "
         );
     }
 
@@ -1424,7 +1163,7 @@ for ($i = 0; $i < 100; $i++) {}",
 
         assert_eq!(
             token_list!(scanner.tokens),
-            "<?php echo 'blubb' ; /** some multiline comment */ echo 'blabb' ; //  ?>"
+            "<?php echo 'blubb' ; /** some multiline comment */ echo 'blabb' ; ?>"
         );
     }
     #[test]
@@ -1433,7 +1172,7 @@ for ($i = 0; $i < 100; $i++) {}",
 
         scanner.scan().unwrap();
 
-        assert_eq!(token_list!(scanner.tokens), "<?php // Line comment  ?>");
+        assert_eq!(token_list!(scanner.tokens), "<?php ?>");
     }
 
     #[test]

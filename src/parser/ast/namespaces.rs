@@ -251,37 +251,7 @@ pub(crate) fn use_statement(parser: &mut Parser, token: Token) -> ExpressionResu
 mod tests {
     use super::*;
     use crate::formatter::{format_file, FormatterOptions};
-    use crate::parser::node::Node;
     use crate::parser::scanner::Scanner;
-    use crate::parser::token::Token;
-
-    #[test]
-    fn test_parses_namespace_declaration() {
-        let mut scanner = Scanner::new(
-            "<?php
-        namespace Rofl\\Copter;
-        ",
-        );
-        scanner.scan().unwrap();
-        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
-
-        assert_eq!(true, errors.is_empty());
-        assert_eq!(1, ast.len());
-        assert_eq!(
-            Node::NamespaceStatement {
-                token: Token::new(TokenType::Namespace, 1, 8, 0),
-                type_ref: Box::new(Node::TypeRef(
-                    vec![
-                        Token::named(TokenType::Identifier, 1, 18, 0, "Rofl"),
-                        Token::new(TokenType::NamespaceSeparator, 1, 22, 0),
-                        Token::named(TokenType::Identifier, 1, 23, 0, "Copter")
-                    ]
-                    .into()
-                ))
-            },
-            ast[0]
-        );
-    }
 
     #[test]
     fn test_parses_use_statements() {

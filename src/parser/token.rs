@@ -685,6 +685,7 @@ impl Display for TokenType {
             TokenType::Generator => "Generator".to_owned(),
             TokenType::Missing => "".to_owned(),
             TokenType::Variable => "$".to_owned(),
+            TokenType::Linebreak => "".to_owned(),
             _ => unreachable!("Should have never been called with {:?}", self),
         };
 
