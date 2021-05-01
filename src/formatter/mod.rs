@@ -349,7 +349,7 @@ fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> 
                 );
                 parts.push(";\n".to_string());
             }
-            Node::UseConstStatement { token, imports } => {
+            Node::UseConstStatement { imports, .. } => {
                 parts.push(" ".repeat(col));
                 parts.push("use const ".to_owned());
                 parts.push(
@@ -429,23 +429,17 @@ fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> 
                     .join(", ")
             )),
 
-            Node::SwitchCase {
-                token,
-                op,
-                expr,
-                cp,
-                body,
-            } => parts.push(format!(
+            Node::SwitchCase { expr, body, .. } => parts.push(format!(
                 "switch ({}) {}\n",
                 format_node(expr, line, col, options),
                 format_node(body, line, col, options)
             )),
 
             Node::TryCatch {
-                token,
                 try_block,
                 catch_blocks,
                 finally_block,
+                ..
             } => parts.push(format!(
                 "{}try {}{} {}\n",
                 " ".repeat(col),
@@ -495,12 +489,7 @@ fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> 
                 format_node(body, line, col, options)
             )),
             Node::DoWhileStatement {
-                do_token,
-                op,
-                cp,
-                while_token,
-                condition,
-                body,
+                condition, body, ..
             } => parts.push(format!(
                 "{}do {} while ({});\n",
                 " ".repeat(col),
@@ -508,11 +497,11 @@ fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> 
                 format_node(condition, line, col, options),
             )),
             Node::ForStatement {
-                token,
                 init,
                 condition,
                 step,
                 body,
+                ..
             } => parts.push(format!(
                 "{}for ({}; {}; {}) {}\n",
                 " ".repeat(col),
@@ -532,13 +521,10 @@ fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> 
                 format_node(body, line, col, options)
             )),
             Node::ForEachStatement {
-                token,
-                op,
                 collection,
-                as_token,
                 kv,
-                cp,
                 body,
+                ..
             } => parts.push(format!(
                 "{}foreach ({} as {}) {}\n",
                 " ".repeat(col),
@@ -546,7 +532,7 @@ fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> 
                 format_node(kv, line, col, options),
                 format_node(body, line, col, options)
             )),
-            Node::TokenStatement { token, expr } => {
+            Node::TokenStatement { token, .. } => {
                 parts.push(" ".repeat(col));
                 parts.push(token.to_string());
                 parts.push(";".to_owned())
@@ -1000,15 +986,7 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
             format!("{} {}", token, format_node(expr, line, col, options))
         }
 
-        Node::DocComment {
-            comment,
-            return_type,
-            description,
-            is_deprecated,
-            params,
-            var_docs,
-            properties,
-        } => comment.to_string(),
+        Node::DocComment { comment, .. } => comment.to_string(),
         Node::PostUnary { expr, token } => {
             format!("{}{}", format_node(expr, line, col, options), token)
         }
@@ -1064,9 +1042,7 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
             cc
         ),
         Node::StaticVariable {
-            variable,
-            assignment,
-            value,
+            variable, value, ..
         } => {
             if let Some(value) = value {
                 format!("{} = {}", variable, format_node(value, line, col, options))
@@ -1165,21 +1141,18 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
 
         Node::Exit {
             exit: token,
-            op,
             parameters,
-            cp,
+            ..
         }
         | Node::HaltCompiler {
             hc: token,
-            op,
             parameters,
-            cp,
+            ..
         }
         | Node::Die {
             die: token,
-            op,
             parameters,
-            cp,
+            ..
         } => {
             if let Some(parameters) = parameters {
                 format!(
@@ -1229,7 +1202,7 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
                     alias.as_ref().unwrap()
                 ));
             } else {
-                result.push_str(&format!("{}", format_node(thing, col, line, options)));
+                result.push_str(&format_node(thing, col, line, options));
             }
 
             result
@@ -1238,19 +1211,19 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
         Node::LabelStatement { label, colon } => format!("{}{}", label, colon),
         Node::DeclareStatement {
             directive,
-            value,
             assignment,
             op,
             cp,
             token,
+            ..
         } => format!("{}{}{}{}{}", token, op, directive, assignment, cp),
         Node::DefineStatement {
             name,
             value,
             op,
             cp,
-            token,
             is_caseinsensitive,
+            ..
         } => {
             if let Some(is_caseinsensitive) = is_caseinsensitive {
                 format!(
@@ -1272,9 +1245,9 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
             }
         }
         Node::AlternativeBlock {
-            colon,
             statements,
             terminator,
+            ..
         } => format!(
             ":\n{}\n{}{};",
             statements
@@ -1296,7 +1269,7 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
             format_node(condition, line, col, options),
             format_node(body, line, col, options),
         ),
-        Node::ElseBranch { token, body } => {
+        Node::ElseBranch { body, .. } => {
             format!("else {}", format_node(body, line, col, options),)
         }
         Node::SwitchBranch { cases, body } => {
@@ -1338,12 +1311,7 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
             end,
         ),
         Node::CatchBlock {
-            token,
-            op,
-            types,
-            var,
-            cp,
-            body,
+            types, var, body, ..
         } => format!(
             " catch ({} {}) {}",
             types
@@ -1354,7 +1322,7 @@ fn format_node(node: &Node, line: usize, col: usize, options: &FormatterOptions)
             var,
             format_node(body, line, col, options)
         ),
-        Node::FinallyBlock { token, body } => {
+        Node::FinallyBlock { body, .. } => {
             dbg!(body);
             format!("finally {}", format_node(body, line, col, options))
         }

@@ -193,8 +193,8 @@ impl Span {
             .tokens
             .extend(chunk.tokens.iter().cloned());
 
-        if self.spans.len() > 0 {
-            self.spans.last_mut().unwrap().right_extend(chunk.clone());
+        if !self.spans.is_empty() {
+            self.spans.last_mut().unwrap().right_extend(chunk);
         }
     }
 
@@ -209,8 +209,8 @@ impl Span {
             .tokens
             .splice(0..0, chunk.tokens.iter().cloned());
 
-        if self.spans.len() > 0 {
-            self.spans.first_mut().unwrap().left_extend(chunk.clone());
+        if !self.spans.is_empty() {
+            self.spans.first_mut().unwrap().left_extend(chunk);
         }
     }
 }
@@ -342,29 +342,25 @@ fn binary_to_spans(spans: &mut Vec<Span>, tokens: &[Token], left: &Node, right: 
         let lmt = right_first.left_offset();
 
         let mut start = rels + 1;
-        loop {
+        while let Some(lc) = &tokens[start..lmt]
+            .iter()
+            .find(|t| t.t == TokenType::LineComment)
+        {
             // Try to find a line comment in the part between the left and the right side
             // If a line comment is found, add it and everything before it as one separate span
-            if let Some(lc) = &tokens[start..lmt]
-                .iter()
-                .find(|t| t.t == TokenType::LineComment)
-            {
-                let lc_offset = lc.offset.unwrap() as usize;
-                let chunk = Chunk::unspaced(&tokens[start..=lc_offset]);
 
-                chunks.push(chunk.clone());
-                subspans.push(Span::leaf(vec![chunk], lvl));
+            let lc_offset = lc.offset.unwrap() as usize;
+            let chunk = Chunk::unspaced(&tokens[start..=lc_offset]);
 
-                spans.push(Span::new(chunks, subspans, lvl));
+            chunks.push(chunk.clone());
+            subspans.push(Span::leaf(vec![chunk], lvl));
 
-                chunks = Vec::new();
-                subspans = Vec::new();
+            spans.push(Span::new(chunks, subspans, lvl));
 
-                start = lc_offset + 1;
-            } else {
-                // Break and add the rest as one chunk
-                break;
-            }
+            chunks = Vec::new();
+            subspans = Vec::new();
+
+            start = lc_offset + 1;
         }
 
         // Add the rest by glueing it the left side of the right operand
