@@ -6,7 +6,7 @@ phpls-rs consists of a number of components that interact with each other.
 
 ## Backend
 
-The backend acts as the main interface between the language service client and phpls-rs.
+The backend acts as the main interface between the language server client and phpls-rs.
 
 [More information](backend.md)
 

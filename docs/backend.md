@@ -1,6 +1,6 @@
 # Backend
 
-The backend is the interface between the language service client (running in the editor of the developer)
+The backend is the interface between the language server client (running in the editor of the developer)
 and the actual meat of phpls-rs. It implements the Backend interface of tower-lsp.
 
 ![Components of the backend](img/structurizr-backend-components.svg)
