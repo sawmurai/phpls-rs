@@ -2,6 +2,10 @@
 
 phpls-rs is a PHP language server written in Rust.
 
+## Documentation
+
+[docs/index.md](docs/index.md) is the entrypoint of the (growing, incomplete) architecture documentation.
+
 ## Installation
 
 Currently it is only possible to install the development version manually. In the future there will of course be an installable VSCode extension in the
