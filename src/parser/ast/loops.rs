@@ -19,7 +19,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> ExpressionResult {
 
     let mut init = Vec::new();
     while !parser.next_token_one_of(&[TokenType::Semicolon]) {
-        init.push(expressions::expression_statement(parser)?);
+        init.push(expressions::expression(parser, 0)?);
 
         if parser.next_token_one_of(&[TokenType::Comma]) {
             parser.next();
@@ -32,7 +32,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> ExpressionResult {
 
     let mut condition = Vec::new();
     while !parser.next_token_one_of(&[TokenType::Semicolon]) {
-        condition.push(expressions::expression_statement(parser)?);
+        condition.push(expressions::expression(parser, 0)?);
 
         if parser.next_token_one_of(&[TokenType::Comma]) {
             parser.next();
@@ -45,7 +45,7 @@ pub(crate) fn for_statement(parser: &mut Parser) -> ExpressionResult {
 
     let mut step = Vec::new();
     while !parser.next_token_one_of(&[TokenType::CloseParenthesis]) {
-        step.push(expressions::expression_statement(parser)?);
+        step.push(expressions::expression(parser, 0)?);
 
         if parser.next_token_one_of(&[TokenType::Comma]) {
             parser.next();

@@ -145,7 +145,7 @@ pub(crate) fn data_type(parser: &mut Parser) -> Result<Node> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        formatter::{format, FormatterOptions},
+        formatter::{format_file, FormatterOptions},
         parser::{scanner::Scanner, Parser},
     };
 
@@ -164,12 +164,14 @@ mod tests {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-function func(string | int $param): string | int {
+function func(string | int $param): string | int
+{
     return $param;
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);

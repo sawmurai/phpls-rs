@@ -1,3 +1,5 @@
+use crate::parser::node::ClassStatement;
+
 use super::super::token::{Token, TokenType};
 use super::super::{ExpressionListResult, ExpressionResult, Parser};
 use super::{super::node::Node, attributes};
@@ -44,7 +46,7 @@ pub(crate) fn class_statement(
         None => None,
     };
 
-    Ok(Node::ClassStatement {
+    Ok(Node::ClassStatement(ClassStatement {
         token,
         name,
         is_abstract,
@@ -54,7 +56,7 @@ pub(crate) fn class_statement(
         body: Box::new(class_block(parser)?),
         doc_comment,
         attributes,
-    })
+    }))
 }
 
 pub(crate) fn anonymous_class(parser: &mut Parser, attributes: Vec<Node>) -> ExpressionResult {
@@ -422,7 +424,7 @@ fn trait_usage_alteration_group(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::formatter::{format, FormatterOptions};
+    use crate::formatter::{format_file, FormatterOptions};
     use crate::parser::{
         scanner::Scanner,
         token::{Token, TokenType},
@@ -432,22 +434,22 @@ mod tests {
     #[test]
     fn test_parses_trait_that_uses_trait() {
         let mut tokens = vec![
-            Token::new(TokenType::Trait, 1, 1),
-            Token::named(TokenType::Identifier, 2, 1, "TestControllerTrait"),
-            Token::new(TokenType::OpenCurly, 3, 1),
-            Token::new(TokenType::Use, 4, 1),
-            Token::named(TokenType::Identifier, 5, 1, "ControllerTrait"),
-            Token::new(TokenType::OpenCurly, 6, 1),
-            Token::named(TokenType::Identifier, 7, 1, "generateUrl"),
-            Token::new(TokenType::As, 8, 1),
-            Token::new(TokenType::Public, 9, 1),
-            Token::new(TokenType::Semicolon, 10, 1),
-            Token::named(TokenType::Identifier, 11, 1, "redirect"),
-            Token::new(TokenType::As, 12, 1),
-            Token::named(TokenType::Identifier, 13, 1, "roflcopter"),
-            Token::new(TokenType::Semicolon, 14, 1),
-            Token::new(TokenType::CloseCurly, 15, 1),
-            Token::new(TokenType::CloseCurly, 16, 1),
+            Token::new(TokenType::Trait, 1, 1, 0),
+            Token::named(TokenType::Identifier, 2, 1, 0, "TestControllerTrait"),
+            Token::new(TokenType::OpenCurly, 3, 1, 0),
+            Token::new(TokenType::Use, 4, 1, 0),
+            Token::named(TokenType::Identifier, 5, 1, 0, "ControllerTrait"),
+            Token::new(TokenType::OpenCurly, 6, 1, 0),
+            Token::named(TokenType::Identifier, 7, 1, 0, "generateUrl"),
+            Token::new(TokenType::As, 8, 1, 0),
+            Token::new(TokenType::Public, 9, 1, 0),
+            Token::new(TokenType::Semicolon, 10, 1, 0),
+            Token::named(TokenType::Identifier, 11, 1, 0, "redirect"),
+            Token::new(TokenType::As, 12, 1, 0),
+            Token::named(TokenType::Identifier, 13, 1, 0, "roflcopter"),
+            Token::new(TokenType::Semicolon, 14, 1, 0),
+            Token::new(TokenType::CloseCurly, 15, 1, 0),
+            Token::new(TokenType::CloseCurly, 16, 1, 0),
         ];
         tokens.reverse();
 
@@ -476,14 +478,16 @@ mod tests {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-class Test {
-    public static function test() {
-
+class Test
+{
+    public static function test()
+    {
     }
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -502,12 +506,14 @@ class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-class Test {
+class Test
+{
     public const ROFL = 'test';
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -527,13 +533,15 @@ class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-class Test {
+class Test
+{
     public const ROFL = 'test',
                  COPTER = 2;
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -552,12 +560,14 @@ class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-class Test {
+class Test
+{
     public $rofl = 1;
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -577,14 +587,16 @@ class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-abstract class Test {
-    public static function test() {
-
+abstract class Test
+{
+    public static function test()
+    {
     }
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -604,14 +616,16 @@ abstract class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-final class Test {
-    public static function test() {
-
+final class Test
+{
+    public static function test()
+    {
     }
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -630,12 +644,13 @@ final class Test {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-class Test extends ParentC implements Treatable {
-
-}"
+class Test extends ParentC implements Treatable
+{
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -644,7 +659,8 @@ class Test extends ParentC implements Treatable {
     #[test]
     fn test_parses_class_with_traits() {
         let original = "<?php
-class Aliased_Talker {
+class Aliased_Talker
+{
     use Some;
     use A, B {
         B::smallTalk insteadof A;
@@ -653,7 +669,8 @@ class Aliased_Talker {
         B::test as private;
         unique as protected stillUnique;
     }
-}";
+}
+";
         let mut scanner = Scanner::new(original);
         scanner.scan().unwrap();
 
@@ -666,9 +683,10 @@ class Aliased_Talker {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
         let expected = "\
-class Aliased_Talker {
+class Aliased_Talker
+{
     use Some;
     use A, B {
         B::smallTalk insteadof A;
@@ -677,7 +695,8 @@ class Aliased_Talker {
         B::test as private;
         unique as protected stillUnique;
     }
-}";
+}
+";
         assert_eq!(expected, formatted);
     }
 
@@ -695,12 +714,12 @@ class Aliased_Talker {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $o = new class {
-    public static function test() {
-
+    public static function test()
+    {
     }
 };
 "
@@ -723,12 +742,12 @@ $o = new class {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $o = new class extends ParentC implements Treatable {
-    public static function test() {
-
+    public static function test()
+    {
     }
 };
 "
@@ -751,12 +770,12 @@ $o = new class extends ParentC implements Treatable {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $o = new class($variable) {
-    public static function test() {
-
+    public static function test()
+    {
     }
 };
 "
@@ -778,12 +797,14 @@ $o = new class($variable) {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-interface Treatable {
+interface Treatable 
+{
     public function callMe();
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);
@@ -804,12 +825,14 @@ interface Treatable {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
-interface Treatable extends OtherInterface {
+interface Treatable extends OtherInterface 
+{
     public function callMe();
-}"
+}
+"
         .to_owned();
 
         assert_eq!(expected, formatted);

@@ -258,11 +258,18 @@ mod tests {
     #[test]
     fn test_collects_use_statement() {
         let use_statement = Node::UseStatement {
-            token: Token::new(TokenType::Use, 1, 1),
+            token: Token::new(TokenType::Use, 1, 1, 0),
             imports: vec![Node::UseDeclaration {
-                token: Some(Token::new(TokenType::Use, 1, 1)),
+                token: Some(Token::new(TokenType::Use, 1, 1, 0)),
                 declaration: Box::new(Node::TypeRef(
-                    vec![Token::named(TokenType::Identifier, 1, 1, "IncludedSymbol")].into(),
+                    vec![Token::named(
+                        TokenType::Identifier,
+                        1,
+                        1,
+                        0,
+                        "IncludedSymbol",
+                    )]
+                    .into(),
                 )),
                 aliased: None,
                 alias: None,
@@ -275,6 +282,7 @@ mod tests {
                 line: 1,
                 t: TokenType::Identifier,
                 label: Some("IncludedSymbol".to_owned()),
+                offset: Some(0),
             }]
             .into(),
             alias: None,
@@ -286,10 +294,17 @@ mod tests {
     #[test]
     fn test_collects_use_trait() {
         let trait_use = Node::UseTraitStatement {
-            token: Token::new(TokenType::Use, 1, 1),
+            token: Token::new(TokenType::Use, 1, 1, 0),
             traits_usages: vec![Node::UseTrait {
                 type_ref: Box::new(Node::TypeRef(
-                    vec![Token::named(TokenType::Identifier, 1, 1, "IncludedSymbol")].into(),
+                    vec![Token::named(
+                        TokenType::Identifier,
+                        1,
+                        1,
+                        0,
+                        "IncludedSymbol",
+                    )]
+                    .into(),
                 )),
             }],
         };
@@ -300,6 +315,7 @@ mod tests {
                 line: 1,
                 t: TokenType::Identifier,
                 label: Some("IncludedSymbol".to_owned()),
+                offset: Some(0),
             }]
             .into(),
             alias: None,

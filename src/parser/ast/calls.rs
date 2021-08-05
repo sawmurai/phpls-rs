@@ -173,7 +173,7 @@ fn finish_call(parser: &mut Parser, expr: Node) -> ExpressionResult {
 
 #[cfg(test)]
 mod tests {
-    use crate::formatter::{format, FormatterOptions};
+    use crate::formatter::{format_file, FormatterOptions};
     use crate::parser::scanner::Scanner;
     use crate::parser::Parser;
 
@@ -190,7 +190,7 @@ mod tests {
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $var[2] = 1;
@@ -213,7 +213,7 @@ $var[2] = 1;
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $var[] = 1;
@@ -236,7 +236,7 @@ $var[] = 1;
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $object->method();
@@ -259,7 +259,7 @@ $object->method();
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $object->property;
@@ -282,7 +282,7 @@ $object->property;
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 Thing::property;
@@ -305,7 +305,7 @@ Thing::property;
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 self::method();
@@ -328,7 +328,7 @@ self::method();
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 self::method(1, 2, 3);
@@ -351,7 +351,7 @@ self::method(1, 2, 3);
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 self::method(a: 1, b: 2, 3);
@@ -374,7 +374,7 @@ self::method(a: 1, b: 2, 3);
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 self::$variable;
@@ -397,7 +397,7 @@ self::$variable;
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $a{2} = 10;
@@ -420,7 +420,7 @@ $a{2} = 10;
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $object->{$dyn} = 10;
@@ -443,7 +443,7 @@ $object->{$dyn} = 10;
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $object->{$dyn}();
@@ -466,7 +466,7 @@ $object->{$dyn}();
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $object::{$dyn}();
@@ -489,7 +489,7 @@ $object::{$dyn}();
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $object->$dyn = 10;
@@ -512,7 +512,7 @@ $object->$dyn = 10;
             indent: 4,
         };
 
-        let formatted = format(&ast, 0, 0, &options);
+        let formatted = format_file(&ast, 0, 0, &options);
 
         let expected = "\
 $object->;
