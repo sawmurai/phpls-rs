@@ -590,7 +590,7 @@ impl LanguageServer for Backend {
                     commands: vec!["dummy.do_something".to_string()],
                     work_done_progress_options: Default::default(),
                 }),
-                document_formatting_provider: Some(true),
+                document_formatting_provider: Some(false),
                 workspace: Some(WorkspaceCapability {
                     workspace_folders: Some(WorkspaceFolderCapability {
                         supported: Some(true),
