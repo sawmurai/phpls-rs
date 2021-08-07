@@ -696,7 +696,7 @@ impl Symbol {
             .collect()
     }
 
-    pub fn detail(&self) -> Option<String> {
+    pub fn detail(&self, arena: &Arena<Symbol>) -> Option<String> {
         match self.kind {
             PhpSymbolKind::Method => {
                 let types = self
@@ -710,6 +710,17 @@ impl Symbol {
                     "{} function {}(): {}",
                     self.visibility, self.name, types
                 ))
+            }
+            PhpSymbolKind::Variable => {
+                let types = self
+                    .data_types
+                    .iter()
+                    .filter_map(|r| r.node)
+                    .map(|n| arena[n].get().name.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" | ");
+
+                Some(format!("{}", types))
             }
             _ => None,
         }
@@ -735,7 +746,7 @@ impl Symbol {
             name: self.name.clone(),
             range: self.range,
             selection_range: self.selection_range,
-            detail: self.detail(),
+            detail: self.detail(arena),
             deprecated: None,
             tags: if self.deprecated.is_some() {
                 Some(vec![SymbolTag::Deprecated])

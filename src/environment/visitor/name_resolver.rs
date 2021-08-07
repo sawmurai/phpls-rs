@@ -438,13 +438,14 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     NextAction::Abort
                 }
             }
-            AstNode::MethodDefinitionStatement { doc_comment, .. } => {
+            AstNode::MethodDefinitionStatement { doc_comment, .. }
+            | AstNode::FunctionDefinitionStatement { doc_comment, .. } => {
                 // Is there a doc comment?
                 if let Some(doc_comment) = doc_comment {
                     if let AstNode::DocComment { return_type, .. } = doc_comment.as_ref() {
                         return_type
                             .iter()
-                            .filter_map(get_type_ref)
+                            .flat_map(get_type_ref)
                             .for_each(|type_ref| {
                                 self.resolver
                                     .resolve_type_ref(&type_ref, arena, &parent, true);
@@ -507,13 +508,12 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             AstNode::CatchBlock { var, types, .. } => {
                 let mut data_types = Vec::with_capacity(types.len());
 
-                for data_type in types {
-                    if let Some(type_ref) = get_type_ref(data_type) {
-                        let type_ref_ref = SymbolReference::type_ref(type_ref.clone());
-
-                        data_types.push(type_ref_ref);
-                    }
-                }
+                data_types.extend(
+                    types
+                        .iter()
+                        .flat_map(get_type_ref)
+                        .map(SymbolReference::type_ref),
+                );
 
                 let child = arena.new_node(Symbol {
                     data_types,
@@ -936,7 +936,11 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         return None;
                     }
                 }
-                AstNode::Field { array, .. } => {
+                AstNode::Field { array, index, .. } => {
+                    if let Some(index) = index.as_ref() {
+                        self.resolve_member_type(index, arena);
+                    }
+
                     if let AstNode::Variable(collection) = array.as_ref() {
                         if let Some(var) = self.resolver.get_local(collection) {
                             self.resolver.reference_local(self.file, &collection, &var);
@@ -953,6 +957,24 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             }
                         }
                     }
+
+                    if let AstNode::Member { member, object, .. } = array.as_ref() {
+                        reversed_chain.push(member);
+                        current_object = object;
+
+                        continue;
+                    }
+
+                    if let AstNode::Field { array, index, .. } = array.as_ref() {
+                        if let Some(index) = index.as_ref() {
+                            self.resolve_member_type(index, arena);
+                        }
+
+                        current_object = array;
+
+                        continue;
+                    }
+
                     return None;
                 }
                 _ => {
@@ -1655,6 +1677,181 @@ mod tests {
         assert_reference_names!(
             vec!["TestInterface", "rofl", "Test2", "param", "RetVal"],
             references!(state, "if1.php")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_type_by_at_return_doc() {
+        let mut state = BackendState::default();
+
+        let sources = vec![
+            (
+                "if1.php",
+                "<?php
+                interface TestInterface { /* @return RetVal */ public function rofl(Test2 $param);}
+                ",
+            ),
+            ("Test2.php", "<?php class Test2 { }"),
+            ("RetVal.php", "<?php class RetVal { }"),
+        ];
+
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+        }
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
+        }
+
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
+        assert_reference_names!(
+            vec!["TestInterface", "rofl", "Test2", "param", "RetVal"],
+            references!(state, "if1.php")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_reference_by_at_return_doc() {
+        let mut state = BackendState::default();
+
+        let sources = vec![
+            (
+                "if1.php",
+                "<?php
+                /* @return RetVal */
+                function x () {}
+                x()->t();
+                ",
+            ),
+            (
+                "RetVal.php",
+                "<?php class RetVal { public function t() {} }",
+            ),
+        ];
+
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+        }
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
+        }
+
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
+        assert_reference_names!(vec!["RetVal", "x", "x", "t"], references!(state, "if1.php"));
+    }
+
+    #[tokio::test]
+    async fn test_resolves_reference_by_at_return_doc_on_interface_method() {
+        let mut state = BackendState::default();
+
+        let sources = vec![
+            (
+                "if1.php",
+                "<?php
+                use A\\Cls;
+                $x = new Cls(); 
+                $x->handle()->send();
+                ",
+            ),
+            (
+                "Cls.php",
+                "<?php namespace A; use B\\RetVal; class Cls implements RetVal {  public function handle() {} }",
+            ),
+            (
+                "Response.php",
+                "<?php namespace A; class Response {  public function send() {} }",
+            ),
+            (
+                "RetVal.php",
+                "<?php namespace B; use C\\RetValParent; interface RetVal extends RetValParent { public function handle2(); }",
+            ),
+            (
+                "RetValParent.php",
+                "<?php namespace C; use A\\Response; interface RetValParent { /* @return Response */ public function handle(); }",
+            ),
+        ];
+
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+        }
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
+        }
+
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
+        assert_reference_names!(
+            vec!["Cls", "Cls", "x", "x", "handle", "send"],
+            references!(state, "if1.php")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_property_in_assignment() {
+        let mut state = BackendState::default();
+
+        let sources = vec![(
+            "Cls.php",
+            "<?php class Cls { private $x; public function handle() { $y=1; $z=2; $this->x[$y][$z] = 1; } }",
+        )];
+
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+        }
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
+        }
+
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
+        assert_reference_names!(
+            vec!["Cls", "Cls", "handle", "x", "x", "y", "y", "z", "z"],
+            references!(state, "Cls.php")
         );
     }
 }

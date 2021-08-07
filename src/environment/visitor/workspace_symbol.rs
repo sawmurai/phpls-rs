@@ -115,7 +115,12 @@ impl Visitor for WorkspaceSymbolVisitor {
                 ..
             }) => {
                 let inherits_from = if let Some(extends) = extends {
-                    get_type_ref(extends).map(|extends| vec![Reference::type_ref(extends)])
+                    Some(
+                        get_type_ref(extends)
+                            .iter()
+                            .flat_map(|extends| vec![Reference::type_ref(extends.clone())])
+                            .collect(),
+                    )
                 } else {
                     None
                 };
@@ -130,7 +135,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                     data_types.extend(
                         implements
                             .iter()
-                            .filter_map(get_type_ref)
+                            .flat_map(get_type_ref)
                             .map(Reference::type_ref),
                     );
                 }
@@ -212,7 +217,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 let inherits_from = extends.as_ref().map(|extends| {
                     extends
                         .iter()
-                        .filter_map(get_type_ref)
+                        .flat_map(get_type_ref)
                         .map(Reference::type_ref)
                         .collect()
                 });
@@ -532,7 +537,7 @@ impl Visitor for WorkspaceSymbolVisitor {
 pub(crate) fn get_type_refs(node: &AstNode) -> Vec<TypeRef> {
     match node {
         AstNode::ReturnType { data_type, .. } => get_type_refs(data_type),
-        AstNode::DataType { type_refs, .. } => type_refs.iter().filter_map(get_type_ref).collect(),
+        AstNode::DataType { type_refs, .. } => type_refs.iter().flat_map(get_type_ref).collect(),
         AstNode::DocCommentVar { types, .. }
         | AstNode::DocCommentReturn { types, .. }
         | AstNode::DocCommentParam { types, .. } => {
@@ -546,10 +551,16 @@ pub(crate) fn get_type_refs(node: &AstNode) -> Vec<TypeRef> {
     }
 }
 
-pub(crate) fn get_type_ref(node: &AstNode) -> Option<TypeRef> {
+pub(crate) fn get_type_ref<'a>(node: &AstNode) -> Vec<TypeRef> {
     if let AstNode::TypeRef(tokens) = node {
-        return Some(tokens.clone());
+        return vec![tokens.clone()];
     }
 
-    None
+    if let AstNode::DocCommentReturn { types, .. } = node {
+        if let Some(types) = types {
+            return types.iter().map(|t| t.clone()).collect();
+        }
+    }
+
+    vec![]
 }
