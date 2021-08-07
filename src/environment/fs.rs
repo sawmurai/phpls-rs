@@ -45,7 +45,7 @@ pub(crate) fn normalize_path(path: &Path) -> String {
     path.to_str().unwrap().to_owned()
 }
 
-pub(crate) fn file_read_range(path: &str, start: u64, end: u64) -> String {
+pub(crate) fn file_read_range(path: &str, start: u32, end: u32) -> String {
     let content = match fs::read_to_string(path) {
         Ok(content) => content,
         _ => return String::from("Error reading source file"),

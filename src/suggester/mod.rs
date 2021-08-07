@@ -239,8 +239,8 @@ fn suggest_members_of_symbol(
     }
 
     let pos = Position {
-        line: parent_range.0 .0 as u64,
-        character: parent_range.0 .1 as u64,
+        line: parent_range.0 .0 as u32,
+        character: parent_range.0 .1 as u32,
     };
 
     // Check if there is a reference to the $object in $object->callee by going
@@ -465,8 +465,8 @@ mod tests {
     fn suggestions(
         sources: &[(&str, &str)],
         file: usize,
-        line: u64,
-        character: u64,
+        line: u32,
+        character: u32,
         tc: Option<char>,
     ) -> Vec<String> {
         let mut state = BackendState::default();

@@ -12,6 +12,16 @@ use crate::parser::Error as ParserError;
 use crate::parser::Parser;
 use ignore::{types::TypesBuilder, WalkBuilder};
 use indextree::{Arena, NodeId};
+use lsp_types::DefinitionOptions;
+use lsp_types::DocumentHighlightOptions;
+use lsp_types::DocumentSymbolOptions;
+use lsp_types::OneOf;
+use lsp_types::ReferencesOptions;
+use lsp_types::RenameOptions;
+use lsp_types::WorkspaceFileOperationsServerCapabilities;
+use lsp_types::WorkspaceFoldersServerCapabilities;
+use lsp_types::WorkspaceServerCapabilities;
+use lsp_types::WorkspaceSymbolOptions;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,9 +36,8 @@ use tower_lsp::lsp_types::{
     DocumentSymbolResponse, ExecuteCommandOptions, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
     InitializedParams, Location, Position, Range, ReferenceParams, RenameParams,
-    RenameProviderCapability, ServerCapabilities, SymbolInformation, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit, Url, WorkspaceCapability, WorkspaceEdit,
-    WorkspaceFolderCapability, WorkspaceFolderCapabilityChangeNotifications, WorkspaceSymbolParams,
+    ServerCapabilities, SymbolInformation, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextEdit, Url, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use tower_lsp::{jsonrpc::Result, lsp_types::DidChangeTextDocumentParams};
 use tower_lsp::{Client, LanguageServer};
@@ -139,12 +148,12 @@ impl From<&Token> for Symbol {
 
         let range = Range {
             start: Position {
-                line: u64::from(start.0),
-                character: u64::from(start.1),
+                line: u32::from(start.0),
+                character: u32::from(start.1),
             },
             end: Position {
-                line: u64::from(end.0),
-                character: u64::from(end.1),
+                line: u32::from(end.0),
+                character: u32::from(end.1),
             },
         };
 
@@ -571,6 +580,7 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
+                    all_commit_characters: None,
                     resolve_provider: Some(true),
                     trigger_characters: Some(trigger_characters),
                     work_done_progress_options: Default::default(),
@@ -580,23 +590,36 @@ impl LanguageServer for Backend {
                     retrigger_characters: None,
                     work_done_progress_options: Default::default(),
                 }),*/
-                references_provider: Some(true),
-                rename_provider: Some(RenameProviderCapability::Simple(true)),
-                definition_provider: Some(true),
-                document_highlight_provider: Some(true),
-                document_symbol_provider: Some(true),
-                workspace_symbol_provider: Some(true),
+                references_provider: Some(OneOf::Right(ReferencesOptions {
+                    work_done_progress_options: Default::default(),
+                })),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
+                definition_provider: Some(OneOf::Right(DefinitionOptions {
+                    work_done_progress_options: Default::default(),
+                })),
+                document_highlight_provider: Some(OneOf::Right(DocumentHighlightOptions {
+                    work_done_progress_options: Default::default(),
+                })),
+                document_symbol_provider: Some(OneOf::Right(DocumentSymbolOptions {
+                    work_done_progress_options: Default::default(),
+                    label: None,
+                })),
+                workspace_symbol_provider: Some(OneOf::Right(WorkspaceSymbolOptions {
+                    work_done_progress_options: Default::default(),
+                })),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["dummy.do_something".to_string()],
                     work_done_progress_options: Default::default(),
                 }),
-                document_formatting_provider: Some(false),
-                workspace: Some(WorkspaceCapability {
-                    workspace_folders: Some(WorkspaceFolderCapability {
+                document_formatting_provider: Some(OneOf::Left(false)),
+                workspace: Some(WorkspaceServerCapabilities {
+                    file_operations: None,
+                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
-                        change_notifications: Some(
-                            WorkspaceFolderCapabilityChangeNotifications::Bool(true),
-                        ),
+                        change_notifications: Some(OneOf::Left(true)),
                     }),
                 }),
                 ..ServerCapabilities::default()
@@ -773,6 +796,7 @@ impl LanguageServer for Backend {
         Ok(Some(WorkspaceEdit {
             changes: Some(changes),
             document_changes: None,
+            change_annotations: None,
         }))
     }
 

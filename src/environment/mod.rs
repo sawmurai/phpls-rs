@@ -39,12 +39,12 @@ pub fn get_range(coords: NodeRange) -> Range {
 
     Range {
         start: Position {
-            line: u64::from(start.0),
-            character: u64::from(start.1),
+            line: u32::from(start.0),
+            character: u32::from(start.1),
         },
         end: Position {
-            line: u64::from(end.0),
-            character: u64::from(end.1),
+            line: u32::from(end.0),
+            character: u32::from(end.1),
         },
     }
 }
