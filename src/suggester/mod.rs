@@ -42,6 +42,7 @@ pub struct Suggestion {
     pub context: SuggestionContext,
     pub replace: Option<NodeRange>,
     pub alias: Option<String>,
+    pub is_this: bool,
 }
 
 impl Suggestion {
@@ -52,6 +53,7 @@ impl Suggestion {
             context: SuggestionContext::Keyword,
             replace,
             alias: None,
+            is_this: false,
         }
     }
 
@@ -62,6 +64,7 @@ impl Suggestion {
             context: role,
             replace,
             alias: None,
+            is_this: false,
         }
     }
 
@@ -77,6 +80,18 @@ impl Suggestion {
             context: role,
             replace,
             alias: Some(alias.to_owned()),
+            is_this: false,
+        }
+    }
+
+    pub fn this(node: NodeId, role: SuggestionContext) -> Self {
+        Self {
+            token: None,
+            node: Some(node),
+            context: role,
+            replace: None,
+            alias: Some(String::from("this")),
+            is_this: true,
         }
     }
 }
@@ -183,7 +198,7 @@ fn suggest_symbol_starting_with(
 
 /// Suggest variables (and function parameters) in the scope
 fn suggest_variables_of_scope(scope: NodeId, arena: &Arena<Symbol>) -> Vec<Suggestion> {
-    return scope
+    let mut suggestions: Vec<Suggestion> = scope
         .children(arena)
         .filter_map(|node| {
             let kind = arena[node].get().kind;
@@ -194,6 +209,15 @@ fn suggest_variables_of_scope(scope: NodeId, arena: &Arena<Symbol>) -> Vec<Sugge
             }
         })
         .collect();
+
+    if let Some(parent_class) = scope
+        .ancestors(arena)
+        .find(|node| arena[*node].get().kind == PhpSymbolKind::Class)
+    {
+        suggestions.push(Suggestion::this(parent_class, SuggestionContext::Reference));
+    }
+
+    suggestions
 }
 
 /// Suggest members (node) of the symbol (parent)
@@ -409,7 +433,7 @@ pub fn get_suggestions_at(
             return suggest_imports_starting_with(global_symbols, declaration);
         }
         AstNode::Variable(..) | AstNode::AliasedVariable { .. } => {
-            return suggest_variables_of_scope(arena[symbol_under_cursor].parent().unwrap(), arena)
+            return suggest_variables_of_scope(symbol_under_cursor, arena);
         }
         AstNode::Missing(..) | AstNode::Literal(..) | AstNode::Member { .. } => {
             let parent = Some(*ancestors.last().unwrap());
@@ -705,5 +729,19 @@ mod tests {
         assert!(actual.contains(&&"m1alias".to_string()));
         assert!(actual.contains(&&"m2".to_string()));
         assert!(actual.contains(&&"m3".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_suggests_within_array_field() {
+        let sources = vec![(
+            "index.php",
+            "<?php class TheClass { public function x () { $lol = 1; $this->prop[$] = 1; }} ",
+        )];
+
+        let actual = suggestions(&sources, 0, 0, 69, Some('$'));
+
+        assert_eq!(2, actual.len());
+        assert!(actual.contains(&&"lol".to_string()));
+        assert!(actual.contains(&&"this".to_string()));
     }
 }

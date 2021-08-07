@@ -675,7 +675,7 @@ class Aliased_Talker
         scanner.scan().unwrap();
 
         let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
-        dbg!(&errors);
+
         assert_eq!(true, errors.is_empty());
 
         let options = FormatterOptions {

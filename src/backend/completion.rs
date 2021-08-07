@@ -65,6 +65,14 @@ pub(crate) fn completion(
                 suggestions
                     .drain(..)
                     .map(|sug| {
+                        if sug.is_this {
+                            return CompletionItem {
+                                label: String::from("$this"),
+                                tags: None,
+                                ..CompletionItem::default()
+                            };
+                        }
+
                         if let Some(token) = sug.token {
                             return token.into();
                         }
@@ -126,7 +134,9 @@ pub(crate) fn completion(
 
                         let mut item = symbol.completion_item(sn, &state.arena);
                         if let Some(alias) = sug.alias {
-                            item.label = alias;
+                            item.label = format!("${}", alias);
+                        } else {
+                            item.label = format!("${}", item.label);
                         }
                         item
                     })
