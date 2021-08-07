@@ -1,3 +1,5 @@
+use crate::parser::Error;
+
 use super::super::node::Node;
 use super::super::token::{Token, TokenType};
 use super::super::{expressions, ExpressionListResult, ExpressionResult, Parser};
@@ -23,6 +25,16 @@ pub(crate) fn variable(parser: &mut Parser) -> ExpressionResult {
     // Collect the list of aliases and return the actual variable at the end
     let mut list = vec![variable];
     let mut root = loop {
+        // This can happen if the user is just typing the variable
+        if !parser.next_token_one_of(&[TokenType::Variable]) {
+            let last = list.last().unwrap();
+            let pos = last.end();
+            parser.errors.push(Error::MissingIdentifier {
+                token: last.to_owned(),
+            });
+            return Ok(Node::Variable(Token::missing(pos)));
+        }
+
         let variable = parser.consume_or_ff_before(
             TokenType::Variable,
             &[TokenType::Semicolon, TokenType::ScriptEnd],
@@ -158,5 +170,16 @@ mod test {
         let ast_result = Parser::ast(tokens.clone()).unwrap();
 
         assert!(ast_result.1.is_empty());
+    }
+
+    #[test]
+    fn test_parses_variable_with_missing_identifier() {
+        let code_semicolon = "<?php $$;";
+
+        let mut scanner = Scanner::new(code_semicolon);
+        let tokens = scanner.scan().unwrap();
+        let ast_result = Parser::ast(tokens.clone()).unwrap();
+
+        assert!(!ast_result.1.is_empty());
     }
 }
