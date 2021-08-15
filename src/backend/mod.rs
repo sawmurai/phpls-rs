@@ -701,10 +701,7 @@ impl LanguageServer for Backend {
         let state = self.state.lock().await;
         if let Some((nuc, _)) = Backend::symbol_under_cursor(&state, position, &file) {
             let suc = state.arena[nuc].get();
-            // Find parent interface
-
             if suc.kind == PhpSymbolKind::Interface {
-                // TODO: Find all children of this interface and search for their implementation as well
                 state.global_symbols.iter().find(|(_, node)| {
                     let potential_symbol = state.arena[**node].get();
                     let symbol_name = potential_symbol.normalized_name();
@@ -761,7 +758,22 @@ impl LanguageServer for Backend {
                                     return true;
                                 }
 
-                                // TODO: Check if this data_type is the child of the interface whose implementations we are searching for
+                                // Check if the type extends the interface we are searching for
+                                if state.arena[resolved].get().is_child_of(
+                                    resolved,
+                                    &mut resolver,
+                                    &state.arena,
+                                    nuc,
+                                ) {
+                                    results.push(Location {
+                                        uri: Url::from_file_path(
+                                            state.arena[enclosing_file].get().name.clone(),
+                                        )
+                                        .unwrap(),
+                                        range: potential_symbol.selection_range,
+                                    });
+                                    return true;
+                                }
                             }
 
                             false

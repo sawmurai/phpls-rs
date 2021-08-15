@@ -684,6 +684,26 @@ impl Symbol {
         parents
     }
 
+    pub fn is_child_of<'a>(
+        &'a self,
+        ctx: NodeId,
+        resolver: &mut NameResolver,
+        arena: &'a Arena<Self>,
+        search_for: NodeId,
+    ) -> bool {
+        for (_, par_node) in self.get_parent_nodes(ctx, resolver, arena).iter() {
+            if *par_node == search_for {
+                return true;
+            }
+
+            return arena[*par_node]
+                .get()
+                .is_child_of(ctx, resolver, arena, search_for);
+        }
+
+        false
+    }
+
     pub fn get_parent_symbols<'a>(
         &'a self,
         ctx: NodeId,
