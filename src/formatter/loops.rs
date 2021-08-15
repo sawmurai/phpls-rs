@@ -72,7 +72,7 @@ pub(crate) fn while_to_spans(
 
     chunks.push(cp_oc.clone());
 
-    subspans.extend(condition_spans.drain(..));
+    subspans.append(&mut condition_spans);
     subspans.push(Span::leaf(vec![cp_oc], lvl));
 
     let head_span = Span::unspaced(chunks, subspans, lvl);

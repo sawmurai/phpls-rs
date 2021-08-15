@@ -675,7 +675,7 @@ impl Symbol {
         if let Some(inherits_from) = self.inherits_from.as_ref() {
             inherits_from
                 .iter()
-                .filter_map(|r| resolver.resolve_type_ref(&r.type_ref, &arena, &ctx, false))
+                .filter_map(|r| resolver.resolve_type_ref(&r.type_ref, arena, &ctx, false))
                 .for_each(|node| {
                     parents.insert(arena[node].get().normalized_name(), node);
                 })
@@ -696,9 +696,12 @@ impl Symbol {
                 return true;
             }
 
-            return arena[*par_node]
+            if arena[*par_node]
                 .get()
-                .is_child_of(ctx, resolver, arena, search_for);
+                .is_child_of(ctx, resolver, arena, search_for)
+            {
+                return true;
+            }
         }
 
         false
@@ -710,7 +713,7 @@ impl Symbol {
         resolver: &mut NameResolver,
         arena: &'a Arena<Self>,
     ) -> Vec<&'a Self> {
-        self.get_parent_nodes(ctx, resolver, &arena)
+        self.get_parent_nodes(ctx, resolver, arena)
             .iter()
             .map(|(_, parent)| arena[*parent].get())
             .collect()
@@ -740,7 +743,7 @@ impl Symbol {
                     .collect::<Vec<String>>()
                     .join(" | ");
 
-                Some(format!("{}", types))
+                Some(types.to_string())
             }
             _ => None,
         }

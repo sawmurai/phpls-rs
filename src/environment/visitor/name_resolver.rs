@@ -480,7 +480,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                     for type_ref in types {
                         if let Some(node) = self
                             .resolver
-                            .resolve_type_ref(&type_ref, arena, &parent, true)
+                            .resolve_type_ref(type_ref, arena, &parent, true)
                         {
                             data_types.push(SymbolReference::node(type_ref.clone(), node));
                         } else {
@@ -630,14 +630,14 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             }
             AstNode::ReturnType { .. } => {
                 get_type_refs(node).iter().for_each(|tr| {
-                    self.resolver.resolve_type_ref(&tr, arena, &parent, true);
+                    self.resolver.resolve_type_ref(tr, arena, &parent, true);
                 });
 
                 NextAction::Abort
             }
             AstNode::Binary { left, right, token } => {
                 if token.t == TokenType::Assignment {
-                    let data_type = self.resolve_member_type(&right, arena);
+                    let data_type = self.resolve_member_type(right, arena);
                     if let AstNode::Variable(token) = left.as_ref() {
                         let child = if let Some(data_type) = data_type {
                             arena.new_node(Symbol {
@@ -654,7 +654,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         self.resolver.scope_container.append(child, arena);
                         self.resolver.declare_local_if_new(self.file, token, child);
                     } else {
-                        self.resolve_member_type(&left, arena);
+                        self.resolve_member_type(left, arena);
                     }
                     NextAction::Abort
                 } else {
@@ -764,7 +764,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         }
 
                         if let AstNode::Variable(token) = left.as_ref() {
-                            let data_type = self.resolve_member_type(&right, arena);
+                            let data_type = self.resolve_member_type(right, arena);
 
                             let child = if let Some(data_type) = data_type {
                                 arena.new_node(Symbol {
@@ -843,7 +843,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                 }
                 AstNode::Variable(token) => {
                     if let Some(node) = self.resolver.get_local(token) {
-                        self.resolver.reference_local(self.file, &token, &node);
+                        self.resolver.reference_local(self.file, token, &node);
 
                         if let Some(name) = token.label.as_ref() {
                             // TODO: Once tested, reduce this if as the test is already done in resolver::get_local
@@ -943,7 +943,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
 
                     if let AstNode::Variable(collection) = array.as_ref() {
                         if let Some(var) = self.resolver.get_local(collection) {
-                            self.resolver.reference_local(self.file, &collection, &var);
+                            self.resolver.reference_local(self.file, collection, &var);
 
                             for reference in &arena[var].get().data_types {
                                 if reference.type_ref.is_multiple() {
@@ -1048,7 +1048,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         AstNode::Variable(token) | AstNode::Literal(token) => {
                             // Register reference here
                             self.resolver
-                                .reference_local(self.file, &token, &child.symbol);
+                                .reference_local(self.file, token, &child.symbol);
                         }
                         _ => (),
                     }

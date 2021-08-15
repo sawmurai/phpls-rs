@@ -276,7 +276,7 @@ impl DocBlockScanner {
             let identifier = &self.collect_identifer(allow_this);
             if !identifier.is_empty() {
                 type_ref_parts.push(Token::named(
-                    self.token_type(&identifier),
+                    self.token_type(identifier),
                     current_start.0,
                     current_start.1,
                     0,

@@ -282,7 +282,7 @@ fn suggest_members_of_symbol(
 
     // Data types of the parent reference. Go through all data types and collect the things
     // that are visibile from the current class
-    let current_class = symbol_under_cursor.ancestors(&arena).find(|n| {
+    let current_class = symbol_under_cursor.ancestors(arena).find(|n| {
         let s = arena[*n].get();
 
         s.kind == PhpSymbolKind::Class
@@ -291,7 +291,7 @@ fn suggest_members_of_symbol(
     // Collect a list of all accessible members of this class and its parents
     let mut accessible_members = HashMap::new();
     if let Some(current_class) = current_class {
-        current_class.children(&arena).for_each(|c| {
+        current_class.children(arena).for_each(|c| {
             let symbol = arena[c].get();
             accessible_members.insert(
                 symbol.normalized_name(),
@@ -300,11 +300,11 @@ fn suggest_members_of_symbol(
         });
 
         let cc_symbol = arena[current_class].get();
-        let mut resolver = NameResolver::new(&global_symbols, current_class);
+        let mut resolver = NameResolver::new(global_symbols, current_class);
 
         accessible_members.extend(cc_symbol.get_imports(current_class, &mut resolver, arena));
         cc_symbol
-            .get_inherited_symbols(current_class, &mut resolver, &arena)
+            .get_inherited_symbols(current_class, &mut resolver, arena)
             .drain()
             .filter(|(_, n)| arena[n.symbol].get().visibility >= Visibility::Protected)
             .for_each(|(name, node)| {
@@ -312,7 +312,7 @@ fn suggest_members_of_symbol(
             });
     }
 
-    let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
+    let mut resolver = NameResolver::new(global_symbols, symbol_under_cursor);
 
     let mut suggestions: Vec<Suggestion> = Vec::new();
     let static_only = Some(':') == trigger;
@@ -332,7 +332,7 @@ fn suggest_members_of_symbol(
             resolver.resolve_type_ref(&dt_reference.type_ref, arena, &symbol_under_cursor, false)
         })
         .for_each(|node| {
-            let mut resolver = NameResolver::new(&global_symbols, symbol_under_cursor);
+            let mut resolver = NameResolver::new(global_symbols, symbol_under_cursor);
             suggestions.extend(
                 arena[node]
                     .get()

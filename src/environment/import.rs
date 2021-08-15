@@ -72,12 +72,12 @@ impl From<&SymbolImport> for Symbol {
 
         let range = Range {
             start: Position {
-                line: u32::from(start.0),
-                character: u32::from(start.1),
+                line: start.0,
+                character: start.1,
             },
             end: Position {
-                line: u32::from(end.0),
-                character: u32::from(end.1),
+                line: end.0,
+                character: end.1,
             },
         };
 

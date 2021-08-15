@@ -306,7 +306,7 @@ pub(crate) fn ast_to_spans(
         }
         prev_right_offset = node_spans.last().unwrap().right_offset();
 
-        spans.extend(node_spans.drain(..));
+        spans.append(&mut node_spans);
     }
 
     // Finally, get the tokens between the last read node and the delimiter of the block

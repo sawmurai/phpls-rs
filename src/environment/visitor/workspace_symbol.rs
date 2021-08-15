@@ -114,16 +114,12 @@ impl Visitor for WorkspaceSymbolVisitor {
                 attributes,
                 ..
             }) => {
-                let inherits_from = if let Some(extends) = extends {
-                    Some(
-                        get_type_ref(extends)
-                            .iter()
-                            .flat_map(|extends| vec![Reference::type_ref(extends.clone())])
-                            .collect(),
-                    )
-                } else {
-                    None
-                };
+                let inherits_from = extends.as_ref().map(|extends| {
+                    get_type_ref(extends)
+                        .iter()
+                        .flat_map(|extends| vec![Reference::type_ref(extends.clone())])
+                        .collect()
+                });
                 let selection_range = get_range(name.range());
                 let s_name = name.to_string();
                 let range = get_range(node.range());
@@ -551,7 +547,7 @@ pub(crate) fn get_type_refs(node: &AstNode) -> Vec<TypeRef> {
     }
 }
 
-pub(crate) fn get_type_ref<'a>(node: &AstNode) -> Vec<TypeRef> {
+pub(crate) fn get_type_ref(node: &AstNode) -> Vec<TypeRef> {
     if let AstNode::TypeRef(tokens) = node {
         return vec![tokens.clone()];
     }
