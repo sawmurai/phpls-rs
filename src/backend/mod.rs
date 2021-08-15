@@ -1,5 +1,6 @@
 use crate::environment::fs as EnvFs;
 use crate::environment::get_range;
+use crate::environment::in_range;
 use crate::environment::symbol::{PhpSymbolKind, Symbol};
 use crate::environment::traverser::traverse;
 use crate::environment::visitor::name_resolver::{NameResolveVisitor, NameResolver};
@@ -204,6 +205,19 @@ impl Backend {
         Some((suc, state.arena[suc].get().name().to_owned()))
     }
 
+    fn referenced_symbol_under_cursor<'a>(
+        position: &Position,
+        references: &'a HashMap<NodeId, Vec<NodeRange>>,
+    ) -> Option<&'a NodeId> {
+        for (node, ranges) in references {
+            if ranges.iter().any(|r| in_range(position, &get_range(*r))) {
+                return Some(node);
+            }
+        }
+
+        None
+    }
+
     async fn references_of_symbol_under_cursor(&self, nuc: &str) -> Option<ReferenceMapMutex> {
         let all_files = self
             .state
@@ -213,7 +227,7 @@ impl Backend {
             .iter()
             .filter_map(|(k, _)| {
                 if k.contains("/vendor/") {
-                    None
+                    Some(k.clone()) //None
                 } else {
                     Some(k.clone())
                 }
@@ -598,7 +612,7 @@ impl LanguageServer for Backend {
                     work_done_progress_options: Default::default(),
                 })),
                 rename_provider: Some(OneOf::Right(RenameOptions {
-                    prepare_provider: Some(true),
+                    prepare_provider: Some(false),
                     work_done_progress_options: Default::default(),
                 })),
                 definition_provider: Some(OneOf::Right(DefinitionOptions {
@@ -755,31 +769,30 @@ impl LanguageServer for Backend {
                 .to_file_path()
                 .unwrap(),
         );
-        let (suc, nuc) = {
+        let nuc = {
             let state = self.state.lock().await;
-            if let Some((suc, nuc)) = Backend::symbol_under_cursor(&state, position, &file) {
-                (suc, nuc)
+            if let Some(references) = &state.symbol_references.get(&file) {
+                if let Some(nuc) = Backend::referenced_symbol_under_cursor(position, &references) {
+                    nuc.clone()
+                } else {
+                    return Ok(None);
+                }
             } else {
                 return Ok(None);
             }
         };
 
+        let name = self.state.lock().await.arena[nuc].get().name.clone();
+
         let symbol_references =
-            if let Some(symbol_references) = self.references_of_symbol_under_cursor(&nuc).await {
+            if let Some(symbol_references) = self.references_of_symbol_under_cursor(&name).await {
                 symbol_references
             } else {
                 return Ok(None);
             };
 
-        let symbol_range = self.state.lock().await.arena[suc].get().selection_range;
         let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
-        changes.insert(
-            Url::from_file_path(file).unwrap(),
-            vec![TextEdit {
-                range: symbol_range,
-                new_text: params.new_name.clone(),
-            }],
-        );
+
         symbol_references
             .lock()
             .await
@@ -788,7 +801,7 @@ impl LanguageServer for Backend {
                 let edits: Vec<TextEdit> = refs
                     .iter()
                     .filter_map(|(node, ranges)| {
-                        if node == &suc {
+                        if node == &nuc {
                             return Some(ranges.iter().map(|range| TextEdit {
                                 new_text: params.new_name.clone(),
                                 range: get_range(*range),
