@@ -12,7 +12,6 @@ use crate::parser::Error as ParserError;
 use crate::parser::Parser;
 use ignore::{types::TypesBuilder, WalkBuilder};
 use indextree::{Arena, NodeId};
-use lsp_types::request::GotoImplementation;
 use lsp_types::request::GotoImplementationParams;
 use lsp_types::request::GotoImplementationResponse;
 use lsp_types::DefinitionOptions;
@@ -22,7 +21,6 @@ use lsp_types::ImplementationProviderCapability;
 use lsp_types::OneOf;
 use lsp_types::ReferencesOptions;
 use lsp_types::RenameOptions;
-use lsp_types::WorkspaceFileOperationsServerCapabilities;
 use lsp_types::WorkspaceFoldersServerCapabilities;
 use lsp_types::WorkspaceServerCapabilities;
 use lsp_types::WorkspaceSymbolOptions;
@@ -59,6 +57,7 @@ mod document_highlight;
 mod document_symbol;
 mod formatting;
 mod goto_definition;
+mod goto_implementation;
 mod hover;
 mod symbol;
 
@@ -687,106 +686,9 @@ impl LanguageServer for Backend {
         &self,
         params: GotoImplementationParams,
     ) -> Result<Option<GotoImplementationResponse>> {
-        let position = &params.text_document_position_params.position;
-        let file = EnvFs::normalize_path(
-            &params
-                .text_document_position_params
-                .text_document
-                .uri
-                .to_file_path()
-                .unwrap(),
-        );
+        let mut state = self.state.lock().await;
 
-        let mut results = Vec::new();
-        let state = self.state.lock().await;
-        if let Some((nuc, _)) = Backend::symbol_under_cursor(&state, position, &file) {
-            let suc = state.arena[nuc].get();
-            if suc.kind == PhpSymbolKind::Interface {
-                state.global_symbols.iter().find(|(_, node)| {
-                    let potential_symbol = state.arena[**node].get();
-                    let symbol_name = potential_symbol.normalized_name();
-
-                    if potential_symbol.kind != PhpSymbolKind::Class {
-                        return false;
-                    }
-
-                    // There is always an enclosing file so we can safely unwrap
-                    let enclosing_file = node
-                        .ancestors(&state.arena)
-                        .find_map(|a| {
-                            let ancestor = state.arena[a].get();
-
-                            if ancestor.kind == PhpSymbolKind::File {
-                                Some(a)
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap();
-
-                    potential_symbol
-                        .data_types
-                        .iter()
-                        .filter_map(|reference| {
-                            if let Some(tip) = reference.type_ref.tip() {
-                                // Skip self reference
-                                if !tip.to_lowercase().eq(&symbol_name) {
-                                    return Some(reference.type_ref.clone());
-                                }
-                            }
-
-                            None
-                        })
-                        .find(|type_ref| {
-                            let mut resolver =
-                                NameResolver::new(&state.global_symbols, enclosing_file);
-
-                            if let Some(resolved) = resolver.resolve_type_ref(
-                                &type_ref,
-                                &state.arena,
-                                &enclosing_file,
-                                false,
-                            ) {
-                                if resolved == nuc {
-                                    results.push(Location {
-                                        uri: Url::from_file_path(
-                                            state.arena[enclosing_file].get().name.clone(),
-                                        )
-                                        .unwrap(),
-                                        range: potential_symbol.selection_range,
-                                    });
-                                    return true;
-                                }
-
-                                // Check if the type extends the interface we are searching for
-                                if state.arena[resolved].get().is_child_of(
-                                    resolved,
-                                    &mut resolver,
-                                    &state.arena,
-                                    nuc,
-                                ) {
-                                    results.push(Location {
-                                        uri: Url::from_file_path(
-                                            state.arena[enclosing_file].get().name.clone(),
-                                        )
-                                        .unwrap(),
-                                        range: potential_symbol.selection_range,
-                                    });
-                                    return true;
-                                }
-                            }
-
-                            false
-                        });
-
-                    false
-                });
-            }
-            // Find all classes that implement it
-            // Find all methods of those classes with this interface methods name
-        }
-
-        Ok(Some(GotoDefinitionResponse::Array(results)))
+        goto_implementation::goto_implementation(&mut state, params)
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
