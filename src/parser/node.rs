@@ -382,6 +382,20 @@ pub enum Node {
         index: Option<Box<Node>>,
         cb: Token,
     },
+    Match {
+        mtch: Token,
+        oc: Token,
+        op: Token,
+        condition: Box<Node>,
+        cp: Token,
+        body: Vec<Node>,
+        cc: Token,
+    },
+    MatchArm {
+        patterns: Option<Vec<Node>>,
+        arrow: Token,
+        expression: Box<Node>,
+    },
     Static {
         token: Token,
         expr: Vec<Node>,
@@ -1202,6 +1216,29 @@ impl Node {
             Node::Grouping(node) => vec![node],
             Node::Attribute { expressions, .. } => (*expressions).iter().collect::<Vec<&Node>>(),
             Node::DataType { type_refs, .. } => (*type_refs).iter().collect::<Vec<&Node>>(),
+            Node::Match {
+                condition, body, ..
+            } => {
+                let mut children: Vec<&Node> = vec![condition];
+
+                children.extend((*body).iter().collect::<Vec<&Node>>());
+
+                children
+            }
+            Node::MatchArm {
+                patterns,
+                expression,
+                ..
+            } => {
+                let mut children: Vec<&Node> = Vec::new();
+
+                if let Some(patterns) = patterns {
+                    children.extend(patterns.iter());
+                }
+
+                children.push(expression);
+                children
+            }
             _ => Vec::new(),
         }
     }
@@ -1670,6 +1707,18 @@ impl Node {
                 }
             }
             Node::Grouping(content) => content.range(),
+            Node::Match { mtch, oc, cc, .. } => (oc.range().0, cc.range().1),
+            Node::MatchArm {
+                patterns,
+                expression,
+                ..
+            } => {
+                if let Some(patterns) = patterns {
+                    (patterns.first().unwrap().range().0, expression.range().1)
+                } else {
+                    expression.range()
+                }
+            }
             _ => {
                 eprintln!("Implement range for {:?}!", self);
                 ((1, 1), (1, 1))

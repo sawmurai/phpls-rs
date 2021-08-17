@@ -1,7 +1,7 @@
 use super::super::token::TokenType;
 use super::super::{Error, ExpressionResult, Parser};
 use super::{super::node::Node, attributes::attributes_block};
-use super::{arrays, calls, classes, functions, keywords, types, variables};
+use super::{arrays, calls, classes, conditionals, functions, keywords, types, variables};
 
 pub(crate) fn expression_statement(parser: &mut Parser) -> ExpressionResult {
     let value = expression(parser, 0)?;
@@ -287,6 +287,18 @@ pub(crate) fn primary(parser: &mut Parser) -> ExpressionResult {
         });
     }
 
+    if let Some(mtch) = parser.consume_or_ignore(TokenType::Match) {
+        return Ok(Node::Match {
+            mtch,
+            op: parser.consume(TokenType::OpenParenthesis)?,
+            condition: Box::new(expression(parser, 0)?),
+            cp: parser.consume(TokenType::CloseParenthesis)?,
+            oc: parser.consume(TokenType::OpenCurly)?,
+            body: conditionals::match_body(parser)?,
+            cc: parser.consume(TokenType::CloseCurly)?,
+        });
+    }
+
     if let Some(next) = parser.next() {
         // Maybe some sort of other identifier?
         if next.is_identifier() {
@@ -342,6 +354,16 @@ mod tests {
     fn test_parses_the_ternary() {
         let code = "<?php true ? 'lol' : 'notsolol' ";
 
+        let mut scanner = Scanner::new(code);
+        let tokens = scanner.scan().unwrap();
+        let mut parser = Parser::new(tokens.iter().skip(1).map(|t| t.clone()).collect::<Vec<_>>());
+
+        dbg!(expression(&mut parser, 0).unwrap());
+    }
+
+    #[test]
+    fn test_parses_match_expression() {
+        let code = "<?php match ($a) { 1, 2 => 3, 4, 5 => callme(), caller() => called() };";
         let mut scanner = Scanner::new(code);
         let tokens = scanner.scan().unwrap();
         let mut parser = Parser::new(tokens.iter().skip(1).map(|t| t.clone()).collect::<Vec<_>>());

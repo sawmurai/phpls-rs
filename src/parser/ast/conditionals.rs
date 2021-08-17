@@ -223,3 +223,41 @@ pub(crate) fn case_list(parser: &mut Parser) -> Result<Vec<Option<Node>>> {
     }
     Ok(cases_current_branch)
 }
+
+pub(crate) fn match_body(parser: &mut Parser) -> Result<Vec<Node>> {
+    let mut options = Vec::new();
+
+    while !parser.next_token_one_of(&[TokenType::CloseCurly]) {
+        let mut patterns = Vec::new();
+
+        if parser.consume_or_ignore(TokenType::Default).is_some() {
+            options.push(Node::MatchArm {
+                patterns: None,
+                arrow: parser.consume(TokenType::DoubleArrow)?,
+                expression: Box::new(expressions::expression(parser, 0)?),
+            });
+        } else {
+            // Loop for all cases
+            loop {
+                patterns.push(expressions::expression(parser, 0)?);
+
+                if parser.consume_or_ignore(TokenType::Comma).is_none() {
+                    options.push(Node::MatchArm {
+                        patterns: Some(patterns),
+                        arrow: parser.consume(TokenType::DoubleArrow)?,
+                        expression: Box::new(expressions::expression(parser, 0)?),
+                    });
+                    break;
+                }
+            }
+        }
+
+        parser.consume_or_ignore(TokenType::Comma);
+
+        if parser.peek().is_none() {
+            break;
+        }
+    }
+
+    Ok(options)
+}
