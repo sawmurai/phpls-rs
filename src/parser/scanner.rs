@@ -1035,6 +1035,7 @@ impl Scanner {
             "self" => TokenType::TypeSelf,
             "parent" => TokenType::Parent,
             "generator" => TokenType::Generator,
+            "match" => TokenType::Match,
             "die" => TokenType::Die,
             _ => {
                 return None;
@@ -1508,5 +1509,17 @@ $object->{'\u{6771}\u{4eac}'} = 2020;
         scanner.scan().unwrap();
 
         assert_eq!(token_list!(scanner.tokens), "<?php $o ?-> lol ( ) ; ?>");
+    }
+
+    #[test]
+    fn test_scans_match_expression() {
+        let mut scanner = Scanner::new("<?php $a = match ($x) { 2, 1 => 1, default => 0 }; ?>");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(
+            token_list!(scanner.tokens),
+            "<?php $a = match ( $x ) { 2 , 1 => 1 , default => 0 } ; ?>"
+        );
     }
 }

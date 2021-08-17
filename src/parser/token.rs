@@ -142,6 +142,7 @@ pub enum TokenType {
     Declare,
     EndDeclare,
     As,
+    Match,
     Switch,
     EndSwitch,
     Case,
@@ -447,6 +448,7 @@ impl Token {
             | TokenType::LogicXor
             | TokenType::Identifier
             | TokenType::Generator
+            | TokenType::Match
         )
     }
 
@@ -688,6 +690,7 @@ impl Display for TokenType {
             TokenType::Missing => "".to_owned(),
             TokenType::Variable => "$".to_owned(),
             TokenType::Linebreak => "".to_owned(),
+            TokenType::Match => "match".to_owned(),
             _ => unreachable!("Should have never been called with {:?}", self),
         };
 
