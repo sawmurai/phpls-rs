@@ -273,6 +273,21 @@ impl Scanner {
                             }
                         }
                     }
+                    Some('-') => {
+                        self.advance();
+
+                        match self.peek() {
+                            Some('>') => {
+                                self.advance();
+
+                                self.push_token(TokenType::NullsafeObjectOperator);
+                            }
+                            _ => {
+                                self.push_token(TokenType::QuestionMark);
+                                self.push_token(TokenType::Minus);
+                            }
+                        }
+                    }
                     _ => {
                         self.push_token(TokenType::QuestionMark);
                     }
@@ -1484,5 +1499,14 @@ $object->{'\u{6771}\u{4eac}'} = 2020;
         scanner.scan().unwrap();
 
         assert_eq!(token_list!(scanner.tokens), "<?= $var ; ?>");
+    }
+
+    #[test]
+    fn test_scans_nullsafe_object_operator() {
+        let mut scanner = Scanner::new("<?php $o?->lol() ; ?>");
+
+        scanner.scan().unwrap();
+
+        assert_eq!(token_list!(scanner.tokens), "<?php $o ?-> lol ( ) ; ?>");
     }
 }

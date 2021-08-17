@@ -17,7 +17,10 @@ fn init_call(parser: &mut Parser, mut expr: Node) -> ExpressionResult {
             expr = finish_call(parser, expr)?;
 
         // Accessing an object member
-        } else if let Some(os) = parser.consume_or_ignore(TokenType::ObjectOperator) {
+        } else if let Some(os) = parser.consume_one_of_or_ignore(&[
+            TokenType::ObjectOperator,
+            TokenType::NullsafeObjectOperator,
+        ]) {
             // Using the ->{} syntax, so the member is the result of an expression
             if let Some(oc) = parser.consume_or_ignore(TokenType::OpenCurly) {
                 expr = Node::Member {
@@ -516,6 +519,29 @@ $object->$dyn = 10;
 
         let expected = "\
 $object->;
+"
+        .to_owned();
+
+        assert_eq!(expected, formatted);
+    }
+
+    #[test]
+    fn test_parses_incomplete_nullsafeobject_property_access() {
+        let mut scanner = Scanner::new("<?php $object?->");
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+        assert_eq!(false, errors.is_empty());
+
+        let options = FormatterOptions {
+            max_line_length: 100,
+            indent: 4,
+        };
+
+        let formatted = format_file(&ast, 0, 0, &options);
+
+        let expected = "\
+$object?->;
 "
         .to_owned();
 
