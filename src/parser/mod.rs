@@ -328,6 +328,11 @@ impl Parser {
                     | TokenType::ScriptStart(ScriptStartType::Short) => {
                         self.context = Context::Script;
                         self.next();
+
+                        if self.peek().is_none() {
+                            // Empty script, return immediately
+                            return Ok(Node::EmptyScript {});
+                        }
                     }
                     TokenType::ScriptStart(ScriptStartType::Echo) => {
                         // TODO: Integrate this part into inline_html pretty pls

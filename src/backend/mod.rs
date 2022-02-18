@@ -782,26 +782,7 @@ impl LanguageServer for Backend {
             }
         };
 
-        let (name, orig_range, new_name_orig, new_name_ref) = {
-            let state = self.state.lock().await;
-            let symbol = state.arena[nuc].get();
-
-            let (new_name_orig, new_name_ref) = if symbol.kind == PhpSymbolKind::Property {
-                (
-                    format!("${}", params.new_name.clone()),
-                    params.new_name.clone(),
-                )
-            } else {
-                (params.new_name.clone(), params.new_name.clone())
-            };
-
-            (
-                symbol.name.clone(),
-                symbol.selection_range.clone(),
-                new_name_orig,
-                new_name_ref,
-            )
-        };
+        let name = self.state.lock().await.arena[nuc].get().name.clone();
 
         let symbol_references =
             if let Some(symbol_references) = self.references_of_symbol_under_cursor(&name).await {
@@ -816,27 +797,14 @@ impl LanguageServer for Backend {
             .lock()
             .await
             .iter()
-            .for_each(|(ref_file, refs)| {
+            .for_each(|(file, refs)| {
                 let edits: Vec<TextEdit> = refs
                     .iter()
                     .filter_map(|(node, ranges)| {
                         if node == &nuc {
-                            return Some(ranges.iter().map(|range| {
-                                let lsp_range = get_range(*range);
-
-                                if lsp_range == orig_range && file == *ref_file {
-                                    // The symbol definition might need some special handling
-                                    // for renames, such as preserving the $ of a property definition
-                                    TextEdit {
-                                        new_text: new_name_orig.clone(),
-                                        range: lsp_range,
-                                    }
-                                } else {
-                                    TextEdit {
-                                        new_text: new_name_ref.clone(),
-                                        range: lsp_range,
-                                    }
-                                }
+                            return Some(ranges.iter().map(|range| TextEdit {
+                                new_text: params.new_name.clone(),
+                                range: get_range(*range),
                             }));
                         }
 
@@ -846,7 +814,7 @@ impl LanguageServer for Backend {
                     .collect();
                 // Find all refs that point to our symbol, across all files
                 changes
-                    .entry(Url::from_file_path(ref_file).unwrap())
+                    .entry(Url::from_file_path(file).unwrap())
                     .or_insert_with(Vec::new)
                     .extend(edits);
             });

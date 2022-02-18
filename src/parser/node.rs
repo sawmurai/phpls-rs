@@ -4,7 +4,7 @@ use super::token::{Token, TokenType};
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct TypeRef {
-    kind: Vec<Token>,
+    pub(crate) kind: Vec<Token>,
 
     /// Indicator that we are dealing with an array of that type
     /// This is used when parsing phpDoc comments a la Class[] or Array<Class>
@@ -789,6 +789,7 @@ pub enum Node {
         expressions: Vec<Node>,
         cb: Token,
     },
+    EmptyScript {},
 }
 
 impl Node {

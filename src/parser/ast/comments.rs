@@ -24,7 +24,7 @@ impl DocBlockScanner {
             .collect::<Vec<char>>();
 
         DocBlockScanner {
-            col: comment.col,
+            col: comment.col + 2,
             line: comment.line,
             comment,
             chars,
@@ -392,4 +392,34 @@ pub(crate) fn param_comment_for(doc_comment: &Option<Box<Node>>, p_name: &Token)
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::scanner::Scanner;
+
+    #[test]
+    fn test_parses_vardoc_comments() {
+        let mut scanner = Scanner::new(
+            "<?php
+/** @var  Type  $var */",
+        );
+        scanner.scan().unwrap();
+
+        let (ast, errors) = Parser::ast(scanner.tokens).unwrap();
+
+        assert_eq!(true, errors.is_empty());
+        match ast.first().unwrap() {
+            Node::DocCommentVar { types, .. } => match types.clone().unwrap().first().unwrap() {
+                TypeRef { kind, .. } => match kind.first().unwrap() {
+                    Token { col, line, .. } => {
+                        assert_eq!(1, *line);
+                        assert_eq!(10, *col);
+                    }
+                },
+            },
+            _ => {}
+        }
+    }
 }
