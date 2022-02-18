@@ -225,13 +225,7 @@ impl Backend {
             .await
             .files
             .iter()
-            .filter_map(|(k, _)| {
-                if k.contains("/vendor/") {
-                    Some(k.clone()) //None
-                } else {
-                    Some(k.clone())
-                }
-            })
+            .map(|(k, _)| k.clone())
             .collect::<Vec<String>>();
         let symbol_references = Arc::new(Mutex::new(ReferenceMap::new()));
 
