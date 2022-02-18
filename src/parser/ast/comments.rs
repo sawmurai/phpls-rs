@@ -270,9 +270,9 @@ impl DocBlockScanner {
 
     fn collect_type_ref(&mut self, allow_this: bool) -> Option<TypeRef> {
         let mut type_ref_parts = Vec::new();
-        let current_start = (self.line, self.col);
 
         loop {
+            let current_start = (self.line, self.col);
             let identifier = &self.collect_identifer(allow_this);
             if !identifier.is_empty() {
                 type_ref_parts.push(Token::named(
@@ -352,7 +352,7 @@ impl DocBlockScanner {
     }
 
     fn skip_blanks(&mut self) {
-        if let Some(c) = self.peek() {
+        while let Some(c) = self.peek() {
             if c.is_whitespace() {
                 self.advance();
             } else {
