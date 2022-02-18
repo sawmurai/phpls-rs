@@ -263,16 +263,9 @@ impl<'a> NameResolver<'a> {
             }
         }
 
+        let anchor_symbol = arena[*context_anchor].get();
         // First attempt: Try to find the parent namespace block
-        let current_namespace = if let Some(ns) = context_anchor.ancestors(arena).find_map(|a| {
-            let s = arena[a].get();
-
-            if s.kind == PhpSymbolKind::Namespace {
-                Some(s.name())
-            } else {
-                None
-            }
-        }) {
+        let current_namespace = if let Some(ns) = anchor_symbol.namespace.as_ref() {
             ns
         // Alternative: Find the global namespace of the file
         } else if let Some(ns) = file.children(arena).find_map(|c| {
@@ -307,7 +300,7 @@ impl<'a> NameResolver<'a> {
             }
         } else if !current_namespace.is_empty() {
             // Next try the name in the current namespace
-            format!("{}\\{}", current_namespace, name)
+            format!("{}\\{}", current_namespace, type_ref.to_fqdn())
         } else {
             // Otherwise use a fqdn but cut off the leading backslash
             type_ref.to_fqdn()
@@ -1432,6 +1425,41 @@ mod tests {
             vec!["Cat", "Living", "Living"],
             references!(state, "anothercat.php")
         );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_across_namespaces_with_qualified_use() {
+        let mut state = BackendState::default();
+
+        let sources = vec![
+            ("source.php", "<?php namespace App1; class SubApp { }"),
+            (
+                "living.php",
+                "<?php namespace App1\\SubApp; class Living { }",
+            ),
+            (
+                "cat.php",
+                "<?php namespace App1; class Cat extends SubApp\\Living { }",
+            ),
+        ];
+
+        for (file, source) in sources.iter() {
+            let mut scanner = Scanner::new(*source);
+            scanner.scan().unwrap();
+
+            let dr = scanner.document_range();
+            let pr = Parser::ast(scanner.tokens).unwrap();
+
+            Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut state).unwrap();
+
+            if *file == "cat.php" {
+                Backend::collect_references(*file, &pr.0, &mut state, None).unwrap();
+            }
+        }
+        eprintln!("{:?}", state.diagnostics);
+        assert!(state.diagnostics.is_empty());
+
+        assert_reference_names!(vec!["Cat", "Living"], references!(state, "cat.php"));
     }
 
     #[tokio::test]
