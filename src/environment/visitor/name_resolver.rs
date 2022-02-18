@@ -527,6 +527,14 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                         // Not resolvable .. too bad
                         return NextAction::ProcessChildren(parent);
                     }
+                } else if let AstNode::Call { callee, .. } = collection.as_ref() {
+                    // For some reason many symbols get referenced too often
+                    if let Some(node) = self.resolve_member_type(callee, arena) {
+                        // Resolved the type of the call
+                        arena[node].get()
+                    } else {
+                        return NextAction::ProcessChildren(parent);
+                    }
                 } else {
                     // Not a variable, so no easy way (yet) of determing the type. Later on we will have a
                     // way of getting the return types of expressions
@@ -1142,6 +1150,28 @@ mod tests {
                 })
                 .flatten()
                 .collect::<Vec<String>>()
+        };
+    }
+
+    macro_rules! collect_and_reference {
+        ($state:ident, $sources:expr) => {
+            for (file, source) in $sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let dr = scanner.document_range();
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::collect_symbols(*file, &pr.0, &get_range(dr), &mut $state).unwrap();
+            }
+            for (file, source) in $sources.iter() {
+                let mut scanner = Scanner::new(*source);
+                scanner.scan().unwrap();
+
+                let pr = Parser::ast(scanner.tokens).unwrap();
+
+                Backend::collect_references(*file, &pr.0, &mut $state, None).unwrap();
+            }
         };
     }
 
@@ -1880,6 +1910,50 @@ mod tests {
         assert_reference_names!(
             vec!["Cls", "Cls", "handle", "x", "x", "y", "y", "z", "z"],
             references!(state, "Cls.php")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_collections_in_foreach() {
+        let mut state = BackendState::default();
+
+        collect_and_reference!(
+            state,
+            vec![(
+                "loop.php",
+                "<?php
+                class X {
+                    /**
+                     * @return Type[]
+                     */
+                    function y() {}
+                }
+                class Type {
+                    function t() {}
+                }
+                
+                $collection = new X();
+                foreach ($collection->y() as $item) {
+                    $item->t();
+                }
+                ",
+            )]
+        );
+
+        assert!(state.diagnostics.is_empty());
+
+        dbg!(&state.symbol_references.get("loop.php"));
+        assert_reference_names!(
+            vec![
+                "Type",
+                "Type",
+                "collection",
+                "collection",
+                "item",
+                "item",
+                "t"
+            ],
+            references!(state, "loop.php")
         );
     }
 }
