@@ -389,7 +389,7 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
                             arena[self.file].get().name().to_owned(),
                             declaration.range(),
                             String::from("Case mismatch between call and definition"),
-                            DiagnosticSeverity::Warning,
+                            DiagnosticSeverity::WARNING,
                         );
                     }
 
@@ -1031,7 +1031,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                 file_name.to_owned(),
                                 link.range(),
                                 String::from("Case mismatch between call and definition"),
-                                DiagnosticSeverity::Warning,
+                                DiagnosticSeverity::WARNING,
                             );
                         }
                     } else {
@@ -1039,7 +1039,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                             file_name.to_owned(),
                             link.range(),
                             String::from("Method is not accessible from this scope"),
-                            DiagnosticSeverity::Error,
+                            DiagnosticSeverity::ERROR,
                         );
 
                         return None;
@@ -1083,7 +1083,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                                                 String::from(
                                                     "Method returns an instance of its parent, but its class has no parent or the parent could not be resolved."
                                                 ),
-                                                DiagnosticSeverity::Warning
+                                                DiagnosticSeverity::WARNING
                                             );
 
                                         return None;
@@ -1115,7 +1115,7 @@ impl<'a, 'b: 'a> NameResolveVisitor<'a, 'b> {
                         file_name.to_owned(),
                         link.range(),
                         format!("Unresolvable symbol {}", link.name()),
-                        DiagnosticSeverity::Error,
+                        DiagnosticSeverity::ERROR,
                     );
                     return None;
                 }
@@ -1943,15 +1943,23 @@ mod tests {
         assert!(state.diagnostics.is_empty());
 
         dbg!(&state.symbol_references.get("loop.php"));
+        // TODO: Make the code not resolve symbols multiple times
         assert_reference_names!(
             vec![
                 "Type",
                 "Type",
+                "X",
+                "X",
+                "collection",
                 "collection",
                 "collection",
                 "item",
                 "item",
-                "t"
+                "t",
+                "t",
+                "y",
+                "y",
+                "y"
             ],
             references!(state, "loop.php")
         );

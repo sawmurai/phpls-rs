@@ -88,7 +88,7 @@ impl Notification {
             file,
             message,
             range,
-            severity: DiagnosticSeverity::Error,
+            severity: DiagnosticSeverity::ERROR,
         }
     }
 
@@ -97,7 +97,7 @@ impl Notification {
             file,
             message,
             range,
-            severity: DiagnosticSeverity::Warning,
+            severity: DiagnosticSeverity::WARNING,
         }
     }
 }

@@ -737,7 +737,7 @@ impl From<TokenType> for CompletionItem {
     fn from(tt: TokenType) -> CompletionItem {
         CompletionItem {
             label: tt.to_string(),
-            kind: Some(CompletionItemKind::Keyword),
+            kind: Some(CompletionItemKind::KEYWORD),
             ..CompletionItem::default()
         }
     }

@@ -233,27 +233,26 @@ impl Default for Symbol {
 impl PhpSymbolKind {
     pub fn get_symbol_kind(&self) -> Option<SymbolKind> {
         let kind = match self {
-            PhpSymbolKind::File => SymbolKind::File,
-            PhpSymbolKind::Namespace => SymbolKind::Namespace,
-            PhpSymbolKind::Class | PhpSymbolKind::Trait => SymbolKind::Class,
-            PhpSymbolKind::Method => SymbolKind::Method,
-            PhpSymbolKind::Property => SymbolKind::Property,
-            PhpSymbolKind::Field => SymbolKind::Field,
-            PhpSymbolKind::Constructor => SymbolKind::Constructor,
-            PhpSymbolKind::Interface => SymbolKind::Interface,
-            PhpSymbolKind::Function => SymbolKind::Function,
-            PhpSymbolKind::Variable => SymbolKind::Variable,
-            PhpSymbolKind::Constant => SymbolKind::Constant,
-            PhpSymbolKind::String => SymbolKind::String,
-            PhpSymbolKind::Number => SymbolKind::Number,
-            PhpSymbolKind::Boolean => SymbolKind::Boolean,
-            PhpSymbolKind::Array => SymbolKind::Array,
-            PhpSymbolKind::Object => SymbolKind::Object,
-            PhpSymbolKind::Key => SymbolKind::Key,
-            PhpSymbolKind::Null => SymbolKind::Null,
-            PhpSymbolKind::Operator => SymbolKind::Operator,
-            PhpSymbolKind::BuiltInType => return None,
-            _ => SymbolKind::Unknown,
+            PhpSymbolKind::File => SymbolKind::FILE,
+            PhpSymbolKind::Namespace => SymbolKind::NAMESPACE,
+            PhpSymbolKind::Class | PhpSymbolKind::Trait => SymbolKind::CLASS,
+            PhpSymbolKind::Method => SymbolKind::METHOD,
+            PhpSymbolKind::Property => SymbolKind::PROPERTY,
+            PhpSymbolKind::Field => SymbolKind::FIELD,
+            PhpSymbolKind::Constructor => SymbolKind::CONSTRUCTOR,
+            PhpSymbolKind::Interface => SymbolKind::INTERFACE,
+            PhpSymbolKind::Function => SymbolKind::FUNCTION,
+            PhpSymbolKind::Variable => SymbolKind::VARIABLE,
+            PhpSymbolKind::Constant => SymbolKind::CONSTANT,
+            PhpSymbolKind::String => SymbolKind::STRING,
+            PhpSymbolKind::Number => SymbolKind::NUMBER,
+            PhpSymbolKind::Boolean => SymbolKind::BOOLEAN,
+            PhpSymbolKind::Array => SymbolKind::ARRAY,
+            PhpSymbolKind::Object => SymbolKind::OBJECT,
+            PhpSymbolKind::Key => SymbolKind::KEY,
+            PhpSymbolKind::Null => SymbolKind::NULL,
+            PhpSymbolKind::Operator => SymbolKind::OPERATOR,
+            _ => return None,
         };
 
         Some(kind)
@@ -282,7 +281,7 @@ impl PhpSymbolKind {
 impl Symbol {
     pub fn completion_item(&self, node: NodeId, arena: &Arena<Symbol>) -> CompletionItem {
         let tags = if let Some(true) = self.deprecated {
-            Some(vec![CompletionItemTag::Deprecated])
+            Some(vec![CompletionItemTag::DEPRECATED])
         } else {
             None
         };
@@ -299,48 +298,48 @@ impl Symbol {
             PhpSymbolKind::Interface => CompletionItem {
                 label,
                 detail: Some(format!("interface {}\\{}", ns, self.name)),
-                kind: Some(CompletionItemKind::Interface),
+                kind: Some(CompletionItemKind::INTERFACE),
                 tags,
                 ..CompletionItem::default()
             },
             PhpSymbolKind::Class => CompletionItem {
                 label,
                 detail: Some(format!("class {}\\{}", ns, self.name)),
-                kind: Some(CompletionItemKind::Class),
+                kind: Some(CompletionItemKind::CLASS),
                 tags,
                 ..CompletionItem::default()
             },
             PhpSymbolKind::Trait => CompletionItem {
                 label,
                 detail: Some(format!("trait {}\\{}", ns, self.name)),
-                kind: Some(CompletionItemKind::Class),
+                kind: Some(CompletionItemKind::CLASS),
                 tags,
                 ..CompletionItem::default()
             },
             PhpSymbolKind::Constant => CompletionItem {
                 label,
                 detail: Some(format!("{} {}()", self.visibility, self.name)),
-                kind: Some(CompletionItemKind::Constant),
+                kind: Some(CompletionItemKind::CONSTANT),
                 tags,
                 ..CompletionItem::default()
             },
             PhpSymbolKind::MagicConst => CompletionItem {
                 label,
                 detail: None,
-                kind: Some(CompletionItemKind::Constant),
+                kind: Some(CompletionItemKind::CONSTANT),
                 tags,
                 ..CompletionItem::default()
             },
             PhpSymbolKind::Method => CompletionItem {
                 label,
                 detail: Some(format!("{} {}()", self.visibility, self.name)),
-                kind: Some(CompletionItemKind::Method),
+                kind: Some(CompletionItemKind::METHOD),
                 insert_text: Some(format!(
                     "{}({})",
                     self.name,
                     self.parameters_as_snippets(node, arena)
                 )),
-                insert_text_format: Some(InsertTextFormat::Snippet),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
                 tags,
                 ..CompletionItem::default()
             },
@@ -348,13 +347,13 @@ impl Symbol {
             PhpSymbolKind::Function => CompletionItem {
                 label,
                 detail: Some(format!("{}()", self.name)),
-                kind: Some(CompletionItemKind::Function),
+                kind: Some(CompletionItemKind::FUNCTION),
                 insert_text: Some(format!(
                     "{}({})",
                     self.name,
                     self.parameters_as_snippets(node, arena)
                 )),
-                insert_text_format: Some(InsertTextFormat::Snippet),
+                insert_text_format: Some(InsertTextFormat::SNIPPET),
                 tags,
                 ..CompletionItem::default()
             },
@@ -772,7 +771,7 @@ impl Symbol {
             detail: self.detail(arena),
             deprecated: None,
             tags: if self.deprecated.is_some() {
-                Some(vec![SymbolTag::Deprecated])
+                Some(vec![SymbolTag::DEPRECATED])
             } else {
                 None
             },

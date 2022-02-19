@@ -21,7 +21,7 @@ pub(crate) fn symbol(
             if symbol.normalized_name().starts_with(&query) {
                 if let Some(kind) = symbol.kind.get_symbol_kind() {
                     let tags = if symbol.deprecated.is_some() {
-                        Some(vec![SymbolTag::Deprecated])
+                        Some(vec![SymbolTag::DEPRECATED])
                     } else {
                         None
                     };
