@@ -359,7 +359,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 ref_from_doc!(doc_comment, data_types, return_type);
 
                 let range = if let Some(doc_comment) = doc_comment {
-                    (doc_comment.range().0, node.range().1)
+                    (doc_comment.as_ref(), node).into()
                 } else {
                     node.range()
                 };
@@ -420,7 +420,7 @@ impl Visitor for WorkspaceSymbolVisitor {
                 ref_from_doc!(doc_comment, data_types, return_type);
 
                 let range = if let Some(doc_comment) = doc_comment {
-                    (doc_comment.range().0, node.range().1)
+                    (doc_comment.as_ref(), node).into()
                 } else {
                     node.range()
                 };

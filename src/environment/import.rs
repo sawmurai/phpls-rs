@@ -1,10 +1,12 @@
-use crate::parser::node::Node;
+use crate::parser::node::{Node, NodeRange};
 use crate::parser::token::Token;
 use crate::{
     environment::symbol::{PhpSymbolKind, Symbol},
     parser::node::TypeRef,
 };
 use tower_lsp::lsp_types::{Position, Range};
+
+use super::get_range;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SymbolImport {
@@ -63,24 +65,15 @@ impl SymbolImport {
 
 impl From<&SymbolImport> for Symbol {
     fn from(symbol_import: &SymbolImport) -> Symbol {
-        let start = symbol_import.path.range().0;
-        let end = if let Some(alias) = symbol_import.alias.as_ref() {
-            alias.end()
+        let start = symbol_import.path.range();
+
+        let range = if let Some(alias) = symbol_import.alias.as_ref() {
+            NodeRange::from_range(&start, &alias.into())
         } else {
-            symbol_import.path.range().1
+            NodeRange::from_range(&start, &symbol_import.path.range())
         };
 
-        let range = Range {
-            start: Position {
-                line: start.0,
-                character: start.1,
-            },
-            end: Position {
-                line: end.0,
-                character: end.1,
-            },
-        };
-
+        let range = get_range(range);
         Symbol {
             name: symbol_import.full_name(),
             kind: PhpSymbolKind::Import,

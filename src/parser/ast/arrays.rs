@@ -87,6 +87,7 @@ pub(crate) fn array_pair(parser: &mut Parser) -> ExpressionResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::node::NodeRange;
     use crate::parser::token::{Token, TokenType};
     use crate::parser::{Context, Parser};
 
@@ -107,7 +108,7 @@ mod tests {
             tokens,
             context: Context::Out,
             eof: (10, 10),
-            end_of_prev_token: (0, 0),
+            end_of_prev_token: NodeRange::empty(),
         };
 
         let expected = Node::Array {

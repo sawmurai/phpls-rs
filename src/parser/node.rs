@@ -1,6 +1,7 @@
-use std::{iter::Skip, slice::Iter};
+use lsp_types::Range;
 
 use super::token::{Token, TokenType};
+use std::{iter::Skip, ops::Deref, slice::Iter};
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct TypeRef {
@@ -24,7 +25,131 @@ pub struct ClassStatement {
     pub(crate) attributes: Vec<Node>,
 }
 
-pub type NodeRange = ((u32, u32), (u32, u32));
+#[derive(Debug, PartialEq, Hash, Eq, Clone, Copy)]
+pub struct NodeRange {
+    /// Start column
+    pub(crate) start_col: u32,
+
+    /// Start line
+    pub(crate) start_line: u32,
+
+    /// End column
+    pub(crate) end_col: u32,
+
+    /// End line
+    pub(crate) end_line: u32,
+}
+
+impl From<Range> for NodeRange {
+    fn from(lsp_range: Range) -> Self {
+        NodeRange::new(
+            lsp_range.start.character,
+            lsp_range.start.line,
+            lsp_range.end.character,
+            lsp_range.end.line,
+        )
+    }
+}
+
+impl From<&Token> for NodeRange {
+    fn from(token: &Token) -> Self {
+        NodeRange::new(token.col, token.line, token.end().0, token.end().1)
+    }
+}
+
+impl From<((u32, u32), (u32, u32))> for NodeRange {
+    fn from(((a, b), (c, d)): ((u32, u32), (u32, u32))) -> NodeRange {
+        NodeRange::new(a, b, c, d)
+    }
+}
+
+impl From<(&Token, &Node)> for NodeRange {
+    fn from((token, node): (&Token, &Node)) -> Self {
+        let node_range = node.range();
+        NodeRange::new(
+            token.col,
+            token.line,
+            node_range.end_col,
+            node_range.end_line,
+        )
+    }
+}
+
+impl From<(&Node, &Node)> for NodeRange {
+    fn from((node_start, node_end): (&Node, &Node)) -> Self {
+        let node_range_start = node_start.range();
+        let node_range_end = node_end.range();
+
+        NodeRange::new(
+            node_range_start.start_col,
+            node_range_start.start_line,
+            node_range_end.end_col,
+            node_range_end.end_line,
+        )
+    }
+}
+
+impl From<(&Token, &Token)> for NodeRange {
+    fn from((start, end): (&Token, &Token)) -> Self {
+        let token_end = end.end();
+
+        NodeRange::new(start.col, start.line, token_end.0, token_end.1)
+    }
+}
+
+impl From<&TypeRef> for NodeRange {
+    fn from(tr: &TypeRef) -> Self {
+        let first = tr.kind.first().unwrap();
+        let last = tr.kind.last().unwrap();
+
+        (first, last).into()
+    }
+}
+
+impl From<(&Token, &TypeRef)> for NodeRange {
+    fn from((token, tr): (&Token, &TypeRef)) -> Self {
+        let last = tr.kind.last().unwrap();
+
+        (token, last).into()
+    }
+}
+
+impl Into<NodeRange> for (&Node, &Token) {
+    fn into(self) -> NodeRange {
+        let node_range = self.0.range();
+        let token_end = self.1.end();
+
+        NodeRange::new(
+            node_range.start_col,
+            node_range.start_line,
+            token_end.0,
+            token_end.1,
+        )
+    }
+}
+
+impl NodeRange {
+    pub fn new(start_col: u32, start_line: u32, end_col: u32, end_line: u32) -> NodeRange {
+        NodeRange {
+            start_col,
+            start_line,
+            end_col,
+            end_line,
+        }
+    }
+
+    pub fn from_range(from: &Self, to: &Self) -> Self {
+        NodeRange::new(from.start_col, from.start_line, to.end_col, to.end_line)
+    }
+
+    pub fn end(&self) -> (u32, u32) {
+        (self.end_col, self.end_line)
+    }
+
+    pub fn empty() -> Self {
+        Self::new(0, 0, 0, 0)
+    }
+}
 
 impl TypeRef {
     pub fn one(kind: Vec<Token>) -> Self {
@@ -66,9 +191,9 @@ impl TypeRef {
     }
 
     pub fn range(&self) -> NodeRange {
-        (
-            self.kind.first().unwrap().range().0,
-            self.kind.last().unwrap().range().1,
+        NodeRange::from_range(
+            &self.kind.first().unwrap().range(),
+            &self.kind.last().unwrap().range(),
         )
     }
 
@@ -1261,71 +1386,71 @@ impl Node {
 
     pub fn range(&self) -> NodeRange {
         match self {
-            Node::Unary { token, expr } => (token.start(), expr.range().1),
-            Node::PostUnary { token, expr } => (expr.range().0, token.end()),
-            Node::Const { token, value, .. } => (token.start(), value.range().1),
-            Node::Binary { left, right, .. } => (left.range().0, right.range().1),
+            Node::Unary { token, expr } => (token, expr.as_ref()).into(),
+            Node::PostUnary { token, expr } => (expr.as_ref(), token).into(),
+            Node::Const { token, value, .. } => (token, value.as_ref()).into(),
+            Node::Binary { left, right, .. } => (left.as_ref(), right.as_ref()).into(),
             Node::Ternary {
                 check, false_arm, ..
-            } => (check.range().0, false_arm.range().1),
+            } => (check.as_ref(), false_arm.as_ref()).into(),
             Node::LexicalVariable {
                 reference,
                 variable,
             } => {
                 if let Some(reference) = reference {
-                    (reference.start(), variable.end())
+                    (reference, variable).into()
                 } else {
-                    variable.range()
+                    variable.into()
                 }
             }
-            Node::AliasedVariable { variable, expr } => (variable.start(), expr.range().1),
-            Node::DynamicVariable { variable, cc, .. } => (variable.start(), cc.end()),
+            Node::AliasedVariable { variable, expr } => (variable, expr.as_ref()).into(),
+            Node::DynamicVariable { variable, cc, .. } => (variable, cc).into(),
             Node::StaticVariable {
                 variable, value, ..
             } => {
                 if let Some(value) = value {
-                    (variable.start(), value.range().1)
+                    (variable, value.as_ref()).into()
                 } else {
-                    variable.range()
+                    variable.into()
                 }
             }
-            Node::Array { ob, cb, .. } => (ob.start(), cb.end()),
-            Node::OldArray { token, cp, .. } => (token.start(), cp.end()),
+            Node::Array { ob, cb, .. } => (ob, cb).into(),
+            Node::OldArray { token, cp, .. } => (token, cp).into(),
             Node::ArrayElement { key, value, .. } => {
                 if let Some(key) = key {
-                    (key.range().0, value.range().0)
+                    (key.as_ref(), value.as_ref()).into()
                 } else {
                     value.range()
                 }
             }
-            Node::List { token, cp, .. } => (token.start(), cp.end()),
-            Node::Call { callee, cp, .. } => (callee.range().0, cp.end()),
-            Node::Isset { isset, cp, .. } => (isset.start(), cp.end()),
-            Node::Empty { empty, cp, .. } => (empty.start(), cp.end()),
+            Node::List { token, cp, .. } => (token, cp).into(),
+            Node::Call { callee, cp, .. } => (callee.as_ref(), cp).into(),
+            Node::Isset { isset, cp, .. } => (isset, cp).into(),
+            Node::Empty { empty, cp, .. } => (empty, cp).into(),
             Node::Exit { exit, cp, .. } => {
                 if let Some(cp) = cp {
-                    (exit.start(), cp.end())
+                    (exit, cp).into()
                 } else {
                     exit.range()
                 }
             }
             Node::HaltCompiler { hc, cp, .. } => {
                 if let Some(cp) = cp {
-                    (hc.start(), cp.end())
+                    (hc, cp).into()
                 } else {
                     hc.range()
                 }
             }
             Node::Die { die, cp, .. } => {
                 if let Some(cp) = cp {
-                    (die.start(), cp.end())
+                    (die, cp).into()
                 } else {
                     die.range()
                 }
             }
-            Node::New { token, class } => (token.start(), class.range().1),
-            Node::Clone { token, object } => (token.start(), object.range().1),
-            Node::Member { object, member, .. } => (object.range().0, member.range().1),
+            Node::New { token, class } => (token, class.as_ref()).into(),
+            Node::Clone { token, object } => (token, object.as_ref()).into(),
+            Node::Member { object, member, .. } => (object.as_ref(), member.as_ref()).into(),
             Node::StaticMember {
                 object: class,
                 member,
@@ -1333,13 +1458,13 @@ impl Node {
                 ..
             } => {
                 if let Some(cc) = cc {
-                    (class.range().0, cc.range().1)
+                    (class.as_ref(), cc).into()
                 } else {
-                    (class.range().0, member.range().1)
+                    (class.as_ref(), member.as_ref()).into()
                 }
             }
-            Node::Field { array, cb, .. } => (array.range().0, cb.end()),
-            Node::Static { token, expr } => (token.start(), expr.last().unwrap().range().1),
+            Node::Field { array, cb, .. } => (array.as_ref(), cb).into(),
+            Node::Static { token, expr } => (token, expr.last().unwrap()).into(),
             Node::Function {
                 is_static,
                 by_ref,
@@ -1348,11 +1473,11 @@ impl Node {
                 ..
             } => {
                 if let Some(is_static) = is_static {
-                    (is_static.start(), body.range().1)
+                    (is_static, body.as_ref()).into()
                 } else if let Some(by_ref) = by_ref {
-                    (by_ref.start(), body.range().1)
+                    (by_ref, body.as_ref()).into()
                 } else {
-                    (token.start(), body.range().1)
+                    (token, body.as_ref()).into()
                 }
             }
             Node::ArrowFunction {
@@ -1363,11 +1488,11 @@ impl Node {
                 ..
             } => {
                 if let Some(is_static) = is_static {
-                    (is_static.start(), body.range().1)
+                    (is_static, body.as_ref()).into()
                 } else if let Some(by_ref) = by_ref {
-                    (by_ref.start(), body.range().1)
+                    (by_ref, body.as_ref()).into()
                 } else {
-                    (token.start(), body.range().1)
+                    (token, body.as_ref()).into()
                 }
             }
             Node::FunctionArgument {
@@ -1378,20 +1503,20 @@ impl Node {
                 reference,
                 ..
             } => {
-                let start = if let Some(reference) = reference {
-                    reference.start()
+                let start: NodeRange = if let Some(reference) = reference {
+                    reference.into()
                 } else if let Some(argument_type) = argument_type {
-                    argument_type.range().0
+                    argument_type.as_ref().range()
                 } else if let Some(spread) = spread {
-                    spread.start()
+                    spread.into()
                 } else {
-                    name.start()
+                    name.into()
                 };
 
                 if let Some(default_value) = default_value {
-                    (start, default_value.range().1)
+                    NodeRange::from_range(&start, &default_value.as_ref().range())
                 } else {
-                    (start, name.end())
+                    NodeRange::from_range(&start, &name.into())
                 }
             }
             Node::DataType {
@@ -1399,41 +1524,38 @@ impl Node {
                 type_refs,
             } => {
                 if let Some(nullable) = nullable {
-                    (nullable.start(), type_refs.last().unwrap().range().1)
+                    (nullable, type_refs.last().unwrap()).into()
                 } else {
-                    (
-                        type_refs.first().unwrap().range().0,
-                        type_refs.last().unwrap().range().1,
-                    )
+                    (type_refs.first().unwrap(), type_refs.last().unwrap()).into()
                 }
             }
             Node::ReturnType { data_type, .. } => data_type.range(),
-            Node::Class { token, body, .. } => (token.start(), body.range().1),
+            Node::Class { token, body, .. } => (token, body.as_ref()).into(),
             Node::Yield { token, expr } => {
                 if let Some(expr) = expr {
-                    (token.start(), expr.range().1)
+                    (token, expr.as_ref()).into()
                 } else {
                     token.range()
                 }
             }
-            Node::YieldFrom { token, expr } => (token.start(), expr.range().1),
-            Node::FileInclude { token, resource } => (token.start(), resource.range().1),
+            Node::YieldFrom { token, expr } => (token, expr.as_ref()).into(),
+            Node::FileInclude { token, resource } => (token, resource.as_ref()).into(),
             Node::UseDeclaration {
                 token,
                 declaration,
                 alias,
                 ..
             } => {
-                let start = if let Some(token) = token {
-                    token.start()
+                let start: NodeRange = if let Some(token) = token {
+                    token.into()
                 } else {
-                    declaration.range().0
+                    declaration.as_ref().range()
                 };
 
                 if let Some(alias) = alias {
-                    (start, alias.range().1)
+                    NodeRange::from_range(&start, &alias.into())
                 } else {
-                    (start, declaration.range().1)
+                    NodeRange::from_range(&start, &declaration.as_ref().range())
                 }
             }
             Node::UseConst {
@@ -1442,14 +1564,14 @@ impl Node {
                 alias,
                 ..
             } => {
-                let start = if let Some(token) = token {
-                    token.start()
+                let start: NodeRange = if let Some(token) = token {
+                    token.into()
                 } else {
-                    constant.range().0
+                    constant.range()
                 };
 
                 if let Some(alias) = alias {
-                    (start, alias.range().1)
+                    NodeRange::from_range(&start, &alias.into())
                 } else {
                     constant.range()
                 }
@@ -1460,61 +1582,55 @@ impl Node {
                 alias,
                 ..
             } => {
-                let start = if let Some(token) = token {
-                    token.start()
+                let start: NodeRange = if let Some(token) = token {
+                    token.into()
                 } else {
-                    function.range().0
+                    function.range()
                 };
 
                 if let Some(alias) = alias {
-                    (start, alias.range().1)
+                    NodeRange::from_range(&start, &alias.into())
                 } else {
                     function.range()
                 }
             }
-            Node::GroupedUse { token, cc, .. } => (token.start(), cc.end()),
+            Node::GroupedUse { token, cc, .. } => (token, cc).into(),
             Node::ExpressionStatement { expression } => expression.range(),
             Node::EchoStatement { token, expressions } => {
-                (token.start(), expressions.last().unwrap().range().1)
+                (token, expressions.last().unwrap()).into()
             }
-            Node::ConstStatement { token, constants } => {
-                (token.start(), constants.last().unwrap().range().1)
-            }
+            Node::ConstStatement { token, constants } => (token, constants.last().unwrap()).into(),
             Node::PrintStatement { token, expressions } => {
-                (token.start(), expressions.last().unwrap().range().1)
+                (token, expressions.last().unwrap()).into()
             }
-            Node::GotoStatement { token, label } => (token.start(), label.end()),
-            Node::LabelStatement { label, colon } => (label.start(), colon.end()),
+            Node::GotoStatement { token, label } => (token, label).into(),
+            Node::LabelStatement { label, colon } => (label, colon).into(),
             Node::ThrowStatement {
                 token, expression, ..
-            } => (token.start(), expression.range().1),
-            Node::DeclareStatement { token, cp, .. } => (token.start(), cp.end()),
-            Node::UnsetStatement { token, cp, .. } => (token.start(), cp.end()),
-            Node::DieStatement { token, cp, .. } => (token.start(), cp.end()),
+            } => (token, expression.as_ref()).into(),
+            Node::DeclareStatement { token, cp, .. } => (token, cp).into(),
+            Node::UnsetStatement { token, cp, .. } => (token, cp).into(),
+            Node::DieStatement { token, cp, .. } => (token, cp).into(),
             Node::ReturnStatement { token, expression } => {
                 if let Some(expr) = expression {
-                    (token.start(), expr.range().1)
+                    (token, expr.as_ref()).into()
                 } else {
                     token.range()
                 }
             }
-            Node::NamespaceStatement { token, type_ref } => (token.start(), type_ref.range().1),
-            Node::NamespaceBlock { token, block, .. } => (token.start(), block.range().1),
-            Node::UseStatement { token, imports } => {
-                (token.start(), imports.last().unwrap().range().1)
-            }
+            Node::NamespaceStatement { token, type_ref } => (token, type_ref.as_ref()).into(),
+            Node::NamespaceBlock { token, block, .. } => (token, block.as_ref()).into(),
+            Node::UseStatement { token, imports } => (token, imports.last().unwrap()).into(),
             Node::UseFunctionStatement { token, imports } => {
-                (token.start(), imports.last().unwrap().range().1)
+                (token, imports.last().unwrap()).into()
             }
-            Node::UseConstStatement { token, imports } => {
-                (token.start(), imports.last().unwrap().range().1)
-            }
+            Node::UseConstStatement { token, imports } => (token, imports.last().unwrap()).into(),
             Node::UseTraitStatement {
                 token,
                 traits_usages,
-            } => (token.start(), traits_usages.last().unwrap().range().1),
+            } => (token, traits_usages.last().unwrap()).into(),
             Node::UseTrait { type_ref } => type_ref.range(),
-            Node::UseTraitAlterationBlock { oc, cc, .. } => (oc.start(), cc.end()),
+            Node::UseTraitAlterationBlock { oc, cc, .. } => (oc, cc).into(),
             Node::UseTraitInsteadOf {
                 left,
                 member,
@@ -1522,9 +1638,9 @@ impl Node {
                 ..
             } => {
                 if let Some(left) = left {
-                    (left.range().0, insteadof_list.last().unwrap().range().1)
+                    (left.as_ref(), insteadof_list.last().unwrap()).into()
                 } else {
-                    (member.range().0, insteadof_list.last().unwrap().range().1)
+                    (member.as_ref(), insteadof_list.last().unwrap()).into()
                 }
             }
             Node::UseTraitAs {
@@ -1536,41 +1652,40 @@ impl Node {
             } => {
                 if let Some(left) = left {
                     if let Some(as_name) = as_name {
-                        (left.range().0, as_name.end())
+                        (left.as_ref(), as_name).into()
                     } else if let Some(visibility) = visibility {
-                        (left.range().0, visibility.end())
+                        (left.as_ref(), visibility).into()
                     } else {
                         left.range()
                     }
                 } else if let Some(as_name) = as_name {
-                    (member.range().0, as_name.end())
+                    (member.as_ref(), as_name).into()
                 } else if let Some(visibility) = visibility {
-                    (member.range().0, visibility.end())
+                    (member.as_ref(), visibility).into()
                 } else {
                     member.range()
                 }
             }
             Node::ClassStatement(stmt) => {
                 if let Some(doc_comment) = stmt.doc_comment.as_ref() {
-                    (doc_comment.range().0, stmt.body.range().1)
+                    (doc_comment.as_ref(), stmt.body.as_ref()).into()
                 } else if let Some(is_abstract) = stmt.is_abstract.as_ref() {
-                    (is_abstract.start(), stmt.body.range().1)
+                    (is_abstract, stmt.body.as_ref()).into()
                 } else if let Some(is_final) = stmt.is_final.as_ref() {
-                    (is_final.start(), stmt.body.range().1)
+                    (is_final, stmt.body.as_ref()).into()
                 } else {
-                    (stmt.token.start(), stmt.body.range().1)
+                    (&stmt.token, stmt.body.as_ref()).into()
                 }
             }
-            Node::TraitStatement { token, body, .. } => (token.start(), body.range().1),
-            Node::Interface { token, body, .. } => (token.start(), body.range().1),
-            Node::ClassConstant { name, value, .. } => (name.start(), value.range().1),
-            Node::ClassConstantDefinitionStatement { consts, .. } => (
-                consts.first().unwrap().range().0,
-                consts.last().unwrap().range().1,
-            ),
+            Node::TraitStatement { token, body, .. } => (token, body.as_ref()).into(),
+            Node::Interface { token, body, .. } => (token, body.as_ref()).into(),
+            Node::ClassConstant { name, value, .. } => (name, value.as_ref()).into(),
+            Node::ClassConstantDefinitionStatement { consts, .. } => {
+                (consts.first().unwrap(), consts.last().unwrap()).into()
+            }
             Node::Property { name, value } => {
                 if let Some(value) = value {
-                    (name.range().0, value.range().1)
+                    (name, value.as_ref()).into()
                 } else {
                     name.range()
                 }
@@ -1581,12 +1696,9 @@ impl Node {
                 ..
             } => {
                 if let Some(data_type) = data_type {
-                    (data_type.range().0, properties.last().unwrap().range().1)
+                    (data_type.as_ref(), properties.last().unwrap()).into()
                 } else {
-                    (
-                        properties.first().unwrap().range().0,
-                        properties.last().unwrap().range().1,
-                    )
+                    (properties.first().unwrap(), properties.last().unwrap()).into()
                 }
             }
             Node::MethodDefinitionStatement {
@@ -1598,13 +1710,13 @@ impl Node {
                 ..
             } => {
                 if let Some(is_abstract) = is_abstract {
-                    (is_abstract.start(), function.range().1)
+                    (is_abstract, function.as_ref()).into()
                 } else if let Some(is_final) = is_final {
-                    (is_final.start(), function.range().1)
+                    (is_final, function.as_ref()).into()
                 } else if let Some(visibility) = visibility {
-                    (visibility.start(), function.range().1)
+                    (visibility, function.as_ref()).into()
                 } else {
-                    (token.start(), function.range().1)
+                    (token, function.as_ref()).into()
                 }
             }
             Node::FunctionDefinitionStatement {
@@ -1615,11 +1727,11 @@ impl Node {
                 ..
             } => {
                 if let Some(body) = body {
-                    (op.start(), body.range().1)
+                    (op, body.as_ref()).into()
                 } else if let Some(return_type) = return_type {
-                    (op.start(), return_type.range().1)
+                    (op, return_type.as_ref()).into()
                 } else {
-                    (op.start(), cp.end())
+                    (op, cp).into()
                 }
             }
             Node::NamedFunctionDefinitionStatement {
@@ -1629,52 +1741,46 @@ impl Node {
                 ..
             } => {
                 if let Some(by_ref) = by_ref {
-                    (by_ref.start(), function.range().1)
+                    (by_ref, function.as_ref()).into()
                 } else {
-                    (token.start(), function.range().1)
+                    (token, function.as_ref()).into()
                 }
             }
-            Node::WhileStatement { token, body, .. } => (token.start(), body.range().1),
-            Node::DoWhileStatement { do_token, cp, .. } => (do_token.start(), cp.end()),
-            Node::ForStatement { token, body, .. } => (token.start(), body.range().1),
-            Node::ForEachStatement { token, body, .. } => (token.start(), body.range().1),
-            Node::Block { oc, cc, .. } => (oc.start(), cc.range().1),
+            Node::WhileStatement { token, body, .. } => (token, body.as_ref()).into(),
+            Node::DoWhileStatement { do_token, cp, .. } => (do_token, cp).into(),
+            Node::ForStatement { token, body, .. } => (token, body.as_ref()).into(),
+            Node::ForEachStatement { token, body, .. } => (token, body.as_ref()).into(),
+            Node::Block { oc, cc, .. } => (oc, cc).into(),
             Node::AlternativeBlock {
                 colon, terminator, ..
-            } => (colon.start(), terminator.range().1),
-            Node::IfBranch { token, body, .. } => (token.start(), body.range().1),
-            Node::ElseBranch { token, body, .. } => (token.start(), body.range().1),
+            } => (colon, terminator).into(),
+            Node::IfBranch { token, body, .. } => (token, body.as_ref()).into(),
+            Node::ElseBranch { token, body, .. } => (token, body.as_ref()).into(),
             Node::IfStatement {
                 if_branch,
                 elseif_branches,
                 else_branch,
             } => {
                 if let Some(else_branch) = else_branch {
-                    (if_branch.range().0, else_branch.range().1)
+                    (if_branch.as_ref(), else_branch.as_ref()).into()
                 } else if !elseif_branches.is_empty() {
-                    (
-                        if_branch.range().0,
-                        elseif_branches.last().unwrap().range().1,
-                    )
+                    (if_branch.as_ref(), elseif_branches.last().unwrap()).into()
                 } else {
                     if_branch.range()
                 }
             }
-            Node::SwitchBranch { body, .. } => (
-                body.first().unwrap().range().0,
-                body.last().unwrap().range().1,
-            ),
-            Node::SwitchCase { token, body, .. } => (token.start(), body.range().1),
-            Node::SwitchBody { start, end, .. } => (start.start(), end.end()),
+            Node::SwitchBranch { body, .. } => (body.first().unwrap(), body.last().unwrap()).into(),
+            Node::SwitchCase { token, body, .. } => (token, body.as_ref()).into(),
+            Node::SwitchBody { start, end, .. } => (start, end).into(),
             Node::TokenStatement { token, expr } => {
                 if let Some(expr) = expr {
-                    (token.start(), expr.range().1)
+                    (token, expr.as_ref()).into()
                 } else {
-                    token.range()
+                    token.into()
                 }
             }
-            Node::CatchBlock { token, body, .. } => (token.start(), body.range().1),
-            Node::FinallyBlock { token, body, .. } => (token.start(), body.range().1),
+            Node::CatchBlock { token, body, .. } => (token, body.as_ref()).into(),
+            Node::FinallyBlock { token, body, .. } => (token, body.as_ref()).into(),
             Node::TryCatch {
                 token,
                 try_block,
@@ -1682,47 +1788,45 @@ impl Node {
                 finally_block,
             } => {
                 if let Some(finally_block) = finally_block {
-                    (token.start(), finally_block.range().1)
+                    (token, finally_block.as_ref()).into()
                 } else if !catch_blocks.is_empty() {
-                    (token.start(), catch_blocks.last().unwrap().range().1)
+                    (token, catch_blocks.last().unwrap()).into()
                 } else {
-                    (token.start(), try_block.range().1)
+                    (token, try_block.as_ref()).into()
                 }
             }
             Node::StaticVariablesStatement { token, assignments } => {
-                (token.start(), assignments.last().unwrap().range().1)
+                (token, assignments.last().unwrap()).into()
             }
-            Node::GlobalVariablesStatement { token, vars } => {
-                (token.start(), vars.last().unwrap().range().1)
-            }
+            Node::GlobalVariablesStatement { token, vars } => (token, vars.last().unwrap()).into(),
             Node::TypeRef(tokens) => tokens.range(),
             Node::Literal(token) | Node::Variable(token) => token.range(),
             Node::Missing(token) => token.range(),
-            Node::DefineStatement { token, cp, .. } => (token.range().0, cp.range().1),
+            Node::DefineStatement { token, cp, .. } => (token, cp).into(),
             Node::DocComment { comment, .. } => comment.range(),
             Node::DocCommentProperty { name, types, .. } => {
                 if let Some(types) = types {
-                    (name.range().0, types.last().unwrap().range().1)
+                    (name, types.last().unwrap()).into()
                 } else {
-                    name.range()
+                    name.into()
                 }
             }
             Node::Grouping(content) => content.range(),
-            Node::Match { mtch, oc, cc, .. } => (oc.range().0, cc.range().1),
+            Node::Match { mtch, oc, cc, .. } => (oc, cc).into(),
             Node::MatchArm {
                 patterns,
                 expression,
                 ..
             } => {
                 if let Some(patterns) = patterns {
-                    (patterns.first().unwrap().range().0, expression.range().1)
+                    (patterns.first().unwrap(), expression.as_ref()).into()
                 } else {
                     expression.range()
                 }
             }
             _ => {
                 eprintln!("Implement range for {:?}!", self);
-                ((1, 1), (1, 1))
+                ((1, 1), (1, 1)).into()
             }
         }
     }

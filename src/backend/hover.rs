@@ -1,8 +1,7 @@
+use super::{Backend, BackendState};
 use crate::environment::{fs as EnvFs, get_range, in_range};
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 use tower_lsp::jsonrpc::Result;
-
-use super::{Backend, BackendState};
 
 pub(crate) fn hover(state: &BackendState, params: HoverParams) -> Result<Option<Hover>> {
     let file = EnvFs::normalize_path(

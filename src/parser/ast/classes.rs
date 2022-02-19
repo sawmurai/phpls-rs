@@ -425,6 +425,7 @@ fn trait_usage_alteration_group(
 mod tests {
     use super::*;
     use crate::formatter::{format_file, FormatterOptions};
+    use crate::parser::node::NodeRange;
     use crate::parser::{
         scanner::Scanner,
         token::{Token, TokenType},
@@ -459,7 +460,7 @@ mod tests {
             tokens,
             context: Context::Out,
             eof: (16, 1),
-            end_of_prev_token: (0, 0),
+            end_of_prev_token: NodeRange::empty(),
         };
 
         trait_statement(&mut parser).unwrap();

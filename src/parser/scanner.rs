@@ -51,7 +51,7 @@ impl Scanner {
 
     /// Return the range of the entire document
     pub fn document_range(&self) -> NodeRange {
-        ((0, 0), (self.line as u32, self.col as u32))
+        ((0, 0), (self.col, self.line)).into()
     }
 
     /// Scans the source file into a token stream `tokens` and returns a result containing a
@@ -1490,7 +1490,7 @@ $object->{'\u{6771}\u{4eac}'} = 2020;
 
         scanner.scan().unwrap();
 
-        assert_eq!(((0, 0), (2, 1)), scanner.document_range());
+        assert_eq!(NodeRange::new(0, 0, 1, 2), scanner.document_range());
     }
 
     #[test]

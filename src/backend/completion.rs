@@ -112,7 +112,7 @@ pub(crate) fn completion(
                                 } else {
                                     // add use to the end of the imports
                                     if let Some(first_import) = imports.all().next() {
-                                        first_import.path.range().0 .0
+                                        first_import.path.range().start_line
                                     } else {
                                         3
                                     }
@@ -125,7 +125,7 @@ pub(crate) fn completion(
                             // if not, we add it as a text edit
                             return CompletionItem {
                                 additional_text_edits: Some(vec![TextEdit {
-                                    range: get_range(((line, 0), (line, 0))),
+                                    range: get_range(((0, line), (0, line)).into()),
                                     new_text: format!("use {};\n", fqdn),
                                 }]),
                                 ..symbol.completion_item(sn, &state.arena)
