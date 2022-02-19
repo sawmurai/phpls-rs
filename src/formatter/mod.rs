@@ -93,13 +93,13 @@ fn format(ast: &[Node], line: usize, col: usize, options: &FormatterOptions) -> 
         let range = node.range();
         // The gap between this nodes start and the prev nodes end. The prev_line_end init with 0
         // should already prevent a gap at the beginning of a block. Do we want this?
-        if prev_line_end != 0 && range.0 .0 > prev_line_end {
-            let gap = (range.0 .0 - prev_line_end - 1) as usize;
+        if prev_line_end != 0 && range.start_line > prev_line_end {
+            let gap = (range.start_line - prev_line_end - 1) as usize;
 
             parts.push("\n".repeat(min(gap, 1)));
         }
 
-        prev_line_end = range.1 .0;
+        prev_line_end = range.end_line;
 
         match node {
             Node::NamedFunctionDefinitionStatement {

@@ -4,10 +4,10 @@ use super::{
     in_range,
     visitor::name_resolver::NameResolver,
 };
-use crate::environment::fs::file_read_range;
 use crate::environment::scope::Reference;
 use crate::parser::node::Node as AstNode;
 use crate::parser::token::{Token, TokenType};
+use crate::{environment::fs::file_read_range, parser::node::NodeRange};
 use indextree::{Arena, NodeId};
 use lsp_types::SymbolTag;
 use std::{cmp::PartialOrd, collections::HashMap, fmt::Display};
@@ -215,8 +215,8 @@ impl Default for Symbol {
             namespace: None,
             name: String::new(),
             kind: PhpSymbolKind::File,
-            range: get_range(((0, 0), (0, 0))),
-            selection_range: get_range(((0, 0), (0, 0))),
+            range: get_range(NodeRange::empty()),
+            selection_range: get_range(NodeRange::empty()),
             deprecated: None,
             inherits_from: None,
             data_types: Vec::new(),

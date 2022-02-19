@@ -137,7 +137,7 @@ impl From<&ParserError> for Diagnostic {
                 ..Diagnostic::default()
             },
             ParserError::Eof => Diagnostic {
-                range: get_range(((0, 0), (0, 0))),
+                range: get_range(((0, 0), (0, 0)).into()),
                 message: "Unexpected end of file".to_owned(),
                 ..Diagnostic::default()
             },
@@ -152,12 +152,12 @@ impl From<&Token> for Symbol {
 
         let range = Range {
             start: Position {
-                line: start.0,
-                character: start.1,
+                character: start.0,
+                line: start.1,
             },
             end: Position {
-                line: end.0,
-                character: end.1,
+                character: end.0,
+                line: end.1,
             },
         };
 

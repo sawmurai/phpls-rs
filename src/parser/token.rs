@@ -2,6 +2,8 @@ use std::fmt::{Display, Formatter, Result};
 
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind};
 
+use super::node::NodeRange;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScriptStartType {
     Regular,
@@ -347,8 +349,8 @@ impl Token {
     pub fn missing(pos_of_prev: (u32, u32)) -> Self {
         Token {
             t: TokenType::Missing,
-            line: pos_of_prev.0,
-            col: pos_of_prev.1,
+            line: pos_of_prev.1,
+            col: pos_of_prev.0,
             label: None,
             offset: None,
         }
@@ -457,7 +459,7 @@ impl Token {
     }
 
     pub fn start(&self) -> (u32, u32) {
-        (self.line, self.col)
+        (self.col, self.line)
     }
 
     pub fn end(&self) -> (u32, u32) {
@@ -467,20 +469,20 @@ impl Token {
             let lines = me.lines().collect::<Vec<&str>>();
 
             if lines.len() == 1 {
-                (self.line, self.col + me.len() as u32)
+                (self.col + me.len() as u32, self.line)
             } else {
                 (
-                    self.line + (lines.len() - 1) as u32,
                     lines.last().unwrap().len() as _,
+                    self.line + (lines.len() - 1) as u32,
                 )
             }
         } else {
-            (self.line, self.col + me.len() as u32)
+            (self.col + me.len() as u32, self.line)
         }
     }
 
-    pub fn range(&self) -> ((u32, u32), (u32, u32)) {
-        (self.start(), self.end())
+    pub fn range(&self) -> NodeRange {
+        (self.start(), self.end()).into()
     }
 
     pub fn is_on(&self, line: u32, col: u32) -> bool {
@@ -511,9 +513,9 @@ impl Token {
 
     pub fn gap_to(&self, next: &Token) -> (u32, u32) {
         if self.line == next.line {
-            (0, next.start().1 - self.end().1)
+            (next.start().1 - self.end().1, 0)
         } else {
-            (next.start().0 - self.end().0, next.start().1)
+            (next.start().1, next.start().0 - self.end().0)
         }
     }
 }

@@ -1,4 +1,4 @@
-use self::token::ScriptStartType;
+use self::{node::NodeRange, token::ScriptStartType};
 use crate::parser::ast::*;
 use node::Node;
 use snafu::Snafu;
@@ -18,7 +18,7 @@ pub enum Error {
     #[snafu(display("Unexpected token {:?} on line {}, col {}", token.t, token.line, token.col))]
     UnexpectedTokenError { token: Token },
 
-    #[snafu(display("Illegal offset type on line {}, col {}", (expr.range().0).0, (expr.range().0).1))]
+    #[snafu(display("Illegal offset type on line {}, col {}", expr.range().start_line, expr.range().start_col))]
     IllegalOffsetType { expr: Box<Node> },
 
     #[snafu(display("Can not use expression in write context on line {}, col {}", token.line, token.col))]
@@ -66,7 +66,7 @@ pub struct Parser {
     eof: (u32, u32),
 
     // End of the previously read token
-    end_of_prev_token: (u32, u32),
+    end_of_prev_token: NodeRange,
 }
 
 impl Parser {
@@ -85,7 +85,7 @@ impl Parser {
             errors: Vec::new(),
             context: Context::Out,
             eof,
-            end_of_prev_token: (0, 0),
+            end_of_prev_token: NodeRange::empty(),
         }
     }
 
@@ -473,7 +473,7 @@ impl Parser {
     /// Pop and return the next token, pushing doc comments on the comment stack
     fn next(&mut self) -> Option<Token> {
         while let Some(next) = self.tokens.pop() {
-            self.end_of_prev_token = next.range().1;
+            self.end_of_prev_token = next.range();
 
             match next.t {
                 TokenType::MultilineComment => {
@@ -613,7 +613,7 @@ impl Parser {
             if token.t == t {
                 (self.next().unwrap(), false)
             } else {
-                (Token::missing(self.end_of_prev_token), true)
+                (Token::missing(self.end_of_prev_token.end()), true)
             }
         } else {
             (Token::missing(self.eof), true)
@@ -636,7 +636,7 @@ impl Parser {
             if token.is_identifier() {
                 (self.next().unwrap(), false)
             } else {
-                (Token::missing(self.end_of_prev_token), true)
+                (Token::missing(self.end_of_prev_token.end()), true)
             }
         } else {
             (Token::missing(self.eof), true)

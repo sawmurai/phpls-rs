@@ -263,8 +263,8 @@ fn suggest_members_of_symbol(
     }
 
     let pos = Position {
-        line: parent_range.0 .0 as u32,
-        character: parent_range.0 .1 as u32,
+        line: parent_range.start_line,
+        character: parent_range.start_col,
     };
 
     // Check if there is a reference to the $object in $object->callee by going
@@ -409,17 +409,16 @@ pub fn get_suggestions_at(
     global_symbols: &HashMap<String, NodeId>,
     references: &FileReferenceMap,
 ) -> Vec<Suggestion> {
-    let (node, mut ancestors) = if let Some((node, mut ancestors)) =
-        ast.iter().filter_map(|n| find(n, &pos, Vec::new())).next()
-    {
-        // Pop off the last item which is the node itself
-        ancestors.pop();
-        (node, ancestors)
-    } else if let Some('$') = trigger {
-        return suggest_variables_of_scope(symbol_under_cursor, arena);
-    } else {
-        return suggest_keywords(arena, symbol_under_cursor);
-    };
+    let (node, mut ancestors) =
+        if let Some((node, mut ancestors)) = ast.iter().find_map(|n| find(n, &pos, Vec::new())) {
+            // Pop off the last item which is the node itself
+            ancestors.pop();
+            (node, ancestors)
+        } else if let Some('$') = trigger {
+            return suggest_variables_of_scope(symbol_under_cursor, arena);
+        } else {
+            return suggest_keywords(arena, symbol_under_cursor);
+        };
 
     match node {
         AstNode::UseTrait { type_ref, .. } => {

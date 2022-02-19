@@ -34,17 +34,14 @@ pub(crate) fn symbol_location(arena: &Arena<Symbol>, symbol_node: &NodeId) -> Op
 
 /// Convert a node range into a Range understood by tower lsp
 pub fn get_range(coords: NodeRange) -> Range {
-    let start = coords.0;
-    let end = coords.1;
-
     Range {
         start: Position {
-            line: start.0,
-            character: start.1,
+            line: coords.start_line,
+            character: coords.start_col,
         },
         end: Position {
-            line: end.0,
-            character: end.1,
+            line: coords.end_line,
+            character: coords.end_col,
         },
     }
 }
@@ -119,7 +116,7 @@ mod tests {
                 character: 200,
             },
         };
-        let range = get_range(((1, 100), (2, 200)));
+        let range = get_range(((100, 1), (200, 2)).into());
         assert_eq!(expected, range);
     }
 }
