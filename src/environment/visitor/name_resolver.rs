@@ -148,20 +148,33 @@ impl<'a> NameResolver<'a> {
     }
 
     /// Declare a local symbol, usually a variable or a function if it has not
-    /// been declared before
-    pub fn declare_local_if_new(&mut self, file: NodeId, token: &Token, t: NodeId) {
-        if let Some(top_scope) = self.local_scopes.last_mut() {
-            if let Some(name) = token.label.as_ref() {
-                if let Some(node) = top_scope.get(name) {
-                    self.document_references
-                        .entry(file)
-                        .or_insert_with(Vec::new)
-                        .push(Reference::new(token.range(), *node));
-                } else {
-                    top_scope.insert(name.clone(), t);
-                    self.reference_local(file, token, &t);
-                }
-            }
+    /// been declared before. If it was declared before, register a local reference
+    /// file: The file currently being processed
+    /// token: The token of the variable
+    /// v_node: The NodeId of the variable
+    /// Returns the node of the officially representing the variable, either the new one
+    /// provided or the previously existing one
+    pub fn declare_local_if_new(
+        &mut self,
+        file: NodeId,
+        token: &Token,
+        v_node: NodeId,
+    ) -> Option<NodeId> {
+        let top_scope = self.local_scopes.last_mut()?;
+        let name = token.label.as_ref()?;
+
+        if let Some(node) = top_scope.get(name) {
+            self.document_references
+                .entry(file)
+                .or_insert_with(Vec::new)
+                .push(Reference::new(token.range(), *node));
+
+            Some(*node)
+        } else {
+            top_scope.insert(name.clone(), v_node);
+            self.reference_local(file, token, &v_node);
+
+            Some(v_node)
         }
     }
 
@@ -639,21 +652,36 @@ impl<'a, 'b: 'a> Visitor for NameResolveVisitor<'a, 'b> {
             AstNode::Binary { left, right, token } => {
                 if token.t == TokenType::Assignment {
                     let data_type = self.resolve_member_type(right, arena);
-                    if let AstNode::Variable(token) = left.as_ref() {
-                        let child = if let Some(data_type) = data_type {
+
+                    if let AstNode::Variable(variable) = left.as_ref() {
+                        let v_node = if let Some(data_type) = data_type {
                             arena.new_node(Symbol {
                                 data_types: vec![SymbolReference::node(
-                                    vec![token.clone()].into(),
+                                    vec![variable.clone()].into(),
                                     data_type,
                                 )],
-                                ..Symbol::from(token)
+                                ..Symbol::from(variable)
                             })
                         } else {
-                            arena.new_node(Symbol::from(token))
+                            arena.new_node(Symbol::from(variable))
                         };
 
-                        self.resolver.scope_container.append(child, arena);
-                        self.resolver.declare_local_if_new(self.file, token, child);
+                        self.resolver.scope_container.append(v_node, arena);
+
+                        // Should never panic
+                        let repr = self
+                            .resolver
+                            .declare_local_if_new(self.file, variable, v_node)
+                            .unwrap();
+
+                        // If the variable existed before we encountered a case of shadowing and add the
+                        // newly detected data_type to the already existing variable.
+                        if repr != v_node && data_type.is_some() {
+                            arena[repr].get_mut().data_types.push(SymbolReference::node(
+                                vec![variable.clone()].into(),
+                                data_type.unwrap(),
+                            ))
+                        };
                     } else {
                         self.resolve_member_type(left, arena);
                     }
@@ -1962,6 +1990,34 @@ mod tests {
                 "y"
             ],
             references!(state, "loop.php")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resolves_shadowed_class_instance() {
+        let mut state = BackendState::default();
+
+        collect_and_reference!(
+            state,
+            vec![(
+                "f.php",
+                "<?php
+                class X {
+                    function y() {}
+                }
+                
+                $x = 0;
+                $x = new X();
+                $x->y();
+                ",
+            )]
+        );
+
+        //dbg!(&state.diagnostics);
+        assert!(state.diagnostics.is_empty(), "{:?}", state.diagnostics);
+        assert_reference_names!(
+            vec!["x", "x", "x", "X", "X", "y", "y"],
+            references!(state, "f.php")
         );
     }
 }
